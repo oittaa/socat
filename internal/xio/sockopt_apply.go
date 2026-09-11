@@ -69,7 +69,7 @@ func socketActionMatchesPass(action addrconfig.SocketAction, pass socketApplyPas
 func socketActionIsIP(action addrconfig.SocketAction) bool {
 	switch action.Kind {
 	case addrconfig.SocketActionAncillary, addrconfig.SocketActionMulticast,
-		addrconfig.SocketActionSourceMulticast, addrconfig.SocketActionFreebind,
+		addrconfig.SocketActionFreebind,
 		addrconfig.SocketActionMTUDiscovery, addrconfig.SocketActionRecvErr,
 		addrconfig.SocketActionRouterAlert, addrconfig.SocketActionGetOnly:
 		return true
@@ -110,19 +110,32 @@ func applyPreparedSocketAction(fd int, action addrconfig.SocketAction, family *i
 	case addrconfig.SocketActionTransparent:
 		return applyTransparentValue(fd, action.Number)
 	case addrconfig.SocketActionMTUDiscovery:
-		return applyPreparedMTUDiscovery(fd, action)
+		family := membershipFamilyIPv4
+		if action.Text == "ipv6-mtu-discover" {
+			family = membershipFamilyIPv6
+		}
+		return applyMTUDiscoveryValue(fd, family, action.Text, action.Number)
 	case addrconfig.SocketActionRecvErr:
-		return applyPreparedRecvErr(fd, action)
+		if action.Text == "ipv6-recverr" {
+			return fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", action.Text)
+		}
+		return applyRecvErrValue(fd, action.Number)
 	case addrconfig.SocketActionRouterAlert:
 		return applyRouterAlertValue(fd, action.Number, action.Text)
 	case addrconfig.SocketActionMulticast:
 		return applyPreparedMulticast(fd, action.Multicast)
-	case addrconfig.SocketActionSourceMulticast:
-		return applyPreparedSourceMulticast(fd, action.Source)
 	case addrconfig.SocketActionAncillary:
 		return applyPreparedAncillary(fd, action, family, familyResolved)
 	case addrconfig.SocketActionGetOnly:
-		return applyPreparedGetOnly(action)
+		spelling := action.Text
+		if spelling == "" {
+			spelling = "ip-mtu"
+		}
+		kernel := spelling
+		if def, ok := optionmeta.Lookup(spelling); ok && def.Kernel != "" {
+			kernel = def.Kernel
+		}
+		return fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)
 	default:
 		return nil
 	}
@@ -142,11 +155,11 @@ func applyPreparedGenericAction(fd int, action addrconfig.SocketAction) error {
 }
 
 func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
-	name := namedSocketOptionName(action.Named)
+	name := action.Text
 	if name == "" {
 		return nil
 	}
-	if action.Named == addrconfig.NamedSocketFIOSetown || action.Named == addrconfig.NamedSocketSIOCSPGRP {
+	if name == "fiosetown" || name == "siocspgrp" {
 		if err := applyOwnerIoctlPlatform(fd, name, action.Number); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -155,7 +168,7 @@ func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 	var level, opt int
 	var ok bool
 	var err error
-	if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+	if name == "tcp-maxseg-late" {
 		level, opt, ok, err = lookupNamedConnectedInt(name)
 	} else {
 		level, opt, ok, err = lookupNamedPastSocketInt(name)
@@ -170,31 +183,4 @@ func applyPreparedNamedAction(fd int, action addrconfig.SocketAction) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
-}
-
-func applyPreparedMTUDiscovery(fd int, action addrconfig.SocketAction) error {
-	family := membershipFamilyIPv4
-	if action.Text == "ipv6-mtu-discover" {
-		family = membershipFamilyIPv6
-	}
-	return applyMTUDiscoveryValue(fd, family, action.Text, action.Number)
-}
-
-func applyPreparedRecvErr(fd int, action addrconfig.SocketAction) error {
-	if action.Text == "ipv6-recverr" {
-		return fmt.Errorf("%s: not supported (no MSG_ERRQUEUE ReadMsg path)", action.Text)
-	}
-	return applyRecvErrValue(fd, action.Number)
-}
-
-func applyPreparedGetOnly(action addrconfig.SocketAction) error {
-	spelling := action.Text
-	if spelling == "" {
-		spelling = "ip-mtu"
-	}
-	kernel := spelling
-	if def, ok := optionmeta.Lookup(spelling); ok && def.Kernel != "" {
-		kernel = def.Kernel
-	}
-	return fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)
 }

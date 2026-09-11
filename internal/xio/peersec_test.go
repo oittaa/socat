@@ -40,7 +40,7 @@ func TestIPInRangeHostnameMask(t *testing.T) {
 }
 
 func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
-	filter, err := NewPeerFilter(context.Background(), addrconfig.PeerPolicy{}, nil, nil)
+	filter, err := NewPeerFilter(context.Background(), addrconfig.Network{}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	filter, err := NewPeerFilter(context.Background(), config.Network.Peer, LookupResolver(config), nil)
+	filter, err := NewPeerFilter(context.Background(), config.Network, LookupResolver(config), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -68,8 +68,8 @@ func TestResolveChdirLockfileAndLink(t *testing.T) {
 		},
 	}
 	got := resolveChdirConfig(t, spec)
-	if got.File.Lock.Path != filepath.Join(dir, "rel.lock") {
-		t.Fatalf("lock=%q", got.File.Lock.Path)
+	if got.File.LockPath != filepath.Join(dir, "rel.lock") {
+		t.Fatalf("lock=%q", got.File.LockPath)
 	}
 	if got.Terminal.Link.Value != filepath.Join(dir, "slave.link") {
 		t.Fatalf("link=%q", got.Terminal.Link.Value)

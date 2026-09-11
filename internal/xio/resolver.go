@@ -157,15 +157,15 @@ func v4mappedEnabled(config addrconfig.Address) bool {
 	// Off unless ai-v4mapped is set truthily. The man page says IPv6
 	// addresses default it to 1; remaining off unless requested keeps
 	// drop-in runtime parity.
-	return config.Common.Resolver.V4Mapped.Value
+	return config.Common.V4Mapped.Value
 }
 
 func addrconfigEnabled(config addrconfig.Address, hint string) bool {
 	// AI_ADDRCONFIG defaults on when the resolver has no address-family
 	// hint. ai-addrconfig=0 clears it; a present truthy value sets it for
 	// any hint.
-	if config.Common.Resolver.AddrConfig.Set {
-		return config.Common.Resolver.AddrConfig.Value
+	if config.Common.AddrConfig.Set {
+		return config.Common.AddrConfig.Value
 	}
 	return hint == "ip"
 }
@@ -219,19 +219,18 @@ func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]n
 		}
 	}
 
-	config := s
-	resolver := LookupResolver(config)
+	resolver := LookupResolver(s)
 	var ips []net.IP
 	var err error
-	if hint == "ip6" && v4mappedEnabled(config) {
-		ips, err = lookupIPv6Mapped(ctx, config, resolver, host)
+	if hint == "ip6" && v4mappedEnabled(s) {
+		ips, err = lookupIPv6Mapped(ctx, s, resolver, host)
 	} else {
 		ips, err = resolver.LookupIP(ctx, hint, host)
 		if err == nil {
-			if hint == "ip6" && !v4mappedEnabled(config) {
+			if hint == "ip6" && !v4mappedEnabled(s) {
 				ips = ipv6Only(ips)
 			}
-			ips = applyAIAddrConfig(config, hint, ips)
+			ips = applyAIAddrConfig(s, hint, ips)
 		}
 	}
 	if err != nil {
@@ -240,7 +239,7 @@ func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]n
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("lookup %s: no addresses", host)
 	}
-	if hint == "ip" && config.Common.Resolver.Passive.Value && len(ips) > 1 {
+	if hint == "ip" && s.Common.Passive.Value && len(ips) > 1 {
 		preferIPv6First(ips)
 	}
 	return ips, nil
@@ -255,7 +254,7 @@ func lookupIPv6Mapped(ctx context.Context, config addrconfig.Address, resolver *
 		// resolver cannot duplicate mapped results when we append A records.
 		v6 = ipv6Only(v6)
 	}
-	wantAll := config.Common.Resolver.All.Value
+	wantAll := config.Common.AddrInfoAll.Value
 	if !wantAll && len(v6) > 0 {
 		return finishMappedLookup(config, host, v6)
 	}

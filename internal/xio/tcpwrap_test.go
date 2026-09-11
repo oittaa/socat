@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func decodePeerPolicy(t *testing.T, text string) addrconfig.PeerPolicy {
+func decodePeerPolicy(t *testing.T, text string) addrconfig.Network {
 	t.Helper()
 	spec, err := parse.ParseSpec(text)
 	if err != nil {
@@ -20,7 +20,7 @@ func decodePeerPolicy(t *testing.T, text string) addrconfig.PeerPolicy {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return config.Network.Peer
+	return config.Network
 }
 
 func TestTCPWrapExplicitMissingTableFailsClosed(t *testing.T) {

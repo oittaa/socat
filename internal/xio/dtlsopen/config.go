@@ -13,17 +13,16 @@ import (
 )
 
 func endpointConfig(ctx context.Context, s addrconfig.Address, host string, server bool) (*dtls13.Config, error) {
-	config := s
 	// Older DTLS versions are intentionally excluded; see README security differences.
-	if config.TLS.Unsupported.Canonical == "openssl-method" {
+	if s.TLS.UnsupportedCanonical == "openssl-method" {
 		return nil, fmt.Errorf("%s: method selection is not supported; only DTLS 1.3 is available", s.Type)
 	}
 	var tc *tls.Config
 	var err error
 	if server {
-		tc, err = tlsopen.TLSServerConfigSettings(s.Type, config.TLS)
+		tc, err = tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
 	} else {
-		tc, err = tlsopen.TLSClientConfigSettings(s.Type, config.TLS, host)
+		tc, err = tlsopen.TLSClientConfigSettings(s.Type, s.TLS, host)
 	}
 	if err != nil {
 		return nil, err
@@ -41,20 +40,20 @@ func endpointConfig(ctx context.Context, s addrconfig.Address, host string, serv
 		HandshakeReadTimeout:    receiveTimeout,
 		DisableHandshakeTimeout: xio.HandshakeTimeout(s) == 0,
 	}
-	if config.TLS.ALPN.Set {
-		protocol := config.TLS.ALPN.Value
+	if s.TLS.ALPN.Set {
+		protocol := s.TLS.ALPN.Value
 		if len(protocol) == 0 || len(protocol) > 255 {
 			return nil, fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
 		}
 		c.NextProtos = []string{protocol}
 	}
-	if config.DTLS.MTU.Set {
-		c.MTU = config.DTLS.MTU.Value
+	if s.TLS.DTLSMTU.Set {
+		c.MTU = s.TLS.DTLSMTU.Value
 	}
-	c.DisableMigration = config.DTLS.Migration.Set && !config.DTLS.Migration.Value
+	c.DisableMigration = s.TLS.DTLSMigration.Set && !s.TLS.DTLSMigration.Value
 	c.UnfragmentedProbes = !c.DisableMigration
-	if config.DTLS.UnfragmentedProbes.Set {
-		c.UnfragmentedProbes = config.DTLS.UnfragmentedProbes.Value
+	if s.TLS.DTLSUnfragmentedProbes.Set {
+		c.UnfragmentedProbes = s.TLS.DTLSUnfragmentedProbes.Value
 	}
 	return c, nil
 }

@@ -31,15 +31,15 @@ func warnNetNSExperimental(g *Global) {
 // DNS reads.
 func LookupResolver(config addrconfig.Address) *net.Resolver {
 	r := lookupResolverBase(config)
-	if config.Common.Resolver.UseVC.Set {
-		r = resolverRewriteDNSTransport(r, config.Common.Resolver.UseVC.Value)
+	if config.Common.UseVC.Set {
+		r = resolverRewriteDNSTransport(r, config.Common.UseVC.Value)
 	}
 	return wrapDNSDialCloseWhenDone(r)
 }
 
 func lookupResolverBase(config addrconfig.Address) *net.Resolver {
-	if config.Common.Resolver.NameServer.Set {
-		nsAddr, err := addrconfig.ParseResNSAddr(config.Common.Resolver.NameServer.Value)
+	if config.Common.NameServer.Set {
+		nsAddr, err := addrconfig.ParseResNSAddr(config.Common.NameServer.Value)
 		if err != nil {
 			return &net.Resolver{
 				PreferGo: true,

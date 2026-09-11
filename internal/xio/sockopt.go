@@ -24,8 +24,7 @@ func ApplySocketOptions(fd int, s addrconfig.Address) error {
 // ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
 // (same SO_SNDBUF / SO_RCVBUF constants).
 func ApplyLateSocketOptions(fd int, s addrconfig.Address) error {
-	config := s
-	return applyPreparedLateSocketOptions(fd, config)
+	return applyPreparedLateSocketOptions(fd, s)
 }
 
 func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
@@ -51,8 +50,7 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error
 	if conn == nil {
 		return nil
 	}
-	config := s
-	if !hasLateSocketBuffers(config) {
+	if !hasLateSocketBuffers(s) {
 		return nil
 	}
 	raw, err := conn.SyscallConn()
@@ -61,7 +59,7 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error
 	}
 	var optErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optErr = applyPreparedLateSocketOptions(int(fd), config)
+		optErr = applyPreparedLateSocketOptions(int(fd), s)
 	})
 	err = errors.Join(ctrlErr, optErr)
 	if err == nil || isNotSocketError(err) {
@@ -77,8 +75,7 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address)
 	if pc == nil {
 		return nil
 	}
-	config := s
-	if !hasLateSocketBuffers(config) {
+	if !hasLateSocketBuffers(s) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)
@@ -91,7 +88,7 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address)
 	}
 	var optErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optErr = applyPreparedLateSocketOptions(int(fd), config)
+		optErr = applyPreparedLateSocketOptions(int(fd), s)
 	})
 	err = errors.Join(ctrlErr, optErr)
 	if err == nil || isNotSocketError(err) {
@@ -179,14 +176,13 @@ func recordSockoptBytes(fd, level, opt int, value []byte) {
 
 // ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.
 func ApplyStreamLateSocketOptions(s addrconfig.Address, stream relay.Stream) error {
-	config := s
-	if !hasLateSocketBuffers(config) {
+	if !hasLateSocketBuffers(s) {
 		return nil
 	}
 	for _, raw := range streamSyscallConns(stream) {
 		var optErr error
 		ctrlErr := raw.Control(func(fd uintptr) {
-			optErr = applyPreparedLateSocketOptions(int(fd), config)
+			optErr = applyPreparedLateSocketOptions(int(fd), s)
 		})
 		err := errors.Join(ctrlErr, optErr)
 		if err == nil || isNotSocketError(err) {

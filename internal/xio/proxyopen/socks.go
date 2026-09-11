@@ -26,15 +26,14 @@ func openSOCKS4AConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode
 }
 
 func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, socks4a bool) (*xio.Opened, error) {
-	config := s
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)
+	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, s.Proxy)
 	if err != nil {
 		return nil, err
 	}
-	user := socksUser(config.Proxy)
+	user := socksUser(s.Proxy)
 
 	portNum, err := xio.ResolvePortNum("tcp", targetPort)
 	if err != nil {
@@ -169,20 +168,19 @@ func openSOCKS5Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 }
 
 func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, cmd byte) (*xio.Opened, error) {
-	config := s
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(config.Type, config.TLS); err != nil {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
-	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, config.Proxy)
+	socksHost, socksPort, targetHost, targetPort, err := socksParams(s, s.Proxy)
 	if err != nil {
 		return nil, err
 	}
-	auth := socks5Credentials(config.Proxy)
+	auth := socks5Credentials(s.Proxy)
 	if auth.OfferUserPass && g != nil && g.Log != nil {
-		if !config.Proxy.SOCKSUser.Set {
+		if !s.Proxy.SOCKSUser.Set {
 			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
 		}
-		if !config.Proxy.SOCKSPassword.Set {
+		if !s.Proxy.SOCKSPassword.Set {
 			g.Log.Warningf("SOCKS5 username without password")
 		}
 	}

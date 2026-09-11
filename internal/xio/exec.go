@@ -39,10 +39,9 @@ func openSYSTEM(ctx context.Context, s addrconfig.Address, mode Mode, g *Global)
 }
 
 func openSHELL(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
-	config := s
 	cmdStr := strings.Join(s.Params, ":")
 	hasCommand := len(s.Params) > 0 && s.Params[0] != ""
-	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, config.Process, cmdStr, hasCommand))
+	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, s.Process, cmdStr, hasCommand))
 }
 
 func configuredShellCommand(ctx context.Context, config addrconfig.Process, cmdStr string, hasCommand bool) *exec.Cmd {
@@ -247,8 +246,8 @@ func unusedExecPastSocketName(action addrconfig.SocketAction) (string, bool) {
 		}
 	case addrconfig.SocketActionNamed:
 		if action.Phase == addrconfig.SocketPhasePastSocket {
-			if name := namedSocketOptionName(action.Named); name != "" {
-				return name, true
+			if action.Text != "" {
+				return action.Text, true
 			}
 		}
 	case addrconfig.SocketActionGeneric:
@@ -282,13 +281,12 @@ type execChild struct {
 }
 
 func newExecChild(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, cmd *exec.Cmd) (*execChild, error) {
-	config := s
-	fdin, fdout, err := processFDPairConfig(config.Process, mode)
+	fdin, fdout, err := processFDPairConfig(s.Process, mode)
 	if err != nil {
 		return nil, err
 	}
 	return &execChild{
-		config:     config,
+		config:     s,
 		mode:       mode,
 		g:          g,
 		cmd:        cmd,
@@ -440,7 +438,7 @@ func startCmd(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, c
 	}
 	// nofork: defer start until Run has the peer stream (runExecNoFork).
 	// Placeholder Opened; Stream is nil — Run must not transferPair this alone.
-	if c.config.Common.Fork.NoFork.Value {
+	if c.config.Common.NoFork.Value {
 		if err := rejectUnusedExecPastSocketOptions(c.config); err != nil {
 			return nil, err
 		}

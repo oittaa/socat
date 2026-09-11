@@ -14,13 +14,12 @@ import (
 
 // unix-tightsocklen is rejected on Windows; bindUnixPath also rejects tight=false.
 func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path string) (net.Listener, error) {
-	config := s
-	if err := xio.RejectUnsupportedUnixTightSocklen(config); err != nil {
+	if err := xio.RejectUnsupportedUnixTightSocklen(s); err != nil {
 		return nil, err
 	}
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	var ln net.Listener
-	err := xio.WithConfiguredUmask(config.File, func() error {
+	err := xio.WithConfiguredUmask(s.File, func() error {
 		var e error
 		ln, e = xio.ListenStream(ctx, lc, network, path, s)
 		return e

@@ -58,22 +58,22 @@ func openUDPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 	if err != nil {
 		return nil, err
 	}
-	config := s
-	if xio.ForkRequested(config) {
+	if xio.ForkRequested(s) {
 		return openUDPListenFork(ctx, s, g, pc, laddr, network)
 	}
 	return openUDPListenOnePeer(ctx, s, g, pc, network)
 }
 
 func bindUDPPort(ctx context.Context, s addrconfig.Address, network string) (*net.UDPConn, *net.UDPAddr, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, nil, fmt.Errorf("%s requires port", s.Type)
+	port, err := xio.ListenPortText(s)
+	if err != nil {
+		return nil, nil, err
 	}
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, nil, err
 	}
-	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), s.Params[0]))
+	laddr, err := xio.ResolveUDPAddr(ctx, s, network, net.JoinHostPort(xio.StripBrackets(host), port))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -99,7 +99,6 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config := s
 	base := &udpForkListener{
 		pc:      pc,
 		network: network,
@@ -108,7 +107,7 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		g:       g,
 		ctx:     ctx,
 		filter:  peerFilter,
-		nullEOF: config.Transfer.NullEOF.Value,
+		nullEOF: s.Transfer.NullEOF.Value,
 	}
 	if err := applyUDPForkTimeouts(base, s); err != nil {
 		logx.CloseQuiet(pc)

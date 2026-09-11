@@ -10,8 +10,7 @@ import (
 // SocketTypeOption reads socktype / so-type. When the option is absent it
 // returns def (typically syscall.SOCK_STREAM) and explicit=false.
 func SocketTypeOption(s addrconfig.Address, def int) (typ int, explicit bool, err error) {
-	config := s
-	return ConfiguredSocketType(config, s.Type, def)
+	return ConfiguredSocketType(s, s.Type, def)
 }
 
 // ConfiguredSocketType returns the prepared socktype, or def when unset.

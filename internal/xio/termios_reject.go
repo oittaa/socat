@@ -12,18 +12,14 @@ func RejectUnsupportedTermios(s addrconfig.Address) error {
 	if FeatureTERMIOS {
 		return nil
 	}
-	config := s
-	if len(config.Terminal.Actions) == 0 {
+	if len(s.Terminal.Actions) == 0 {
 		return nil
 	}
-	name := config.Terminal.Actions[0].Name
+	name := s.Terminal.Actions[0].Name
 	if name == "" {
 		name = "termios"
 	}
-	typ := config.Type
-	if typ == "" {
-		typ = s.Type
-	}
+	typ := s.Type
 	if typ == "" {
 		typ = "address"
 	}

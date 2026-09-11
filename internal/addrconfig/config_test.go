@@ -30,8 +30,8 @@ func TestDecodeCommonSettings(t *testing.T) {
 	if policy := got.Common.Retry.Policy(); policy.MaxAttempts != 3 || policy.Interval != 250*time.Millisecond {
 		t.Fatalf("retry policy=%+v", policy)
 	}
-	if !got.Common.Timeouts.Connect.Set || got.Common.Timeouts.Connect.Value != 0 {
-		t.Fatalf("connect timeout=%+v", got.Common.Timeouts.Connect)
+	if !got.Common.ConnectTimeout.Set || got.Common.ConnectTimeout.Value != 0 {
+		t.Fatalf("connect timeout=%+v", got.Common.ConnectTimeout)
 	}
 	if got.Transfer.ReadBytes.Value != ^uint64(0) || got.Transfer.Escape.Value != 0x1b {
 		t.Fatalf("transfer values=%+v", got.Transfer)
@@ -44,7 +44,7 @@ func TestDecodeCommonSettings(t *testing.T) {
 func TestDecodePreservesFlagGrammar(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,fork=no,forever=maybe,crorlf=,null-eof=false,end-close=0")
 
-	if got.Common.Fork.Enabled.Value {
+	if got.Common.Fork.Value {
 		t.Fatal("fork=no must disable fork")
 	}
 	if !got.Common.Retry.Forever.Value {
@@ -94,7 +94,7 @@ func TestDecodeFileAndTerminalActionsPreserveSourceOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := config.File.Open.Append; got {
+	if got := config.File.Append; got {
 		t.Fatal("append=0 must remain disabled")
 	}
 	if got := config.File.Actions; len(got) != 4 ||
@@ -128,8 +128,8 @@ func TestDecodeConstructedProcessInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.File.Open.Access != FileAccessWrite {
-		t.Fatalf("access=%v want write", config.File.Open.Access)
+	if config.File.Access != FileAccessWrite {
+		t.Fatalf("access=%v want write", config.File.Access)
 	}
 	if !config.Process.FDIn.Set || config.Process.FDIn.Value != 0 || config.Process.FDOut.Set {
 		t.Fatalf("fd maps=%+v/%+v", config.Process.FDIn, config.Process.FDOut)
@@ -213,7 +213,7 @@ func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
 		got[0].Kind != SocketActionBroadcast || got[0].Number != 0 ||
 		got[1].Kind != SocketActionGeneric || got[1].Phase != SocketPhasePastSocket ||
 		got[1].Number != 1 || got[1].Option != 2 || !got[1].Value.IsInt || got[1].Value.Int != 3 ||
-		got[2].Kind != SocketActionNamed || got[2].Named != NamedSocketPriority || got[2].Number != 5 {
+		got[2].Kind != SocketActionNamed || got[2].Text != "so-priority" || got[2].Number != 5 {
 		t.Fatalf("actions=%+v", got)
 	}
 }
@@ -256,46 +256,46 @@ func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) 
 		config.TLS.ALPN.Value != "chat" {
 		t.Fatalf("TLS=%+v", config.TLS)
 	}
-	if config.WebSocket.Path.Value != "/override" || config.WebSocket.Origin.Value != "https://example.test" ||
-		config.WebSocket.Protocol.Value != "Chat" {
-		t.Fatalf("websocket=%+v", config.WebSocket)
+	if config.TLS.WSPath.Value != "/override" || config.TLS.WSOrigin.Value != "https://example.test" ||
+		config.TLS.WSProtocol.Value != "Chat" {
+		t.Fatalf("websocket=%+v", config.TLS)
 	}
 }
 
 func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon")
-	if !got.Network.Peer.TCPWrap.Set || !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "MyDaemon" {
-		t.Fatalf("tcpwrap=MyDaemon: %+v", got.Network.Peer)
+	if !got.Network.TCPWrap.Set || !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "MyDaemon" {
+		t.Fatalf("tcpwrap=MyDaemon: %+v", got.Network)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,wrap=MyDaemon")
-	if got.Network.Peer.TCPWrapDaemon != "MyDaemon" {
-		t.Fatalf("wrap alias daemon=%q", got.Network.Peer.TCPWrapDaemon)
+	if got.Network.TCPWrapDaemon != "MyDaemon" {
+		t.Fatalf("wrap alias daemon=%q", got.Network.TCPWrapDaemon)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon,tcpwrap")
-	if !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "" {
-		t.Fatalf("bare tcpwrap must clear daemon: %+v", got.Network.Peer)
+	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "" {
+		t.Fatalf("bare tcpwrap must clear daemon: %+v", got.Network)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,tcpwrap=1")
-	if !got.Network.Peer.TCPWrap.Value || got.Network.Peer.TCPWrapDaemon != "" {
-		t.Fatalf("tcpwrap=1: %+v", got.Network.Peer)
+	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "" {
+		t.Fatalf("tcpwrap=1: %+v", got.Network)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,rcvtimeo=250ms,sndtimeo=1")
-	if !got.Common.Timeouts.Read.Set || got.Common.Timeouts.Read.Value != 250*time.Millisecond ||
-		!got.Common.Timeouts.Write.Set || got.Common.Timeouts.Write.Value != time.Second {
-		t.Fatalf("socket timeouts=%+v", got.Common.Timeouts)
+	if !got.Common.ReadTimeout.Set || got.Common.ReadTimeout.Value != 250*time.Millisecond ||
+		!got.Common.WriteTimeout.Set || got.Common.WriteTimeout.Value != time.Second {
+		t.Fatalf("socket timeouts=%+v", got.Common)
 	}
 }
 
 func TestDecodeResolverAndNetNS(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,res-nsaddr=127.0.0.1:53,res-usevc=0,ai-v4mapped,ai-passive=0,ai-addrconfig=1,ai-all,netns=foo")
-	if got.Common.Resolver.NameServer.Value != "127.0.0.1:53" || got.Common.Resolver.UseVC.Value ||
-		!got.Common.Resolver.V4Mapped.Value || got.Common.Resolver.Passive.Value ||
-		!got.Common.Resolver.AddrConfig.Value || !got.Common.Resolver.All.Value {
-		t.Fatalf("resolver=%+v", got.Common.Resolver)
+	if got.Common.NameServer.Value != "127.0.0.1:53" || got.Common.UseVC.Value ||
+		!got.Common.V4Mapped.Value || got.Common.Passive.Value ||
+		!got.Common.AddrConfig.Value || !got.Common.AddrInfoAll.Value {
+		t.Fatalf("resolver=%+v", got.Common)
 	}
 	if got.Common.NetNamespace.Value != "foo" {
 		t.Fatalf("netns=%+v", got.Common.NetNamespace)
@@ -322,20 +322,15 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 
 func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,bind=[::1],sourceport=080,pf=ip4,ipv6-v6only=0")
-	if !got.Common.ConnectBind.Set || got.Common.ConnectBind.Value != "[::1]" {
-		t.Fatalf("bind=%+v", got.Common.ConnectBind)
+	if !got.Network.BindSet || got.Network.Bind.Name != "[::1]" || got.Network.Bind.String() != "::1" {
+		t.Fatalf("bind=%+v", got.Network.Bind)
 	}
-	if !got.Network.BindSet || got.Network.Bind.String() != "::1" {
-		t.Fatalf("typed bind=%+v", got.Network.Bind)
+	if !got.Network.SourcePortSet || got.Network.SourcePort.Text() != "080" ||
+		!got.Network.SourcePort.Numeric || got.Network.SourcePort.Number != 80 {
+		t.Fatalf("typed sourceport=%+v", got.Network.SourcePort)
 	}
-	if !got.Common.SourcePort.Set || got.Common.SourcePort.Value != "080" {
-		t.Fatalf("sourceport=%+v", got.Common.SourcePort)
-	}
-	if !got.Network.Peer.SourcePortSet || !got.Network.Peer.SourcePort.Numeric || got.Network.Peer.SourcePort.Number != 80 {
-		t.Fatalf("typed sourceport=%+v", got.Network.Peer.SourcePort)
-	}
-	if !got.Common.ProtocolFamily.Set || got.Common.ProtocolFamily.Value != "ip4" {
-		t.Fatalf("pf=%+v", got.Common.ProtocolFamily)
+	if got.Network.ProtocolFamilyToken() != "ip4" {
+		t.Fatalf("pf=%q", got.Network.ProtocolFamilyToken())
 	}
 	if !got.Common.IPv6V6Only.Set || got.Common.IPv6V6Only.Value {
 		t.Fatalf("ipv6-v6only=%+v", got.Common.IPv6V6Only)
@@ -377,9 +372,9 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.DTLS.MinVersion.Value != 13 || config.DTLS.MTU.Value != 1200 ||
-		config.DTLS.Migration.Value || !config.DTLS.UnfragmentedProbes.Value {
-		t.Fatalf("DTLS=%+v", config.DTLS)
+	if config.TLS.DTLSMinVersion.Value != 13 || config.TLS.DTLSMTU.Value != 1200 ||
+		config.TLS.DTLSMigration.Value || !config.TLS.DTLSUnfragmentedProbes.Value {
+		t.Fatalf("DTLS=%+v", config.TLS)
 	}
 }
 
@@ -394,8 +389,8 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 	if got.Network.Backlog != (OptionalInt{Set: true, Value: 8}) {
 		t.Fatalf("backlog=%+v", got.Network.Backlog)
 	}
-	if !got.Network.KeepAlive.Enable.Value || got.Network.KeepAlive.Idle.Value != 7*time.Second ||
-		got.Network.KeepAlive.Interval.Value != 2*time.Second || got.Network.KeepAlive.Count.Value != 4 {
+	if !got.Network.KeepAlive.Value || got.Network.KeepIdle.Value != 7*time.Second ||
+		got.Network.KeepIntvl.Value != 2*time.Second || got.Network.KeepCnt.Value != 4 {
 		t.Fatalf("keepalive=%+v", got.Network.KeepAlive)
 	}
 	if !got.Network.NoDelay.Set || got.Network.NoDelay.Value {
@@ -420,12 +415,12 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 
 func TestDecodeLockfileAndWaitlock(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,lockfile=/tmp/a.lock")
-	if !got.File.Lock.Set || got.File.Lock.Wait || got.File.Lock.Path != "/tmp/a.lock" {
-		t.Fatalf("lockfile=%+v", got.File.Lock)
+	if !got.File.LockSet || got.File.LockWait || got.File.LockPath != "/tmp/a.lock" {
+		t.Fatalf("lockfile=%+v", got.File)
 	}
 	got = decodeSpec(t, "TCP:host:9,waitlock=/tmp/b.lock")
-	if !got.File.Lock.Set || !got.File.Lock.Wait || got.File.Lock.Path != "/tmp/b.lock" {
-		t.Fatalf("waitlock=%+v", got.File.Lock)
+	if !got.File.LockSet || !got.File.LockWait || got.File.LockPath != "/tmp/b.lock" {
+		t.Fatalf("waitlock=%+v", got.File)
 	}
 
 	spec, err := parse.ParseSpec("TCP:host:9,lockfile=/tmp/a.lock,waitlock=/tmp/b.lock")
@@ -453,9 +448,9 @@ func TestDecodeVSOCKBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Network.VSOCK.BindSet || !got.Network.VSOCK.BindHasPort ||
-		got.Network.VSOCK.Bind.CID != 3 || got.Network.VSOCK.Bind.Port != 9 {
-		t.Fatalf("vsock bind=%+v", got.Network.VSOCK)
+	if !got.Network.VSOCKBindSet || !got.Network.VSOCKBindHasPort ||
+		got.Network.VSOCKBind.CID != 3 || got.Network.VSOCKBind.Port != 9 {
+		t.Fatalf("vsock bind=%+v", got.Network)
 	}
 
 	listen, err := parse.ParseSpec("VSOCK-LISTEN:22,bind=5")
@@ -466,8 +461,8 @@ func TestDecodeVSOCKBind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Network.VSOCK.BindSet || got.Network.VSOCK.BindHasPort || got.Network.VSOCK.Bind.CID != 5 {
-		t.Fatalf("vsock listen bind=%+v", got.Network.VSOCK)
+	if !got.Network.VSOCKBindSet || got.Network.VSOCKBindHasPort || got.Network.VSOCKBind.CID != 5 {
+		t.Fatalf("vsock listen bind=%+v", got.Network)
 	}
 }
 
@@ -504,13 +499,13 @@ func TestDecodeTLSPlaintextLastWins(t *testing.T) {
 
 func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
 	got := decodeSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1:10.0.0.1")
-	var req SourceMulticastRequest
+	var req MulticastRequest
 	for _, action := range got.Network.Actions {
-		if action.Kind == SocketActionSourceMulticast {
-			req = action.Source
+		if action.Kind == SocketActionMulticast && action.Multicast.Kind == MulticastSourceIPv4 {
+			req = action.Multicast
 		}
 	}
-	if req.Group.String() != "232.1.1.1" || req.Interface.String() != "127.0.0.1" || req.Source.String() != "10.0.0.1" {
+	if req.Group.String() != "232.1.1.1" || req.InterfaceAddr.String() != "127.0.0.1" || req.Source.String() != "10.0.0.1" {
 		t.Fatalf("decoded=%+v want group=232.1.1.1 iface=127.0.0.1 source=10.0.0.1", req)
 	}
 	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")

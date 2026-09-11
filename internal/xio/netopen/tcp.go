@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-	"strings"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -13,12 +12,7 @@ import (
 )
 
 func openTCPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host := ""
-	if len(s.Params) >= 1 {
-		host = s.Params[0]
-	}
-	// Generic TCP: dual-stack resolve; -4/-6 only reorder preference.
-	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, host, "tcp"))
+	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
 }
 
 func openTCP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -83,18 +77,13 @@ func openTCP4Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 func openTCP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Go's "tcp6" forces IPV6_V6ONLY=1 after our Control hook. For
 	// ipv6-v6only=0 use dual-stack "tcp" on :: so IPv4 clients work.
-	config := s
-	return openTCPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, "tcp6"))
+	return openTCPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(s, "tcp6"))
 }
 
 func openTCPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
-	}
-	port := s.Params[0]
-	// Reject non-numeric/service empties used by test.sh probes (TYPE:::::)
-	if port == "" || strings.Trim(port, ":") == "" {
-		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
+	port, err := xio.ListenPortText(s)
+	if err != nil {
+		return nil, err
 	}
 	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {

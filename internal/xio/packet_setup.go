@@ -47,8 +47,7 @@ func ListenClientPacket(ctx context.Context, network, bindHost, sourceport strin
 	bind := func(port string) (net.PacketConn, error) {
 		return ListenPacketWithOptions(ctx, network, net.JoinHostPort(StripBrackets(bindHost), port), s)
 	}
-	config := s
-	if !config.Network.Peer.LowPort.Value || (sourceport != "" && sourceport != "0") {
+	if !s.Network.LowPort.Value || (sourceport != "" && sourceport != "0") {
 		if sourceport == "" {
 			sourceport = "0"
 		}

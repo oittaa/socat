@@ -45,20 +45,17 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 	resolveOptionalPath(&config.TLS.CAPath, abs)
 	resolveOptionalPath(&config.Proxy.AuthorizationFile, abs)
 	resolveOptionalPath(&config.Network.UnixBindTempname, abs)
-	resolveOptionalPath(&config.Network.Peer.HostsAllow, abs)
-	resolveOptionalPath(&config.Network.Peer.HostsDeny, abs)
-	resolveOptionalPath(&config.Network.Peer.TCPWrapEtc, abs)
-	if config.Network.TUN.Device != "" {
-		config.Network.TUN.Device = resolveRelativePath(abs, config.Network.TUN.Device)
+	resolveOptionalPath(&config.Network.HostsAllow, abs)
+	resolveOptionalPath(&config.Network.HostsDeny, abs)
+	resolveOptionalPath(&config.Network.TCPWrapEtc, abs)
+	if config.Network.TUNDevice != "" {
+		config.Network.TUNDevice = resolveRelativePath(abs, config.Network.TUNDevice)
 	}
-	if config.File.Lock.Set {
-		config.File.Lock.Path = resolveRelativePath(abs, config.File.Lock.Path)
+	if config.File.LockSet {
+		config.File.LockPath = resolveRelativePath(abs, config.File.LockPath)
 	}
-	if unixAddressType(config.Type) {
-		resolveOptionalPath(&config.Common.ConnectBind, abs)
-		if config.Network.BindSet {
-			config.Network.Bind = resolveHostPath(abs, config.Network.Bind)
-		}
+	if unixAddressType(config.Type) && config.Network.BindSet {
+		config.Network.Bind = resolveHostPath(abs, config.Network.Bind)
 	}
 	return config, nil
 }

@@ -45,7 +45,7 @@ type PeerFilter struct {
 
 // PreparedPeerFilter compiles the prepared peer policy for an opening.
 func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Global) (*PeerFilter, error) {
-	return NewPeerFilter(ctx, config.Network.Peer, LookupResolver(config), g)
+	return NewPeerFilter(ctx, config.Network, LookupResolver(config), g)
 }
 
 // NewPeerFilter compiles peer policy and resolves range= once. Callers must
@@ -54,7 +54,7 @@ func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Globa
 // peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
 // uses it per peer. Long-lived listeners pass the session context so
 // shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, policy addrconfig.PeerPolicy, resolver *net.Resolver, g *Global) (*PeerFilter, error) {
+func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, g *Global) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

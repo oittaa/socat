@@ -50,17 +50,16 @@ func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 // setsockopt calls, not last-wins. An earlier kernel-invalid value still
 // fails even if a later value is valid.
 func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error {
-	config := s
 	got, err := resolveApplyIPFamily(fd, family)
 	if err != nil {
 		return err
 	}
 	resolved := got
-	for _, action := range config.Network.Actions {
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, kind, ok := ancillaryOptionIdentity(action.Ancillary)
+		name, kind, ok := ancillaryOptionIdentity(action)
 		if !ok || kind&IPAncillarySend == 0 {
 			continue
 		}
@@ -76,7 +75,7 @@ func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error
 }
 
 func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFamily, familyResolved *bool) error {
-	name, kind, ok := ancillaryOptionIdentity(action.Ancillary)
+	name, kind, ok := ancillaryOptionIdentity(action)
 	if !ok {
 		return nil
 	}

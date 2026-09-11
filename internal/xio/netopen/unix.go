@@ -20,13 +20,12 @@ const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ01234
 
 // resolveUnixBind returns bind= or a unique unix-bind-tempname path.
 func resolveUnixBind(s addrconfig.Address) (string, error) {
-	config := s
-	return resolveUnixBindConfig(config)
+	return resolveUnixBindConfig(s)
 }
 
 func resolveUnixBindConfig(config addrconfig.Address) (string, error) {
 	hasTemp := config.Network.UnixBindTempname.Set
-	hasBind := config.Network.BindSet || config.Common.ConnectBind.Set
+	hasBind := config.Network.BindSet
 	if hasTemp && hasBind {
 		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
 	}
@@ -130,12 +129,11 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		}
 		g.PeerAddr = path
 	}
-	config := s
 	// Filesystem (non-ABSTRACT) clients default unlink-close=1 after a
 	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
 	// the unlink.
-	life := trackUnixBind(bindPath, config)
-	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, config, nil); err != nil {
+	life := trackUnixBind(bindPath, s)
+	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, s, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}

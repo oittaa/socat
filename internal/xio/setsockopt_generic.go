@@ -23,21 +23,17 @@ const (
 	SockoptPhaseConnected
 )
 
-// ApplyPreparedGenericSetsockopt applies decoded generic socket actions in
-// their original order without reparsing a level, option, or payload.
-func ApplyPreparedGenericSetsockopt(fd int, config addrconfig.Address, phase SockoptPhase) error {
-	var want addrconfig.SocketPhase
+func sockoptWantPhase(phase SockoptPhase) (addrconfig.SocketPhase, bool) {
 	switch phase {
 	case SockoptPhasePrebind:
-		want = addrconfig.SocketPhasePrebind
+		return addrconfig.SocketPhasePrebind, true
 	case SockoptPhasePastSocket:
-		want = addrconfig.SocketPhasePastSocket
+		return addrconfig.SocketPhasePastSocket, true
 	case SockoptPhaseConnected:
-		want = addrconfig.SocketPhaseConnected
+		return addrconfig.SocketPhaseConnected, true
 	default:
-		return nil
+		return 0, false
 	}
-	return applyPreparedGenericPhase(fd, config, want)
 }
 
 func applyPreparedGenericPhase(fd int, config addrconfig.Address, phase addrconfig.SocketPhase) error {
@@ -52,29 +48,19 @@ func applyPreparedGenericPhase(fd int, config addrconfig.Address, phase addrconf
 	return nil
 }
 
-func preparedSocketPhaseMatches(action addrconfig.SocketPhase, phase SockoptPhase) bool {
-	switch phase {
-	case SockoptPhasePrebind:
-		return action == addrconfig.SocketPhasePrebind
-	case SockoptPhasePastSocket:
-		return action == addrconfig.SocketPhasePastSocket
-	case SockoptPhaseConnected:
-		return action == addrconfig.SocketPhaseConnected
-	default:
-		return false
-	}
-}
-
 // ApplyGenericSetsockopt applies generic setsockopt options that belong to
 // phase. Kernel rejection fails the call. Every matching occurrence is
 // applied in original command-line order (aliases are already folded to
 // the canonical Name).
 func ApplyGenericSetsockopt(fd int, s addrconfig.Address, phase SockoptPhase) error {
-	config := s
 	if phase == SockoptPhaseConnected {
-		return applyPreparedSocketPhase(fd, config, socketApplyConnected, "")
+		return applyPreparedSocketPhase(fd, s, socketApplyConnected, "")
 	}
-	return ApplyPreparedGenericSetsockopt(fd, config, phase)
+	want, ok := sockoptWantPhase(phase)
+	if !ok {
+		return nil
+	}
+	return applyPreparedGenericPhase(fd, s, want)
 }
 
 // ApplyGenericSetsockoptAll applies every named or generic setsockopt action
@@ -83,8 +69,7 @@ func ApplyGenericSetsockopt(fd int, s addrconfig.Address, phase SockoptPhase) er
 // options (broadcast, sndbuf, linger, …) share this walk so they are not
 // applied before named/generic occurrences.
 func ApplyGenericSetsockoptAll(fd int, s addrconfig.Address) error {
-	config := s
-	return applyPreparedSocketPhase(fd, config, socketApplySocketpair, "")
+	return applyPreparedSocketPhase(fd, s, socketApplySocketpair, "")
 }
 
 // RejectGenericSetsockoptPhases fails an address/phase combination before it
@@ -121,22 +106,26 @@ func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, b
 			return SockoptPhaseConnected, name, true
 		}
 	case addrconfig.SocketActionNamed:
-		if action.Named == addrconfig.NamedSocketTCPMaxSegLate {
-			return SockoptPhaseConnected, namedSocketOptionName(action.Named), true
+		if action.Text == "tcp-maxseg-late" {
+			return SockoptPhaseConnected, action.Text, true
 		}
 	}
 	return 0, "", false
 }
 
 func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) bool {
+	want, ok := sockoptWantPhase(phase)
+	if !ok {
+		return false
+	}
 	for _, action := range s.Network.Actions {
-		if !preparedSocketPhaseMatches(action.Phase, phase) {
+		if action.Phase != want {
 			continue
 		}
 		if action.Kind == addrconfig.SocketActionGeneric {
 			return true
 		}
-		if phase == SockoptPhaseConnected && action.Kind == addrconfig.SocketActionNamed && action.Named == addrconfig.NamedSocketTCPMaxSegLate {
+		if phase == SockoptPhaseConnected && action.Kind == addrconfig.SocketActionNamed && action.Text == "tcp-maxseg-late" {
 			return true
 		}
 	}

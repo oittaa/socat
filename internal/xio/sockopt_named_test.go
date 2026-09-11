@@ -16,7 +16,7 @@ func TestNamedSocketIntAllowsSignedValues(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := namedSocketNumber(config, addrconfig.NamedSocketTCPLinger2)
+	got := namedSocketNumber(config, "tcp-linger2")
 	if !got.ok || got.n != -1 {
 		t.Fatalf("tcp-linger2=-1 decoded as %+v", got)
 	}
@@ -31,7 +31,7 @@ func TestBareSCTPNodelayIsOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := namedSocketNumber(config, addrconfig.NamedSocketSCTPNoDelay)
+	got := namedSocketNumber(config, "sctp-nodelay")
 	if !got.ok || got.n != 1 {
 		t.Fatalf("bare sctp-nodelay decoded as %+v want 1", got)
 	}
@@ -42,9 +42,9 @@ type namedSocketNumberResult struct {
 	n  int
 }
 
-func namedSocketNumber(config addrconfig.Address, named addrconfig.NamedSocketOption) namedSocketNumberResult {
+func namedSocketNumber(config addrconfig.Address, name string) namedSocketNumberResult {
 	for _, action := range config.Network.Actions {
-		if action.Kind == addrconfig.SocketActionNamed && action.Named == named {
+		if action.Kind == addrconfig.SocketActionNamed && action.Text == name {
 			return namedSocketNumberResult{ok: true, n: action.Number}
 		}
 	}

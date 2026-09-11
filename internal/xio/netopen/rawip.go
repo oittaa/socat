@@ -77,7 +77,7 @@ func openIP6(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Gl
 }
 
 func NetworkIP(g *xio.Global, s addrconfig.Address, def string) string {
-	if s.Common.ProtocolFamily.Set {
+	if s.Network.ProtocolSet {
 		if n := xio.NetworkFromPF(xio.ProtocolFamilyText(s), "ip", ""); n != "" {
 			return n
 		}
@@ -95,11 +95,11 @@ func NetworkIP(g *xio.Global, s addrconfig.Address, def string) string {
 
 // NetworkIPFromHost prefers an explicit IPv6 host (e.g. IP:[::1]:proto).
 func NetworkIPFromHost(g *xio.Global, s addrconfig.Address, def string) string {
-	if s.Common.ProtocolFamily.Set {
+	if s.Network.ProtocolSet {
 		return NetworkIP(g, s, def)
 	}
-	if len(s.Params) >= 1 {
-		host := xio.StripBrackets(s.Params[0])
+	if s.Network.TargetSet {
+		host := xio.StripBrackets(s.Network.Target.String())
 		if ip := net.ParseIP(host); ip != nil {
 			if ip.To4() == nil {
 				return "ip6"
@@ -115,18 +115,15 @@ func ipNetwork(network string, proto int) string {
 	return fmt.Sprintf("%s:%d", network, proto)
 }
 
-func parseProtoParam(s addrconfig.Address, idx int) (int, error) {
-	if len(s.Params) <= idx || s.Params[idx] == "" {
+func parseProtoParam(s addrconfig.Address) (int, error) {
+	if !s.Network.SocketProtocol.Set {
 		return 0, fmt.Errorf("%s: missing protocol number", s.Type)
 	}
-	n, err := strconv.ParseUint(s.Params[idx], 0, 8)
-	if err != nil {
-		return 0, fmt.Errorf("%s: bad protocol %q: %w", s.Type, s.Params[idx], err)
-	}
-	if n >= 256 {
+	n := s.Network.SocketProtocol.Value
+	if n < 0 || n > 255 {
 		return 0, fmt.Errorf("%s: protocol number exceeds 255 (%d)", s.Type, n)
 	}
-	return int(n), nil
+	return n, nil
 }
 
 // resolveRawIPTarget parses a literal IP or resolves a hostname for raw
@@ -143,8 +140,7 @@ func resolveRawIPTarget(ctx context.Context, s addrconfig.Address, network, host
 }
 
 func bindRawIPAddr(ctx context.Context, s addrconfig.Address, network string, fallback *net.IPAddr) (*net.IPAddr, error) {
-	config := s
-	bind := xio.BindHost(config)
+	bind := xio.BindHost(s)
 	if bind == "" {
 		return fallback, nil
 	}
@@ -174,11 +170,11 @@ func requireRawIPFamily(typ, network string, raddr *net.IPAddr, host string) err
 
 func openIPSendtoNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
 	// IP4-SENDTO:host:proto
-	if len(s.Params) < 2 {
+	if !s.Network.TargetSet {
 		return nil, fmt.Errorf("%s: requires host:protocol", s.Type)
 	}
-	host := xio.StripBrackets(s.Params[0])
-	proto, err := parseProtoParam(s, 1)
+	host := xio.StripBrackets(s.Network.Target.String())
+	proto, err := parseProtoParam(s)
 	if err != nil {
 		return nil, err
 	}
@@ -223,11 +219,11 @@ func openIPSendtoNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 
 // openIPDatagramNetwork: unconnected SOCK_RAW for IP*-DATAGRAM (broadcast/multicast).
 func openIPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 2 {
+	if !s.Network.TargetSet {
 		return nil, fmt.Errorf("%s: requires host:protocol", s.Type)
 	}
-	host := xio.StripBrackets(s.Params[0])
-	proto, err := parseProtoParam(s, 1)
+	host := xio.StripBrackets(s.Network.Target.String())
+	proto, err := parseProtoParam(s)
 	if err != nil {
 		return nil, err
 	}
@@ -288,7 +284,7 @@ func openIPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 
 func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
 	// IP4-RECV:proto  /  IP4-RECVFROM:proto
-	proto, err := parseProtoParam(s, 0)
+	proto, err := parseProtoParam(s)
 	if err != nil {
 		return nil, err
 	}
@@ -312,8 +308,7 @@ func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode,
 
 	wantCtrl := xio.NeedAncillary(s)
 	if recvfrom {
-		config := s
-		if xio.ForkRequested(config) {
+		if xio.ForkRequested(s) {
 			return openIPRecvfromFork(ctx, s, g, pc, network)
 		}
 		return openIPRecvfromOneShot(ctx, s, g, pc, network, wantCtrl)
@@ -362,7 +357,6 @@ func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config := s
 	ln := &rawIPForkListener{
 		pc:         pc,
 		config:     s,
@@ -370,7 +364,7 @@ func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global
 		ctx:        ctx,
 		filter:     peerFilter,
 		rcvTimeout: rcvTimeout,
-		nullEOF:    config.Transfer.NullEOF.Value,
+		nullEOF:    s.Transfer.NullEOF.Value,
 		v4:         network == "ip4",
 	}
 	xio.NoteListenBound(pc.LocalAddr())
@@ -394,12 +388,11 @@ func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Glo
 		return nil, err
 	}
 	recvErr := xio.NeedRecvErr(s)
-	config := s
 	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, rawIPRecvPolicy{
 		Ancillary: wantCtrl,
 		RecvErr:   recvErr,
 		StripIPv4: stripV4,
-		NullEOF:   config.Transfer.NullEOF.Value,
+		NullEOF:   s.Transfer.NullEOF.Value,
 	}, peerFilter, g)
 	if err != nil {
 		logx.CloseQuiet(pc)

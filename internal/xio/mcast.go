@@ -224,38 +224,41 @@ func applyPreparedMulticast(fd int, req addrconfig.MulticastRequest) error {
 			name = "ipv6-multicast-loop"
 		}
 		return applyMulticastNamedFD(fd, name, req)
+	case addrconfig.MulticastSourceIPv4, addrconfig.MulticastSourceIPv6:
+		return applyPreparedSourceMulticast(fd, req)
 	default:
 		return fmt.Errorf("%s: internal error", name)
 	}
 }
 
-func applyPreparedSourceMulticast(fd int, req addrconfig.SourceMulticastRequest) error {
+func applyPreparedSourceMulticast(fd int, req addrconfig.MulticastRequest) error {
+	ipv6 := req.Kind == addrconfig.MulticastSourceIPv6
 	name := req.Name
-	if req.IPv6 {
+	if ipv6 {
 		if name == "" {
 			name = "ipv6-join-source-group"
 		}
 	} else if name == "" {
 		name = "ip-add-source-membership"
 	}
-	group, err := resolveMcastHost(req.Group, req.IPv6)
+	group, err := resolveMcastHost(req.Group, ipv6)
 	if err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}
-	source, err := resolveMcastHost(req.Source, req.IPv6)
+	source, err := resolveMcastHost(req.Source, ipv6)
 	if err != nil {
 		return fmt.Errorf("%s: bad source %q", name, req.Source.String())
 	}
-	if !req.IPv6 {
+	if !ipv6 {
 		if group.To4() == nil {
 			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 group, got %s", name, group)
 		}
 		if source.To4() == nil {
 			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 source, got %s", name, source)
 		}
-		iface, err := resolveMcastIPv4Address(req.Interface.String())
+		iface, err := resolveMcastIPv4Address(req.InterfaceAddr.String())
 		if err != nil {
-			return fmt.Errorf("%s: bad interface address %q", name, req.Interface.String())
+			return fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.String())
 		}
 		return setIPv4SourceMembershipFD(fd, group.To4(), iface, source.To4())
 	}
@@ -272,7 +275,7 @@ func applyPreparedSourceMulticast(fd int, req addrconfig.SourceMulticastRequest)
 	if source.To4() != nil {
 		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 source, got %s", name, source)
 	}
-	idx, idxSet, err := resolveMcastInterfaceToken(req.Interface.String(), name)
+	idx, idxSet, err := resolveMcastInterfaceToken(req.InterfaceAddr.String(), name)
 	if err != nil {
 		return err
 	}

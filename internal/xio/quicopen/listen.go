@@ -22,15 +22,14 @@ func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	config := s
-	network = xio.DualStackListenNetwork(config, network)
+	network = xio.DualStackListenNetwork(s, network)
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}
 	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 
-	tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, config.TLS)
+	tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
 	if err != nil {
 		return nil, err
 	}
@@ -69,8 +68,7 @@ func quicHandshakeIdleTimeout(ctx context.Context, s addrconfig.Address) time.Du
 }
 
 func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (quicSetup, error) {
-	config := s
-	quicTLS, err := withALPN(tlsCfg, alpnProto(config.TLS))
+	quicTLS, err := withALPN(tlsCfg, alpnProto(s.TLS))
 	if err != nil {
 		return quicSetup{}, err
 	}

@@ -24,7 +24,7 @@ type tcpwrapConfig struct {
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
 // Any of these enables the filter.
-func parseTCPWrap(policy addrconfig.PeerPolicy, g *Global) tcpwrapConfig {
+func parseTCPWrap(policy addrconfig.Network, g *Global) tcpwrapConfig {
 	cfg := tcpwrapConfig{}
 	if policy.HostsAllow.Set {
 		cfg.enabled = true

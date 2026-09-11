@@ -29,17 +29,16 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	if err != nil {
 		return nil, err
 	}
-	config := s
-	if err := rejectProxyPlaintextPolicy(config); err != nil {
+	if err := rejectProxyPlaintextPolicy(s); err != nil {
 		return nil, err
 	}
-	proxyPort := proxyPortText(config.Proxy)
-	major, ver := proxyHTTPVersion(config.Proxy)
+	proxyPort := proxyPortText(s.Proxy)
+	major, ver := proxyHTTPVersion(s.Proxy)
 
 	// proxy-resolve / resolve (default true): put IPv4 in the CONNECT target.
 	// Many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
 	connectHost := xio.StripBrackets(targetHost)
-	doResolve := proxyResolveTarget(config.Proxy)
+	doResolve := proxyResolveTarget(s.Proxy)
 	if doResolve {
 		if ip := net.ParseIP(connectHost); ip == nil {
 			ips, resolveErr := xio.LookupIP(ctx, s, "ip4", connectHost)
@@ -64,11 +63,11 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		label:       "PROXY:" + targetHost + ":" + targetPort,
 	}
 	switch major {
-	case httpVer2:
+	case addrconfig.HTTPVersion2:
 		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH2CONNECT(dctx, s, g, t)
 		})
-	case httpVer3:
+	case addrconfig.HTTPVersion3:
 		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH3CONNECT(dctx, s, g, t)
 		})
@@ -89,7 +88,7 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 			var negotiated net.Conn
 			e = xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
 				var handshakeErr error
-				negotiated, handshakeErr = proxyHTTP1Handshake(c, config.Proxy, connectHost, targetPort, ver)
+				negotiated, handshakeErr = proxyHTTP1Handshake(c, s.Proxy, connectHost, targetPort, ver)
 				return handshakeErr
 			})
 			if e != nil {

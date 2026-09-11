@@ -18,8 +18,7 @@ const DefaultListenBacklog = 5
 
 // ListenBacklog returns the requested Linux/macOS stream backlog.
 func ListenBacklog(s addrconfig.Address) (int, error) {
-	config := s
-	return configuredListenBacklog(config), nil
+	return configuredListenBacklog(s), nil
 }
 
 func configuredListenBacklog(config addrconfig.Address) int {

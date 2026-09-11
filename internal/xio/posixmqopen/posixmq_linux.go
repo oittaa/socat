@@ -32,15 +32,14 @@ func init() {
 }
 
 func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
-	p, err := parsePOSIXMQ(ctx, s, mode, config)
+	p, err := parsePOSIXMQ(ctx, s, mode)
 	if err != nil {
 		return nil, err
 	}
-	if err := posixMQUnlinkAndFlush(p.name, config, g); err != nil {
+	if err := posixMQUnlinkAndFlush(p.name, s, g); err != nil {
 		return nil, err
 	}
-	q, err := posixMQOpenQueue(ctx, g, p, config)
+	q, err := posixMQOpenQueue(ctx, g, p, s)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +71,7 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, config addrconfig.Address) (posixMQParams, error) {
+func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
@@ -87,20 +86,20 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, conf
 		return posixMQParams{}, err
 	}
 
-	mq := config.Network.POSIXMQ
+	n := s.Network
 	prio := uint32(0)
-	if mq.Priority.Set {
-		prio = mq.Priority.Value
+	if n.MQPriority.Set {
+		prio = n.MQPriority.Value
 	}
 
 	oflag := 0
-	if !config.File.Open.Create.Set || config.File.Open.Create.Value {
+	if !s.File.Create.Set || s.File.Create.Value {
 		oflag |= unix.O_CREAT
 	}
-	if config.File.Open.Exclusive {
+	if s.File.Exclusive {
 		oflag |= unix.O_EXCL
 	}
-	if config.File.Open.Nonblock {
+	if s.File.Nonblock {
 		oflag |= unix.O_NONBLOCK
 	}
 	switch kind {
@@ -119,16 +118,16 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, conf
 		}
 	}
 
-	modePerm := xio.FileModeToUnix(xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode))
+	modePerm := xio.FileModeToUnix(xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode))
 
 	var attr *mqAttr
-	if mq.MaxMessages.Set || mq.MessageSize.Set {
+	if n.MQMaxMessages.Set || n.MQMessageSize.Set {
 		a := mqAttr{}
-		if mq.MaxMessages.Set {
-			a.Maxmsg = int(mq.MaxMessages.Value)
+		if n.MQMaxMessages.Set {
+			a.Maxmsg = int(n.MQMaxMessages.Value)
 		}
-		if mq.MessageSize.Set {
-			a.Msgsize = int(mq.MessageSize.Value)
+		if n.MQMessageSize.Set {
+			a.Msgsize = int(n.MQMessageSize.Value)
 		}
 		if a.Maxmsg == 0 {
 			if n, ok := readProcLong("/proc/sys/fs/mqueue/msg_default"); ok {
@@ -166,7 +165,7 @@ func posixMQUnlinkAndFlush(name string, config addrconfig.Address, g *xio.Global
 			}
 		}
 	}
-	if config.Network.POSIXMQ.Flush.Value {
+	if config.Network.MQFlush.Value {
 		return flushQueue(name)
 	}
 	return nil

@@ -265,16 +265,15 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 	if !ok {
 		return nil
 	}
-	config := s
-	family := preparedForcedIPFamily(config)
+	family := preparedForcedIPFamily(s)
 	if family == ipFamilyUnknown {
 		family = ipFamilyFromAddressType(s.Type)
 	}
-	for _, action := range config.Network.Actions {
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, _, ok := ancillaryOptionIdentity(action.Ancillary)
+		name, _, ok := ancillaryOptionIdentity(action)
 		if !ok {
 			continue
 		}
@@ -296,16 +295,11 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 }
 
 func ipSendRequested(s addrconfig.Address) bool {
-	config := s
-	return preparedIPSendRequested(config)
-}
-
-func preparedIPSendRequested(config addrconfig.Address) bool {
-	for _, action := range config.Network.Actions {
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if _, kind, ok := ancillaryOptionIdentity(action.Ancillary); ok && kind&IPAncillarySend != 0 {
+		if _, kind, ok := ancillaryOptionIdentity(action); ok && kind&IPAncillarySend != 0 {
 			return true
 		}
 	}
@@ -313,20 +307,15 @@ func preparedIPSendRequested(config addrconfig.Address) bool {
 }
 
 func ancillaryRecvRequested(s addrconfig.Address) bool {
-	config := s
-	return preparedAncillaryRecvRequested(config)
-}
-
-func preparedAncillaryRecvRequested(config addrconfig.Address) bool {
-	last := make(map[addrconfig.AncillaryOption]int)
-	for _, action := range config.Network.Actions {
+	last := make(map[string]int)
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if _, kind, ok := ancillaryOptionIdentity(action.Ancillary); !ok || kind&IPAncillaryRecv == 0 {
+		if _, kind, ok := ancillaryOptionIdentity(action); !ok || kind&IPAncillaryRecv == 0 {
 			continue
 		}
-		last[action.Ancillary] = action.Number
+		last[action.Text] = action.Number
 	}
 	for _, n := range last {
 		if n != 0 {
@@ -336,51 +325,10 @@ func preparedAncillaryRecvRequested(config addrconfig.Address) bool {
 	return false
 }
 
-func ancillaryOptionIdentity(opt addrconfig.AncillaryOption) (canonical string, kind IPAncillaryKind, ok bool) {
-	switch opt {
-	case addrconfig.AncillaryTimestamp:
-		return "so-timestamp", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4PacketInfo:
-		return "ip-pktinfo", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RecvTTL:
-		return "ip-recvttl", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RecvTOS:
-		return "ip-recvtos", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RecvOptions:
-		return "ip-recvopts", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RetOptions:
-		return "ip-retopts", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RecvDstAddr:
-		return "ip-recvdstaddr", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4RecvInterface:
-		return "ip-recvif", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6PacketInfo:
-		return "ipv6-recvpktinfo", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvHopLimit:
-		return "ipv6-recvhoplimit", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvTrafficClass:
-		return "ipv6-recvtclass", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvDstOptions:
-		return "ipv6-recvdstopts", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvHopOptions:
-		return "ipv6-recvhopopts", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvRoutingHeader:
-		return "ipv6-recvrthdr", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv6RecvPathMTU:
-		return "ipv6-recvpathmtu", IPAncillaryRecv, true
-	case addrconfig.AncillaryIPv4TTL:
-		return "ip-ttl", IPAncillarySend, true
-	case addrconfig.AncillaryIPv4TOS:
-		return "ip-tos", IPAncillarySend, true
-	case addrconfig.AncillaryIPv4Options:
-		return "ip-options", IPAncillarySend, true
-	case addrconfig.AncillaryIPv4HeaderIncluded:
-		return "ip-hdrincl", IPAncillarySend, true
-	case addrconfig.AncillaryIPv6UnicastHops:
-		return "ipv6-unicast-hops", IPAncillarySend, true
-	case addrconfig.AncillaryIPv6TrafficClass:
-		return "ipv6-tclass", IPAncillarySend, true
-	default:
+func ancillaryOptionIdentity(action addrconfig.SocketAction) (canonical string, kind IPAncillaryKind, ok bool) {
+	e, ok := lookupIPAncillary(action.Text)
+	if !ok {
 		return "", 0, false
 	}
+	return e.Canonical, e.Kind, true
 }

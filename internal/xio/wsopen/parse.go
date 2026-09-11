@@ -14,15 +14,9 @@ import (
 // Listen:  WS-LISTEN:<port>[/<path>]
 // path= option overrides a path in the address.
 func wsTarget(s addrconfig.Address, listen bool) (host, port, path string, err error) {
-	config := s
-	pathOption := ""
-	if config.WebSocket.Path.Set {
-		pathOption = config.WebSocket.Path.Value
+	if s.TLS.WSPath.Set {
+		path = s.TLS.WSPath.Value
 	}
-	return wsTargetWithPath(s, listen, pathOption)
-}
-
-func wsTargetWithPath(s addrconfig.Address, listen bool, path string) (host, port, out string, err error) {
 	if listen {
 		if len(s.Params) < 1 || s.Params[0] == "" {
 			return "", "", "", fmt.Errorf("%s requires port", s.Type)

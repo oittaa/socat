@@ -14,10 +14,8 @@ const defaultALPN = "socat"
 
 func quicTarget(s addrconfig.Address, listen bool) (host, port string, err error) {
 	if listen {
-		if len(s.Params) < 1 || s.Params[0] == "" {
-			return "", "", fmt.Errorf("%s requires port", s.Type)
-		}
-		return "", s.Params[0], nil
+		port, err := xio.ListenPortText(s)
+		return "", port, err
 	}
 	return xio.HostPortParams(s)
 }

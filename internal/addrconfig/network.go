@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"net"
 	"net/netip"
 	"strconv"
 	"strings"
@@ -17,11 +18,8 @@ type AddressKind uint8
 
 const (
 	AddressKindOther AddressKind = iota
-	AddressKindTCP
-	AddressKindUDP
 	AddressKindRawIP
 	AddressKindSocket
-	AddressKindSCTP
 	AddressKindVSOCK
 	AddressKindTUN
 	AddressKindPOSIXMQ
@@ -40,18 +38,7 @@ const (
 	AddressRoleReceiveFrom
 )
 
-// AddressFamily preserves a selected IP family without relying on a keyword
-// prefix while a resource is opening.
-type AddressFamily uint8
-
-const (
-	AddressFamilyAny AddressFamily = iota
-	AddressFamilyIPv4
-	AddressFamilyIPv6
-)
-
-// HostTarget distinguishes a literal IP address from a name that must be
-// resolved during its resource attempt.
+// HostTarget is a literal IP or a name resolved at open time.
 type HostTarget struct {
 	Literal netip.Addr
 	Name    string
@@ -68,19 +55,36 @@ func (t HostTarget) String() string {
 	return t.Name
 }
 
-// PortTarget distinguishes a numeric port from a service name lookup.
 type PortTarget struct {
 	Number  uint16
 	Service string
 	Numeric bool
 }
 
-// Text is the numeric port or service name. Zero numeric ports stay "0".
+// Text is the original port spelling. Numeric ports keep leading zeros.
 func (p PortTarget) Text() string {
+	if p.Service != "" {
+		return p.Service
+	}
 	if p.Numeric {
 		return strconv.FormatUint(uint64(p.Number), 10)
 	}
-	return p.Service
+	return ""
+}
+
+// ProtocolFamilyToken is the pf= token used to select a net package family.
+func (n Network) ProtocolFamilyToken() string {
+	if !n.ProtocolSet {
+		return ""
+	}
+	switch n.ProtocolFamily {
+	case socketFamilyIPv4:
+		return "ip4"
+	case socketFamilyIPv6:
+		return "ip6"
+	default:
+		return strconv.Itoa(n.ProtocolFamily)
+	}
 }
 
 // SocketPhase is the lifecycle stage for a socket action.
@@ -106,69 +110,12 @@ const (
 	SocketActionTimeout
 	SocketActionAncillary
 	SocketActionMulticast
-	SocketActionSourceMulticast
 	SocketActionFreebind
 	SocketActionTransparent
 	SocketActionMTUDiscovery
 	SocketActionRecvErr
 	SocketActionRouterAlert
 	SocketActionGetOnly
-)
-
-// NamedSocketOption is a closed list of named integer socket options.
-type NamedSocketOption uint8
-
-const (
-	NamedSocketDebug NamedSocketOption = iota + 1
-	NamedSocketDontRoute
-	NamedSocketOOBInline
-	NamedSocketRecvLowWater
-	NamedSocketSendLowWater
-	NamedSocketPriority
-	NamedSocketPassCred
-	NamedSocketNoCheck
-	NamedSocketDetachFilter
-	NamedSocketTCPCork
-	NamedSocketTCPDeferAccept
-	NamedSocketTCPLinger2
-	NamedSocketTCPMaxSeg
-	NamedSocketTCPQuickAck
-	NamedSocketTCPSyncNT
-	NamedSocketTCPWindowClamp
-	NamedSocketTCPNoPush
-	NamedSocketTCPNoOpt
-	NamedSocketSCTPNoDelay
-	NamedSocketSCTPMaxSeg
-	NamedSocketTCPMaxSegLate
-	NamedSocketFIOSetown
-	NamedSocketSIOCSPGRP
-)
-
-// AncillaryOption identifies one receive or send-side IP request.
-type AncillaryOption uint8
-
-const (
-	AncillaryTimestamp AncillaryOption = iota + 1
-	AncillaryIPv4PacketInfo
-	AncillaryIPv4RecvTTL
-	AncillaryIPv4RecvTOS
-	AncillaryIPv4RecvOptions
-	AncillaryIPv4RetOptions
-	AncillaryIPv4RecvDstAddr
-	AncillaryIPv4RecvInterface
-	AncillaryIPv6PacketInfo
-	AncillaryIPv6RecvHopLimit
-	AncillaryIPv6RecvTrafficClass
-	AncillaryIPv6RecvDstOptions
-	AncillaryIPv6RecvHopOptions
-	AncillaryIPv6RecvRoutingHeader
-	AncillaryIPv6RecvPathMTU
-	AncillaryIPv4TTL
-	AncillaryIPv4TOS
-	AncillaryIPv4Options
-	AncillaryIPv4HeaderIncluded
-	AncillaryIPv6UnicastHops
-	AncillaryIPv6TrafficClass
 )
 
 // MulticastKind selects a multicast socket request.
@@ -181,10 +128,11 @@ const (
 	MulticastLoopIPv4
 	MulticastTTLIPv4
 	MulticastLoopIPv6
+	MulticastSourceIPv4
+	MulticastSourceIPv6
 )
 
-// MulticastRequest is parsed once and resolves named interfaces at application
-// time. Group and interface names remain intentionally unresolved.
+// MulticastRequest is parsed once; names resolve at application time.
 type MulticastRequest struct {
 	Kind          MulticastKind
 	Name          string
@@ -195,15 +143,7 @@ type MulticastRequest struct {
 	InterfaceIsID bool
 	ThreeField    bool
 	Value         int
-}
-
-// SourceMulticastRequest is an unresolved source-specific membership request.
-type SourceMulticastRequest struct {
-	IPv6      bool
-	Name      string
-	Group     HostTarget
-	Source    HostTarget
-	Interface HostTarget
+	Source        HostTarget
 }
 
 // SocketValue is a decoded generic setsockopt payload.
@@ -217,19 +157,15 @@ type SocketValue struct {
 type SocketAction struct {
 	Kind      SocketActionKind
 	Phase     SocketPhase
-	Named     NamedSocketOption
-	Ancillary AncillaryOption
 	Number    int
 	Option    int
 	Duration  time.Duration
 	Text      string
 	Value     SocketValue
 	Multicast MulticastRequest
-	Source    SourceMulticastRequest
 }
 
-// RawSocketCall holds a generic SOCKET positional call after syntactic
-// decoding. It has no string form that execution must parse.
+// RawSocketCall is a decoded SOCKET positional call.
 type RawSocketCall struct {
 	Set      bool
 	Domain   int
@@ -244,25 +180,6 @@ type VSOCKEndpoint struct {
 	Port uint32
 }
 
-// VSOCKSettings holds generic VSOCK socket parameters and endpoints.
-type VSOCKSettings struct {
-	Connect     VSOCKEndpoint
-	Listen      uint32
-	Bind        VSOCKEndpoint
-	BindSet     bool
-	BindHasPort bool
-}
-
-// KeepAliveSettings holds TCP keepalive enablement and probe parameters.
-// Any sub-option implies enable; an explicit keepalive=0 disables even when
-// idle/interval/count are present.
-type KeepAliveSettings struct {
-	Enable   OptionalBool
-	Idle     OptionalDuration
-	Interval OptionalDuration
-	Count    OptionalInt
-}
-
 // TUNType chooses the Linux TUN device mode.
 type TUNType uint8
 
@@ -271,58 +188,17 @@ const (
 	TUNTypeTAP
 )
 
-// TUNSettings holds static TUN and interface configuration.
-type TUNSettings struct {
-	Address      netip.Prefix
-	AddressSet   bool
-	Device       string
-	Name         string
-	Type         TUNType
-	NoPacketInfo OptionalBool
-	InterfaceSet uint16
-	InterfaceClr uint16
-	MTU          OptionalUint32
-	RetrieveVLAN bool
-}
-
-// POSIXMQSettings holds the static POSIX message-queue options.
-type POSIXMQSettings struct {
-	Priority    OptionalUint32
-	Flush       OptionalBool
-	MaxMessages OptionalInt
-	MessageSize OptionalInt
-}
-
-// PeerPolicy holds prepared peer filtering inputs. Range names remain
-// unresolved because they must use the selected resolver at open time.
-// TCPWrapDaemon is the optional hosts-table service name from tcpwrap=<daemon>
-// and keeps its original spelling.
-type PeerPolicy struct {
-	Range         string
-	RangeSet      bool
-	SourcePort    PortTarget
-	SourcePortSet bool
-	LowPort       OptionalBool
-	TCPWrap       OptionalBool
-	TCPWrapDaemon string
-	TCPWrapEtc    OptionalString
-	HostsAllow    OptionalString
-	HostsDeny     OptionalString
-}
-
-// WithoutSourcePort returns a copy that does not filter by source port.
-// UDP DATAGRAM uses sourceport as a dest-port receive filter instead.
-func (p PeerPolicy) WithoutSourcePort() PeerPolicy {
-	p.SourcePort = PortTarget{}
-	p.SourcePortSet = false
-	return p
+// WithoutSourcePort clears source-port filtering for UDP DATAGRAM receive.
+func (n Network) WithoutSourcePort() Network {
+	n.SourcePort = PortTarget{}
+	n.SourcePortSet = false
+	return n
 }
 
 // Network contains the immutable network and socket configuration.
 type Network struct {
-	Kind   AddressKind
-	Role   AddressRole
-	Family AddressFamily
+	Kind AddressKind
+	Role AddressRole
 
 	Target     HostTarget
 	TargetPort PortTarget
@@ -330,7 +206,6 @@ type Network struct {
 	ListenPort PortTarget
 	ListenSet  bool
 	Bind       HostTarget
-	BindPort   PortTarget
 	BindSet    bool
 
 	ProtocolFamily   int
@@ -342,41 +217,59 @@ type Network struct {
 	UnixBindTempname OptionalString
 	UnixTightSocklen OptionalBool
 	Backlog          OptionalInt
-	KeepAlive        KeepAliveSettings
+	KeepAlive        OptionalBool
+	KeepIdle         OptionalDuration
+	KeepIntvl        OptionalDuration
+	KeepCnt          OptionalInt
 	NoDelay          OptionalBool
 	RawSocket        RawSocketCall
 	RawBind          []byte
 	RawBindSet       bool
 
-	Peer    PeerPolicy
-	Actions []SocketAction
-	VSOCK   VSOCKSettings
-	TUN     TUNSettings
-	POSIXMQ POSIXMQSettings
+	Range         string
+	RangeSet      bool
+	SourcePort    PortTarget
+	SourcePortSet bool
+	LowPort       OptionalBool
+	TCPWrap       OptionalBool
+	TCPWrapDaemon string
+	TCPWrapEtc    OptionalString
+	HostsAllow    OptionalString
+	HostsDeny     OptionalString
+	Actions       []SocketAction
+
+	VSOCKConnect     VSOCKEndpoint
+	VSOCKConnectSet  bool
+	VSOCKListen      uint32
+	VSOCKListenSet   bool
+	VSOCKBind        VSOCKEndpoint
+	VSOCKBindSet     bool
+	VSOCKBindHasPort bool
+
+	TUNAddress      netip.Prefix
+	TUNAddressSet   bool
+	TUNDevice       string
+	TUNName         string
+	TUNType         TUNType
+	TUNNoPacketInfo OptionalBool
+	TUNInterfaceSet uint16
+	TUNInterfaceClr uint16
+	TUNMTU          OptionalUint32
+	TUNRetrieveVLAN bool
+
+	MQPriority    OptionalUint32
+	MQFlush       OptionalBool
+	MQMaxMessages OptionalInt
+	MQMessageSize OptionalInt
 }
 
 func decodeNetwork(a *Address, spec parse.Spec) error {
 	n := &a.Network
 	n.Kind = addressKind(a.Facts.Group)
 	n.Role = addressRole(a.Type)
-	n.Family = addressFamily(a.Type)
-	n.TUN.Type = TUNTypeTUN
+	n.TUNType = TUNTypeTUN
 
 	switch n.Kind {
-	case AddressKindTCP, AddressKindUDP, AddressKindSCTP:
-		switch n.Role {
-		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
-			if len(a.Params) >= 2 && a.Params[0] != "" && a.Params[1] != "" {
-				n.Target = targetFromText(a.Params[0])
-				n.TargetPort = portTarget(a.Params[1])
-				n.TargetSet = true
-			}
-		case AddressRoleListen, AddressRoleReceive, AddressRoleReceiveFrom:
-			if len(a.Params) >= 1 && a.Params[0] != "" {
-				n.ListenPort = portTarget(a.Params[0])
-				n.ListenSet = true
-			}
-		}
 	case AddressKindRawIP:
 		if n.Role == AddressRoleReceive || n.Role == AddressRoleReceiveFrom {
 			if len(a.Params) >= 1 && a.Params[0] != "" {
@@ -402,18 +295,21 @@ func decodeNetwork(a *Address, spec parse.Spec) error {
 				if err != nil {
 					return fmt.Errorf("%s: port: %w", a.Type, err)
 				}
-				n.VSOCK.Listen = port
+				n.VSOCKListen, n.VSOCKListenSet = port, true
 			}
 		} else if len(a.Params) == 2 {
-			cid, err := vsockCID(a.Params[0])
+			cid, err := vsockUint32(a.Params[0])
 			if err != nil {
 				return fmt.Errorf("%s: cid: %w", a.Type, err)
+			}
+			if a.Params[0] == "" {
+				cid = ^uint32(0)
 			}
 			port, err := vsockUint32(a.Params[1])
 			if err != nil {
 				return fmt.Errorf("%s: port: %w", a.Type, err)
 			}
-			n.VSOCK.Connect = VSOCKEndpoint{CID: cid, Port: port}
+			n.VSOCKConnect, n.VSOCKConnectSet = VSOCKEndpoint{CID: cid, Port: port}, true
 		}
 	case AddressKindSocket:
 		if err := decodeRawSocketCall(a, spec); err != nil {
@@ -422,6 +318,16 @@ func decodeNetwork(a *Address, spec parse.Spec) error {
 	case AddressKindTUN:
 		if err := decodeTUNPositional(a); err != nil {
 			return err
+		}
+	default:
+		switch n.Role {
+		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
+			decodeHostPort(n, a.Params)
+		case AddressRoleListen, AddressRoleReceive, AddressRoleReceiveFrom:
+			if len(a.Params) >= 1 && a.Params[0] != "" {
+				n.ListenPort = portTarget(a.Params[0])
+				n.ListenSet = true
+			}
 		}
 	}
 	return nil
@@ -433,7 +339,6 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 	switch name {
 	case "bind":
 		text := optionText(o)
-		a.Common.ConnectBind = OptionalString{Set: true, Value: text}
 		if n.Kind == AddressKindSocket {
 			data, err := ParseSocatData(text)
 			if err != nil {
@@ -447,7 +352,7 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 			if err != nil {
 				return true, err
 			}
-			n.VSOCK.Bind, n.VSOCK.BindSet, n.VSOCK.BindHasPort = ep, true, hasPort
+			n.VSOCKBind, n.VSOCKBindSet, n.VSOCKBindHasPort = ep, true, hasPort
 			n.BindSet = true
 			return true, nil
 		}
@@ -456,51 +361,43 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		return true, nil
 	case "sourceport":
 		text := optionText(o)
-		a.Common.SourcePort = OptionalString{Set: true, Value: text}
-		n.Peer.SourcePort = portTarget(text)
-		n.Peer.SourcePortSet = true
+		n.SourcePort = portTarget(text)
+		n.SourcePortSet = true
 		return true, nil
 	case "lowport":
-		n.Peer.LowPort = activeBool(o)
+		n.LowPort = activeBool(o)
 		return true, nil
 	case "range":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		n.Peer.Range, n.Peer.RangeSet = value, true
+		n.Range, n.RangeSet = value, true
 		return true, nil
 	case "tcpwrap":
-		n.Peer.TCPWrap = activeBool(o)
-		n.Peer.TCPWrapDaemon = ""
+		n.TCPWrap = activeBool(o)
+		n.TCPWrapDaemon = ""
 		if o.Has && o.Value != "" && o.Value != "1" {
-			n.Peer.TCPWrapDaemon = o.Value
+			n.TCPWrapDaemon = o.Value
 		}
 		return true, nil
-	case "tcpwrap-etc":
+	case "tcpwrap-etc", "hosts-allow", "hosts-deny":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		n.Peer.TCPWrapEtc = OptionalString{Set: true, Value: value}
-		return true, nil
-	case "hosts-allow":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
+		opt := OptionalString{Set: true, Value: value}
+		switch name {
+		case "tcpwrap-etc":
+			n.TCPWrapEtc = opt
+		case "hosts-allow":
+			n.HostsAllow = opt
+		default:
+			n.HostsDeny = opt
 		}
-		n.Peer.HostsAllow = OptionalString{Set: true, Value: value}
-		return true, nil
-	case "hosts-deny":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		n.Peer.HostsDeny = OptionalString{Set: true, Value: value}
 		return true, nil
 	case "pf":
 		text := optionText(o)
-		a.Common.ProtocolFamily = OptionalString{Set: true, Value: text}
 		pf, known, err := protocolFamily(text)
 		if err != nil {
 			return true, err
@@ -512,19 +409,17 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 			n.ProtocolFamily, n.ProtocolSet = pf, true
 		}
 		return true, nil
-	case "socktype":
-		value, err := requiredSocketInt(o, "socktype")
+	case "socktype", "so-protocol":
+		value, err := requiredSocketInt(o, name)
 		if err != nil {
 			return true, err
 		}
-		n.SocketType = OptionalInt{Set: true, Value: value}
-		return true, nil
-	case "so-protocol":
-		value, err := requiredSocketInt(o, "so-protocol")
-		if err != nil {
-			return true, err
+		opt := OptionalInt{Set: true, Value: value}
+		if name == "socktype" {
+			n.SocketType = opt
+		} else {
+			n.SocketProtocol = opt
 		}
-		n.SocketProtocol = OptionalInt{Set: true, Value: value}
 		return true, nil
 	case "protocol":
 		if n.Kind != AddressKindSocket && n.Kind != AddressKindVSOCK {
@@ -561,28 +456,28 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		n.Backlog = OptionalInt{Set: true, Value: backlog}
 		return true, nil
 	case "keepalive":
-		n.KeepAlive.Enable = activeBool(o)
+		n.KeepAlive = activeBool(o)
 		return true, nil
 	case "keepidle":
 		d, err := positiveKeepDuration(o)
 		if err != nil {
 			return true, err
 		}
-		n.KeepAlive.Idle = OptionalDuration{Set: true, Value: d}
+		n.KeepIdle = OptionalDuration{Set: true, Value: d}
 		return true, nil
 	case "keepintvl":
 		d, err := positiveKeepDuration(o)
 		if err != nil {
 			return true, err
 		}
-		n.KeepAlive.Interval = OptionalDuration{Set: true, Value: d}
+		n.KeepIntvl = OptionalDuration{Set: true, Value: d}
 		return true, nil
 	case "keepcnt":
 		count, err := decodePositiveInt(o)
 		if err != nil {
 			return true, fmt.Errorf("keepcnt: invalid count %q", o.Value)
 		}
-		n.KeepAlive.Count = OptionalInt{Set: true, Value: count}
+		n.KeepCnt = OptionalInt{Set: true, Value: count}
 		return true, nil
 	case "nodelay":
 		n.NoDelay = activeBool(o)
@@ -596,17 +491,17 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 		if action.Kind == SocketActionTimeout {
 			opt := OptionalDuration{Set: true, Value: action.Duration}
 			if action.Text == "rcvtimeo" {
-				a.Common.Timeouts.Read = opt
+				a.Common.ReadTimeout = opt
 			} else {
-				a.Common.Timeouts.Write = opt
+				a.Common.WriteTimeout = opt
 			}
 		}
 		return true, nil
 	}
-	if handled, err := decodeTUNOption(&n.TUN, o, name); handled {
+	if handled, err := decodeTUNOption(n, o, name); handled {
 		return true, err
 	}
-	if handled, err := decodePOSIXMQOption(&n.POSIXMQ, o, name); handled {
+	if handled, err := decodePOSIXMQOption(n, o, name); handled {
 		return true, err
 	}
 	return false, nil
@@ -614,16 +509,10 @@ func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
 
 func addressKind(group string) AddressKind {
 	switch group {
-	case "TCP":
-		return AddressKindTCP
-	case "UDP":
-		return AddressKindUDP
 	case "Raw IP":
 		return AddressKindRawIP
 	case "Generic socket":
 		return AddressKindSocket
-	case "SCTP (Linux)":
-		return AddressKindSCTP
 	case "VSOCK (Linux)":
 		return AddressKindVSOCK
 	case "Linux TUN / INTERFACE":
@@ -636,66 +525,65 @@ func addressKind(group string) AddressKind {
 }
 
 func addressRole(typ string) AddressRole {
-	switch typ {
-	case "TCP", "TCP-CONNECT", "TCP4", "TCP4-CONNECT", "TCP6", "TCP6-CONNECT",
-		"UDP", "UDP-CONNECT", "UDP4", "UDP4-CONNECT", "UDP6", "UDP6-CONNECT",
-		"SCTP", "SCTP-CONNECT", "SCTP4", "SCTP4-CONNECT", "SCTP6", "SCTP6-CONNECT",
-		"VSOCK", "VSOCK-CONNECT", "SOCKET-CONNECT":
-		return AddressRoleConnect
-	case "TCP-LISTEN", "TCP-L", "TCP4-LISTEN", "TCP4-L", "TCP6-LISTEN", "TCP6-L",
-		"UDP-LISTEN", "UDP-L", "UDP4-LISTEN", "UDP4-L", "UDP6-LISTEN", "UDP6-L",
-		"SCTP-LISTEN", "SCTP-L", "SCTP4-LISTEN", "SCTP4-L", "SCTP6-LISTEN", "SCTP6-L",
-		"VSOCK-LISTEN", "VSOCK-L", "SOCKET-LISTEN":
+	if strings.HasPrefix(typ, "SOCKS") {
+		return AddressRoleOther
+	}
+	switch {
+	case strings.Contains(typ, "LISTEN") || strings.HasSuffix(typ, "-L") || strings.HasSuffix(typ, "-SERVER"):
 		return AddressRoleListen
-	case "UDP-SENDTO", "UDP-SEND", "UDP4-SENDTO", "UDP4-SEND", "UDP6-SENDTO", "UDP6-SEND",
-		"IP-SENDTO", "IP-SEND", "IP4-SENDTO", "IP4-SEND", "IP6-SENDTO", "IP6-SEND",
-		"SOCKET-SENDTO":
+	case strings.Contains(typ, "SENDTO") || strings.HasSuffix(typ, "-SEND"):
 		return AddressRoleSendTo
-	case "UDP-DATAGRAM", "UDP4-DATAGRAM", "UDP6-DATAGRAM",
-		"IP-DATAGRAM", "IP4-DATAGRAM", "IP6-DATAGRAM", "SOCKET-DATAGRAM":
+	case strings.Contains(typ, "DATAGRAM"):
 		return AddressRoleDatagram
-	case "UDP-RECV", "UDP4-RECV", "UDP6-RECV", "IP-RECV", "IP4-RECV", "IP6-RECV", "SOCKET-RECV":
-		return AddressRoleReceive
-	case "UDP-RECVFROM", "UDP4-RECVFROM", "UDP6-RECVFROM",
-		"IP-RECVFROM", "IP4-RECVFROM", "IP6-RECVFROM", "SOCKET-RECVFROM":
+	case strings.Contains(typ, "RECVFROM"):
 		return AddressRoleReceiveFrom
+	case strings.Contains(typ, "RECV"):
+		return AddressRoleReceive
+	case strings.Contains(typ, "CONNECT") || strings.HasSuffix(typ, "-CLIENT"):
+		return AddressRoleConnect
+	}
+	switch typ {
+	case "TCP", "TCP4", "TCP6", "UDP", "UDP4", "UDP6",
+		"SCTP", "SCTP4", "SCTP6", "VSOCK",
+		"TLS", "OPENSSL", "SSL", "WS", "WSS", "QUIC", "DTLS":
+		return AddressRoleConnect
 	default:
 		return AddressRoleOther
 	}
 }
 
-func addressFamily(typ string) AddressFamily {
-	switch typ {
-	case "TCP4", "TCP4-CONNECT", "TCP4-LISTEN", "TCP4-L",
-		"UDP4", "UDP4-CONNECT", "UDP4-LISTEN", "UDP4-L", "UDP4-SENDTO", "UDP4-SEND",
-		"UDP4-DATAGRAM", "UDP4-RECV", "UDP4-RECVFROM",
-		"IP4", "IP4-SENDTO", "IP4-SEND", "IP4-DATAGRAM", "IP4-RECV", "IP4-RECVFROM",
-		"SCTP4", "SCTP4-CONNECT", "SCTP4-LISTEN", "SCTP4-L":
-		return AddressFamilyIPv4
-	case "TCP6", "TCP6-CONNECT", "TCP6-LISTEN", "TCP6-L",
-		"UDP6", "UDP6-CONNECT", "UDP6-LISTEN", "UDP6-L", "UDP6-SENDTO", "UDP6-SEND",
-		"UDP6-DATAGRAM", "UDP6-RECV", "UDP6-RECVFROM",
-		"IP6", "IP6-SENDTO", "IP6-SEND", "IP6-DATAGRAM", "IP6-RECV", "IP6-RECVFROM",
-		"SCTP6", "SCTP6-CONNECT", "SCTP6-LISTEN", "SCTP6-L":
-		return AddressFamilyIPv6
-	default:
-		return AddressFamilyAny
+func decodeHostPort(n *Network, params []string) {
+	if len(params) >= 2 && params[0] != "" && params[1] != "" {
+		n.Target = targetFromText(params[0])
+		n.TargetPort = portTarget(params[1])
+		n.TargetSet = true
+		return
 	}
+	if len(params) != 1 || params[0] == "" {
+		return
+	}
+	host, port, err := net.SplitHostPort(params[0])
+	if err != nil || host == "" || port == "" {
+		return
+	}
+	n.Target = targetFromText(host)
+	n.TargetPort = portTarget(port)
+	n.TargetSet = true
 }
 
 func targetFromText(text string) HostTarget {
-	text = stripBrackets(text)
-	if ip, err := netip.ParseAddr(text); err == nil {
-		return HostTarget{Literal: ip}
+	if ip, err := netip.ParseAddr(stripBrackets(text)); err == nil {
+		return HostTarget{Literal: ip, Name: text}
 	}
 	return HostTarget{Name: text}
 }
 
 func portTarget(text string) PortTarget {
+	p := PortTarget{Service: text}
 	if n, err := strconv.ParseUint(text, 10, 16); err == nil {
-		return PortTarget{Number: uint16(n), Numeric: true}
+		p.Number, p.Numeric = uint16(n), true
 	}
-	return PortTarget{Service: text}
+	return p
 }
 
 func stripBrackets(value string) string {
@@ -713,7 +601,7 @@ func socketIntText(value string) (int, error) {
 	return int(n), nil
 }
 
-func socketPositionalInt(value string) (int, error) {
+func socketIntOrZero(value string) (int, error) {
 	if value == "" {
 		return 0, nil
 	}
@@ -759,11 +647,11 @@ func decodeRawSocketCall(a *Address, spec parse.Spec) error {
 		if len(a.Params) < 3 {
 			return nil
 		}
-		domain, err := socketPositionalInt(a.Params[0])
+		domain, err := socketIntOrZero(a.Params[0])
 		if err != nil {
 			return fmt.Errorf("domain: %w", err)
 		}
-		proto, err := socketPositionalInt(a.Params[1])
+		proto, err := socketIntOrZero(a.Params[1])
 		if err != nil {
 			return fmt.Errorf("protocol: %w", err)
 		}
@@ -777,7 +665,7 @@ func decodeRawSocketCall(a *Address, spec parse.Spec) error {
 	if len(a.Params) < 4 {
 		return nil
 	}
-	domain, err := socketPositionalInt(a.Params[0])
+	domain, err := socketIntOrZero(a.Params[0])
 	if err != nil {
 		return fmt.Errorf("domain: %w", err)
 	}
@@ -788,7 +676,7 @@ func decodeRawSocketCall(a *Address, spec parse.Spec) error {
 			return fmt.Errorf("type: %w", err)
 		}
 	}
-	proto, err := socketPositionalInt(a.Params[2])
+	proto, err := socketIntOrZero(a.Params[2])
 	if err != nil {
 		return fmt.Errorf("protocol: %w", err)
 	}
@@ -860,8 +748,7 @@ func splitColonNoUnquote(value string) []string {
 	return append(values, value[start:])
 }
 
-// ParseSocatData parses SOCKET address data: quoted strings, hex segments,
-// and unquoted paths.
+// ParseSocatData parses SOCKET address data.
 func ParseSocatData(value string) ([]byte, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -985,36 +872,25 @@ func socketEscapeByte(value byte) byte {
 }
 
 func vsockUint32(value string) (uint32, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	if strings.TrimSpace(value) == "" {
 		return 0, nil
 	}
-	negative := value[0] == '-'
-	if negative || value[0] == '+' {
-		value = value[1:]
-	}
-	n, err := strconv.ParseUint(value, 0, 64)
+	n, err := ParseSizeT(value)
 	if err != nil {
 		return 0, err
-	}
-	if negative {
-		n = -n
 	}
 	return uint32(n), nil // #nosec G115 -- VSOCK uses the C uint32_t conversion
 }
 
-func vsockCID(value string) (uint32, error) {
-	if value == "" {
-		return ^uint32(0), nil
-	}
-	return vsockUint32(value)
-}
-
 func decodeVSOCKBind(value string) (VSOCKEndpoint, bool, error) {
 	cidStr, portStr, hasPort := splitVSOCKBind(value)
-	cid, err := vsockCID(cidStr)
-	if err != nil {
-		return VSOCKEndpoint{}, hasPort, fmt.Errorf("bind: cid: %w", err)
+	cid := ^uint32(0)
+	if cidStr != "" {
+		var err error
+		cid, err = vsockUint32(cidStr)
+		if err != nil {
+			return VSOCKEndpoint{}, hasPort, fmt.Errorf("bind: cid: %w", err)
+		}
 	}
 	ep := VSOCKEndpoint{CID: cid, Port: ^uint32(0)}
 	if !hasPort {
@@ -1051,7 +927,7 @@ func positiveKeepDuration(o parse.Option) (time.Duration, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", o.Name, err)
 	}
-	d, err := parseDuration(value)
+	d, err := ParseDuration(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", o.Name, err)
 	}
@@ -1062,10 +938,16 @@ func positiveKeepDuration(o parse.Option) (time.Duration, error) {
 }
 
 func decodeTUNPositional(a *Address) error {
-	if len(a.Params) == 0 {
-		return nil
+	n := 0
+	for _, p := range a.Params {
+		if p != "" {
+			n++
+		}
 	}
-	if len(a.Params) != 1 || a.Params[0] == "" {
+	if n > 1 || len(a.Params) > 1 {
+		return fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(a.Params))
+	}
+	if len(a.Params) == 0 || a.Params[0] == "" {
 		return nil
 	}
 	value := a.Params[0]
@@ -1076,24 +958,22 @@ func decodeTUNPositional(a *Address) error {
 	if err != nil || !prefix.Addr().Is4() {
 		return fmt.Errorf("TUN address %q: IPv4 required", a.Params[0])
 	}
-	a.Network.TUN.Address, a.Network.TUN.AddressSet = prefix, true
+	a.Network.TUNAddress, a.Network.TUNAddressSet = prefix, true
 	return nil
 }
 
-func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) {
+func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
 	switch name {
-	case "tun-device":
+	case "tun-device", "tun-name":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		t.Device = value
-	case "tun-name":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
+		if name == "tun-device" {
+			n.TUNDevice = value
+		} else {
+			n.TUNName = value
 		}
-		t.Name = value
 	case "tun-type":
 		value, err := requiredString(o)
 		if err != nil {
@@ -1101,9 +981,9 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 		}
 		switch strings.ToLower(value) {
 		case "tun":
-			t.Type = TUNTypeTUN
+			n.TUNType = TUNTypeTUN
 		case "tap":
-			t.Type = TUNTypeTAP
+			n.TUNType = TUNTypeTAP
 		default:
 			return true, fmt.Errorf("unknown tun-type %q", value)
 		}
@@ -1112,22 +992,22 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 		if err != nil {
 			return true, err
 		}
-		t.NoPacketInfo = v
+		n.TUNNoPacketInfo = v
 	case "if-mtu":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		n, err := strconv.ParseUint(value, 0, 32)
-		if err != nil || n == 0 {
+		mtu, err := strconv.ParseUint(value, 0, 32)
+		if err != nil || mtu == 0 {
 			return true, fmt.Errorf("if-mtu: invalid %q", value)
 		}
-		t.MTU = OptionalUint32{Set: true, Value: uint32(n)}
+		n.TUNMTU = OptionalUint32{Set: true, Value: uint32(mtu)}
 	case "retrieve-vlan":
 		if o.Has {
 			return true, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
 		}
-		t.RetrieveVLAN = true
+		n.TUNRetrieveVLAN = true
 	default:
 		bit, ok := interfaceFlagBit(name)
 		if !ok {
@@ -1138,9 +1018,9 @@ func decodeTUNOption(t *TUNSettings, o parse.Option, name string) (bool, error) 
 			return true, err
 		}
 		if v.Value {
-			t.InterfaceSet |= bit
+			n.TUNInterfaceSet |= bit
 		} else {
-			t.InterfaceClr |= bit
+			n.TUNInterfaceClr |= bit
 		}
 	}
 	return true, nil
@@ -1168,29 +1048,30 @@ func interfaceFlagBit(name string) (uint16, bool) {
 	return bit, ok
 }
 
-func decodePOSIXMQOption(m *POSIXMQSettings, o parse.Option, name string) (bool, error) {
+func decodePOSIXMQOption(n *Network, o parse.Option, name string) (bool, error) {
 	switch name {
 	case "mq-prio":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		n, err := strconv.ParseUint(value, 0, 32)
+		v, err := strconv.ParseUint(value, 0, 32)
 		if err != nil {
 			return true, fmt.Errorf("invalid mq-prio %q", value)
 		}
-		m.Priority = OptionalUint32{Set: true, Value: uint32(n)}
+		n.MQPriority = OptionalUint32{Set: true, Value: uint32(v)}
 	case "mq-flush":
-		m.Flush = activeBool(o)
+		n.MQFlush = activeBool(o)
 	case "mq-maxmsg", "mq-msgsize":
-		n, err := requiredInt(o, 0)
+		v, err := requiredInt(o, 0)
 		if err != nil {
 			return true, err
 		}
+		opt := OptionalInt{Set: true, Value: v}
 		if name == "mq-maxmsg" {
-			m.MaxMessages = OptionalInt{Set: true, Value: n}
+			n.MQMaxMessages = opt
 		} else {
-			m.MessageSize = OptionalInt{Set: true, Value: n}
+			n.MQMessageSize = opt
 		}
 	default:
 		return false, nil

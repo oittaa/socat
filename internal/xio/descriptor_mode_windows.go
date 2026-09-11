@@ -14,13 +14,8 @@ import (
 // ValidateDescriptorModeOptions validates the mutually exclusive Cygwin
 // O_BINARY/O_TEXT modes. Omitted values mean true; =0 clears that mode.
 func ValidateDescriptorModeOptions(s addrconfig.Address) error {
-	config := s
-	return validateConfiguredDescriptorMode(config)
-}
-
-func validateConfiguredDescriptorMode(config addrconfig.Address) error {
-	if config.Common.Binary.Value && config.Common.Text.Value {
-		return fmt.Errorf("%s: binary and text descriptor modes are mutually exclusive", config.Type)
+	if s.Common.Binary.Value && s.Common.Text.Value {
+		return fmt.Errorf("%s: binary and text descriptor modes are mutually exclusive", s.Type)
 	}
 	return nil
 }
@@ -61,13 +56,8 @@ func (r *windowsTextReader) Read(p []byte) (int, error) {
 	return written, nil
 }
 
-func applyDescriptorMode(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	config := s
-	return applyConfiguredDescriptorMode(config, stream)
-}
-
 func applyConfiguredDescriptorMode(config addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	if err := validateConfiguredDescriptorMode(config); err != nil {
+	if err := ValidateDescriptorModeOptions(config); err != nil {
 		return nil, err
 	}
 	if !config.Common.Text.Value {

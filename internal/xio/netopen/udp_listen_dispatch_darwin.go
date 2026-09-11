@@ -14,9 +14,8 @@ func udpForkUsesPacketDispatch(s addrconfig.Address) bool {
 	if xio.ShutDownSelected(s) {
 		return false
 	}
-	config := s
-	if config.Network.ReuseAddr.Set {
-		return config.Network.ReuseAddr.Value
+	if s.Network.ReuseAddr.Set {
+		return s.Network.ReuseAddr.Value
 	}
 	return true
 }

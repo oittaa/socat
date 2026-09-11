@@ -58,8 +58,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 			if err != nil {
 				return err
 			}
-			config := s
-			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.SourcePortText(config), s, g)
+			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.SourcePortText(s), s, g)
 			if err != nil {
 				return err
 			}
@@ -78,8 +77,9 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 }
 
 func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) == 0 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
+	port, err := xio.ListenPortText(s)
+	if err != nil {
+		return nil, err
 	}
 	cfg, err := endpointConfig(ctx, s, "", true)
 	if err != nil {
@@ -90,13 +90,12 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	config := s
-	network = xio.DualStackListenNetwork(config, network)
+	network = xio.DualStackListenNetwork(s, network)
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), s.Params[0])
+	addr := net.JoinHostPort(xio.StripBrackets(host), port)
 	pc, err := xio.ListenPacketWithOptions(ctx, network, addr, s)
 	if err != nil {
 		return nil, err

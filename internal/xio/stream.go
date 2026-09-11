@@ -182,8 +182,7 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 // Size is parsed with base 0 (decimal, 0x hex, 0 octal).
 // readbytes=0 means unlimited and leaves the stream unwrapped.
 func ApplyReadBytes(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	config := s
-	return applyReadBytes(config.Transfer.ReadBytes, stream), nil
+	return applyReadBytes(s.Transfer.ReadBytes, stream), nil
 }
 
 func applyReadBytes(limit addrconfig.OptionalUint64, stream relay.Stream) relay.Stream {
@@ -419,8 +418,7 @@ func applyLineTerm(ending addrconfig.LineEnding, stream relay.Stream) relay.Stre
 
 // ApplyCRNL wraps a stream with the selected line-termination mode.
 func ApplyCRNL(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	config := s
-	return applyLineTerm(config.Transfer.LineEnding, stream), nil
+	return applyLineTerm(s.Transfer.LineEnding, stream), nil
 }
 
 // escapeReader stops with EOF when the escape byte is seen (escape=N).
@@ -450,8 +448,7 @@ func (e *escapeReader) Read(p []byte) (int, error) {
 }
 
 func ApplyEscape(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	config := s
-	return applyEscape(config.Transfer.Escape, stream), nil
+	return applyEscape(s.Transfer.Escape, stream), nil
 }
 
 func applyEscape(esc addrconfig.OptionalByte, stream relay.Stream) relay.Stream {
@@ -528,8 +525,8 @@ func (e socketTimeoutRetryError) Unwrap() error   { return e.err }
 func (e socketTimeoutRetryError) Retryable() bool { return true }
 
 func applySocketTimeouts(config addrconfig.Address, stream relay.Stream) relay.Stream {
-	readTimeout := config.Common.Timeouts.Read.Value
-	writeTimeout := config.Common.Timeouts.Write.Value
+	readTimeout := config.Common.ReadTimeout.Value
+	writeTimeout := config.Common.WriteTimeout.Value
 	if readTimeout == 0 && writeTimeout == 0 {
 		return stream
 	}
@@ -547,32 +544,31 @@ const (
 // WrapStream applies stream transformations after transport setup is complete.
 // TLS enforces timeouts below its record layer; other streams enforce them here.
 func WrapStream(s addrconfig.Address, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
-	config := s
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
-	stream, err := applyConfiguredDescriptorMode(config, stream)
+	stream, err := applyConfiguredDescriptorMode(s, stream)
 	if err != nil {
 		return nil, err
 	}
 	if timeouts == StreamSocketTimeouts {
-		stream = applySocketTimeouts(config, stream)
+		stream = applySocketTimeouts(s, stream)
 	}
 	// ignoreeof first so it wraps the raw source: EOF is retried while
 	// outer byte caps like readbytes still terminate.
-	if config.Transfer.IgnoreEOF.Value {
+	if s.Transfer.IgnoreEOF.Value {
 		stream = newIgnoreEOFStream(stream)
 	}
-	stream = applyReadBytes(config.Transfer.ReadBytes, stream)
-	stream = applyLineTerm(config.Transfer.LineEnding, stream)
-	stream = applyEscape(config.Transfer.Escape, stream)
-	if config.Transfer.NullEOF.Value {
+	stream = applyReadBytes(s.Transfer.ReadBytes, stream)
+	stream = applyLineTerm(s.Transfer.LineEnding, stream)
+	stream = applyEscape(s.Transfer.Escape, stream)
+	if s.Transfer.NullEOF.Value {
 		stream = streamWithReader(stream, &nullEOFReader{r: stream})
 	}
-	stream = wrapTransferShut(config.Transfer.Shutdown, stream)
+	stream = wrapTransferShut(s.Transfer.Shutdown, stream)
 	// end-close: do not half-close or fully close the underlying FD when the
 	// transfer finishes.
-	if config.Transfer.EndClose.Value {
+	if s.Transfer.EndClose.Value {
 		stream = endCloseStream{Stream: stream}
 	}
 	return stream, nil

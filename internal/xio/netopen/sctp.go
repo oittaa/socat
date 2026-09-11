@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-	"strings"
 
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -17,11 +16,7 @@ import (
 // same kernel sockets; we stay on unix.Socket + our listen/connect path.
 
 func openSCTPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host := ""
-	if len(s.Params) >= 1 {
-		host = s.Params[0]
-	}
-	return openSCTPConnectNetwork(ctx, s, mode, g, sctpNetwork(xio.ConnectNetworkForType(g, s, host, "tcp")))
+	return openSCTPConnectNetwork(ctx, s, mode, g, sctpNetwork(xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp")))
 }
 
 func openSCTP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -73,17 +68,13 @@ func openSCTP4Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 }
 
 func openSCTP6Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
-	return openSCTPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, "sctp6"))
+	return openSCTPListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(s, "sctp6"))
 }
 
 func openSCTPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
-	}
-	port := s.Params[0]
-	if port == "" || strings.Trim(port, ":") == "" {
-		return nil, fmt.Errorf("%s: invalid port %q", s.Type, port)
+	port, err := xio.ListenPortText(s)
+	if err != nil {
+		return nil, err
 	}
 	host, err := xio.ListenBindHost(s, network, "")
 	if err != nil {

@@ -23,11 +23,7 @@ import (
 // SOCKET-CONNECT:<domain>:<protocol>:<remote-address>
 // Generic raw sockaddr connect. Address is hex/data without sa_family.
 func openSocketConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := preparedSocketConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	call, err := socketCallFromConfig(config)
+	call, err := socketCallFromConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +34,7 @@ func openSocketConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, "socket connect", func() error {
-			c, e := dialRawSocket(dctx, call, sa, config)
+			c, e := dialRawSocket(dctx, call, sa, s)
 			if e != nil {
 				return e
 			}
@@ -60,8 +56,8 @@ func openSocketConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g 
 
 func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, config addrconfig.Address) (net.Conn, error) {
 	timeout := time.Duration(0)
-	if config.Common.Timeouts.Connect.Set {
-		timeout = config.Common.Timeouts.Connect.Value
+	if config.Common.ConnectTimeout.Set {
+		timeout = config.Common.ConnectTimeout.Value
 	}
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -180,11 +176,7 @@ func sockAddrToNetAddr(sa unix.Sockaddr) net.Addr {
 
 // SOCKET-LISTEN:<domain>:<protocol>:<local-address>
 func openSocketListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config, err := preparedSocketConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	c, err := socketCallFromConfig(config)
+	c, err := socketCallFromConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +192,7 @@ func openSocketListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := applySocketOpts(fd, config); err != nil {
+	if err := applySocketOpts(fd, s); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

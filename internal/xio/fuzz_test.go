@@ -41,10 +41,10 @@ func FuzzParseDurationValue(f *testing.F) {
 		if len(input) > 4096 {
 			t.Skip("input exceeds 4096 bytes")
 		}
-		a, err1 := ParseDurationValue(input)
-		b, err2 := ParseDurationValue(input)
+		a, err1 := addrconfig.ParseDuration(input)
+		b, err2 := addrconfig.ParseDuration(input)
 		if (err1 == nil) != (err2 == nil) || a != b {
-			t.Fatalf("ParseDurationValue is not deterministic: %v/%v vs %v/%v", a, err1, b, err2)
+			t.Fatalf("ParseDuration is not deterministic: %v/%v vs %v/%v", a, err1, b, err2)
 		}
 	})
 }

@@ -34,34 +34,28 @@ func openUserFileWithUmask(config addrconfig.File, path string, flags int, perm 
 	return f, err
 }
 
-func hasConfiguredAppend(config addrconfig.File) bool {
-	return config.Open.AppendSet
-}
-
 func openOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	if len(s.Params) < 1 || s.Params[0] == "" {
 		return nil, fmt.Errorf("OPEN requires filename")
 	}
 	path := s.Params[0]
-	flags, err := ConfiguredOpenFlags(config.File, mode)
+	flags, err := ConfiguredOpenFlags(s.File, mode)
 	if err != nil {
 		return nil, err
 	}
-	perm := xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode)
-	if _, err := namedOpenEarly(path, config.File); err != nil {
+	perm := xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode)
+	if _, err := namedOpenEarly(path, s.File); err != nil {
 		return nil, err
 	}
-	f, err := openUserFileWithUmask(config.File, path, flags, perm)
+	f, err := openUserFileWithUmask(s.File, path, flags, perm)
 	if err != nil {
 		// Error text is open("path", …) so RECVFROM_FORK_LOOP parsers match it.
 		return nil, fmt.Errorf("open(%q, %02o, %04o): %w", path, flags, xio.FileModeToUnix(perm), err)
 	}
-	return FileOpened(f, config, path)
+	return FileOpened(f, s, path)
 }
 
 func openCREATE(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("CREATE requires filename")
 	}
@@ -70,7 +64,7 @@ func openCREATE(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 	}
 	path := s.Params[0]
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
-	if config.File.Open.Append {
+	if s.File.Append {
 		// CREATE uses creat(2) semantics (always truncates first). append is
 		// late; O_TRUNC|O_APPEND has the same descriptor semantics without
 		// preserving stale contents.
@@ -78,46 +72,45 @@ func openCREATE(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 	}
 	// CREATE does not take open(2) flags (o-direct, o-sync, …); those are
 	// rejected at option validation rather than applied here.
-	perm := xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode)
-	if _, err := namedOpenEarly(path, config.File); err != nil {
+	perm := xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode)
+	if _, err := namedOpenEarly(path, s.File); err != nil {
 		return nil, err
 	}
-	f, err := openUserFileWithUmask(config.File, path, flags, perm)
+	f, err := openUserFileWithUmask(s.File, path, flags, perm)
 	if err != nil {
 		return nil, err
 	}
-	return FileOpened(f, config, path)
+	return FileOpened(f, s, path)
 }
 
 func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("GOPEN requires filename")
 	}
 	path := s.Params[0]
-	early, err := namedOpenEarly(path, config.File)
+	early, err := namedOpenEarly(path, s.File)
 	if err != nil {
 		return nil, err
 	}
 	if !early.exists {
 		// create regular file
-		flags, ferr := ConfiguredOpenFlags(config.File, mode)
+		flags, ferr := ConfiguredOpenFlags(s.File, mode)
 		if ferr != nil {
 			return nil, ferr
 		}
 		flags |= os.O_CREATE
-		perm := xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode)
-		f, err := openUserFileWithUmask(config.File, path, flags, perm)
+		perm := xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode)
+		f, err := openUserFileWithUmask(s.File, path, flags, perm)
 		if err != nil {
 			return nil, err
 		}
-		return FileOpened(f, config, path)
+		return FileOpened(f, s, path)
 	}
 	// UNIX domain socket? Uses the pre-unlink os.Stat snapshot: unlink
 	// after the name exists, before open, does not reclassify a socket as
 	// a missing create-path.
 	if early.mode&os.ModeSocket != 0 {
-		if err := rejectGOPENSocketOpenFlags(config.File); err != nil {
+		if err := rejectGOPENSocketOpenFlags(s.File); err != nil {
 			return nil, err
 		}
 		// UNIX generic client probes stream, seqpacket, then datagram.
@@ -127,13 +120,13 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 		}
 		// GOPEN of a socket applies unlink-late after connect; unlink-close
 		// is only armed for non-sockets.
-		if err := applyNamedUnlinkLate(path, config.File); err != nil {
+		if err := applyNamedUnlinkLate(path, s.File); err != nil {
 			logx.CloseQuiet(o)
 			return nil, err
 		}
 		return o, nil
 	}
-	flags, err := ConfiguredOpenFlags(config.File, mode)
+	flags, err := ConfiguredOpenFlags(s.File, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -141,8 +134,8 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 	// Devices (PTY slaves via FAKEPTY link=), fifos, etc. must not get O_APPEND.
 	isReg := early.mode.IsRegular()
 	if mode != xio.ModeRead && isReg {
-		if hasConfiguredAppend(config.File) {
-			if config.File.Open.Append {
+		if s.File.AppendSet {
+			if s.File.Append {
 				flags |= os.O_APPEND
 			} else {
 				// Explicit off: overwrite from start; truncate so shorter writes
@@ -155,21 +148,20 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 		}
 	}
 	// Apply cfmakeraw etc. after open for PTY/tty devices.
-	perm := xio.ConfiguredFileMode(config.File, xio.DefaultCreateMode)
+	perm := xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode)
 	f, err := openUserFile(path, flags, perm)
 	if err != nil {
 		return nil, err
 	}
-	return FileOpened(f, config, path)
+	return FileOpened(f, s, path)
 }
 
 func openPIPE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
 	// Named pipe if param present; else anonymous pipe echo
 	if len(s.Params) >= 1 && s.Params[0] != "" {
-		return openNamedPIPE(config, mode)
+		return openNamedPIPE(s, mode)
 	}
-	if err := rejectUnnamedPIPEOpenFlags(config.File); err != nil {
+	if err := rejectUnnamedPIPEOpenFlags(s.File); err != nil {
 		return nil, err
 	}
 
@@ -178,12 +170,12 @@ func openPIPE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.G
 	if err != nil {
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredFDOptions(r, config.File, xio.FDSkip{}); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(r, s.File, xio.FDSkip{}); err != nil {
 		logx.CloseQuiet(r)
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredFDOptions(w, config.File, xio.FDSkip{}); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(w, s.File, xio.FDSkip{}); err != nil {
 		logx.CloseQuiet(r)
 		logx.CloseQuiet(w)
 		return nil, err
@@ -344,7 +336,7 @@ func (p *namedPIPE) openRead() (*xio.Opened, error) {
 	// write side. Otherwise, wait for a writer so the first Read cannot see
 	// a premature EOF before the peer opens the FIFO.
 	flags := os.O_RDONLY
-	if p.config.File.Open.Nonblock {
+	if p.config.File.Nonblock {
 		flags |= oNonblock
 	}
 	f, err := openConfiguredFIFO(p.path, flags, p.config.File)
@@ -515,7 +507,7 @@ func applyConfiguredOpenTruncate(f *os.File, config addrconfig.File) error {
 			return nil
 		}
 	}
-	if config.Open.Truncate {
+	if config.Truncate {
 		if e := f.Truncate(0); e != nil {
 			return fmt.Errorf("truncate: %w", e)
 		}

@@ -12,72 +12,67 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// Facts are the semantic properties supplied by the address registry.
-// They are intentionally explicit: the decoder must not infer them from a
-// keyword prefix or a help spelling.
+// Facts are registry-supplied address properties.
 type Facts struct {
 	Type  string
 	Group string
 	Caps  []string
 }
 
-// Address is immutable prepared address data. Params retain only positional
-// payloads (paths, hosts, commands, and similar strings); option values are
-// decoded into the groups below.
+// Address is immutable prepared address data.
 type Address struct {
 	Type   string
 	Params []string
 	Facts  Facts
 
-	Common    Common
-	Transfer  Transfer
-	File      File
-	Process   Process
-	Terminal  Terminal
-	Network   Network
-	TLS       TLS
-	DTLS      DTLS
-	Proxy     Proxy
-	WebSocket WebSocket
+	Common   Common
+	Transfer Transfer
+	File     File
+	Process  Process
+	Terminal Terminal
+	Network  Network
+	TLS      TLS
+	Proxy    Proxy
 }
 
 // Common contains settings shared by several address families.
 type Common struct {
-	Retry             Retry
-	Fork              Fork
-	Timeouts          Timeouts
-	MaxChildren       OptionalInt
-	ChildrenShutup    OptionalInt
-	DescriptorMode    DescriptorMode
-	Binary            OptionalBool
-	Text              OptionalBool
-	NetNamespace      OptionalString
-	Resolver          Resolver
-	ConnectBind       OptionalString
-	SourcePort        OptionalString
-	ProtocolFamily    OptionalString
-	IPv6V6Only        OptionalBool
-	ReadSocketBuffer  OptionalInt
-	WriteSocketBuffer OptionalInt
+	Retry            Retry
+	Fork             OptionalBool
+	NoFork           OptionalBool
+	ConnectTimeout   OptionalDuration
+	HandshakeTimeout OptionalDuration
+	AcceptTimeout    OptionalDuration
+	ReadTimeout      OptionalDuration
+	WriteTimeout     OptionalDuration
+	MaxChildren      OptionalInt
+	ChildrenShutup   OptionalInt
+	Binary           OptionalBool
+	Text             OptionalBool
+	NetNamespace     OptionalString
+	NameServer       OptionalString
+	UseVC            OptionalBool
+	AddrConfig       OptionalBool
+	Passive          OptionalBool
+	V4Mapped         OptionalBool
+	AddrInfoAll      OptionalBool
+	IPv6V6Only       OptionalBool
 }
 
-// Retry is ready for every reopen. The resolved fields preserve an explicit
-// retry count separately from forever because retry always takes precedence.
+// Retry is the reopen policy before Policy() resolves it.
 type Retry struct {
 	Forever  OptionalBool
 	Count    OptionalInt
 	Interval time.Duration
 }
 
-// RetryPolicy is the fully resolved retry loop configuration. MaxAttempts
-// zero represents an unlimited loop.
+// RetryPolicy is the resolved retry loop. MaxAttempts 0 is unlimited.
 type RetryPolicy struct {
 	MaxAttempts uint64
 	Interval    time.Duration
 }
 
-// Policy resolves retry's documented precedence: retry=N overrides forever,
-// including when the options appeared in the opposite source order.
+// Policy resolves retry=N over forever regardless of option order.
 func (r Retry) Policy() RetryPolicy {
 	p := RetryPolicy{MaxAttempts: 1, Interval: r.Interval}
 	if r.Forever.Set && r.Forever.Value {
@@ -93,23 +88,6 @@ func (r Retry) Policy() RetryPolicy {
 	return p
 }
 
-// Fork retains the distinction between a missing flag and an enabled flag
-// where an address-specific default needs it.
-type Fork struct {
-	Enabled OptionalBool
-	NoFork  OptionalBool
-}
-
-// Timeouts hold already-parsed address timeouts. A set zero duration means
-// explicitly disabled where the relevant address supports that state.
-type Timeouts struct {
-	Connect   OptionalDuration
-	Handshake OptionalDuration
-	Accept    OptionalDuration
-	Read      OptionalDuration
-	Write     OptionalDuration
-}
-
 // Transfer contains stream wrapper choices resolved before a resource opens.
 type Transfer struct {
 	ReadBytes  OptionalUint64
@@ -120,16 +98,6 @@ type Transfer struct {
 	LineEnding LineEnding
 	Shutdown   ShutdownMode
 }
-
-// DescriptorMode selects the platform descriptor conversion, if explicitly
-// requested. It is separate from transport text transformations.
-type DescriptorMode uint8
-
-const (
-	DescriptorModeDefault DescriptorMode = iota
-	DescriptorModeBinary
-	DescriptorModeText
-)
 
 // LineEnding selects one transfer conversion. Zero leaves the stream raw.
 type LineEnding uint8
@@ -152,57 +120,23 @@ const (
 	ShutdownNull
 )
 
-// OptionalBool preserves absence separately from an explicit false.
-type OptionalBool struct {
+// Optional preserves absence separately from a zero value.
+type Optional[T any] struct {
 	Set   bool
-	Value bool
+	Value T
 }
 
-type OptionalInt struct {
-	Set   bool
-	Value int
-}
+type (
+	OptionalBool     = Optional[bool]
+	OptionalInt      = Optional[int]
+	OptionalUint64   = Optional[uint64]
+	OptionalUint32   = Optional[uint32]
+	OptionalByte     = Optional[byte]
+	OptionalDuration = Optional[time.Duration]
+	OptionalString   = Optional[string]
+)
 
-type OptionalUint64 struct {
-	Set   bool
-	Value uint64
-}
-
-// OptionalUint32 preserves absence separately from an explicit zero.
-type OptionalUint32 struct {
-	Set   bool
-	Value uint32
-}
-
-type OptionalByte struct {
-	Set   bool
-	Value byte
-}
-
-type OptionalDuration struct {
-	Set   bool
-	Value time.Duration
-}
-
-type OptionalString struct {
-	Set   bool
-	Value string
-}
-
-// Resolver retains unresolved names and resolver policies. Names are resolved
-// by the resource owner at its existing execution point.
-type Resolver struct {
-	NameServer OptionalString
-	UseVC      OptionalBool
-	AddrConfig OptionalBool
-	Passive    OptionalBool
-	V4Mapped   OptionalBool
-	All        OptionalBool
-}
-
-// Decode transforms the option families that every transport shares. Callers
-// pass facts after registry resolution; parsing and decoding itself perform no
-// resource acquisition.
+// Decode transforms shared option families without acquiring resources.
 func Decode(spec parse.Spec, facts Facts) (Address, error) {
 	a := Address{
 		Type:   facts.Type,
@@ -225,7 +159,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
-	if a.Common.MaxChildren.Set && (!a.Common.Fork.Enabled.Set || !a.Common.Fork.Enabled.Value) {
+	if a.Common.MaxChildren.Set && (!a.Common.Fork.Set || !a.Common.Fork.Value) {
 		return Address{}, fmt.Errorf("%s: option max-children not allowed without option fork", facts.Type)
 	}
 	return a, nil
@@ -254,12 +188,10 @@ func decodeOption(a *Address, o parse.Option) error {
 	}
 	switch name {
 	case "fork":
-		v := activeBool(o)
-		a.Common.Fork.Enabled = v
+		a.Common.Fork = activeBool(o)
 		return nil
 	case "nofork":
-		v := activeBool(o)
-		a.Common.Fork.NoFork = v
+		a.Common.NoFork = activeBool(o)
 		return nil
 	case "max-children":
 		n, err := requiredInt(o, 0)
@@ -297,15 +229,11 @@ func decodeOption(a *Address, o parse.Option) error {
 		a.Common.Retry.Interval = d
 		return nil
 	case "connect-timeout":
-		return decodeDuration(&a.Common.Timeouts.Connect, o)
+		return decodeDuration(&a.Common.ConnectTimeout, o)
 	case "handshake-timeout":
-		return decodeDuration(&a.Common.Timeouts.Handshake, o)
+		return decodeDuration(&a.Common.HandshakeTimeout, o)
 	case "accept-timeout":
-		return decodeDuration(&a.Common.Timeouts.Accept, o)
-	case "rcvtimeo":
-		return decodeDuration(&a.Common.Timeouts.Read, o)
-	case "sndtimeo":
-		return decodeDuration(&a.Common.Timeouts.Write, o)
+		return decodeDuration(&a.Common.AcceptTimeout, o)
 	case "readbytes":
 		n, err := sizeT(o)
 		if err != nil {
@@ -320,13 +248,13 @@ func decodeOption(a *Address, o parse.Option) error {
 		}
 		a.Transfer.Escape = OptionalByte{Set: true, Value: b}
 		return nil
-	case "ignoreeof":
+	case "ignoreeof", "null-eof":
 		v := activeBool(o)
-		a.Transfer.IgnoreEOF = v
-		return nil
-	case "null-eof":
-		v := activeBool(o)
-		a.Transfer.NullEOF = v
+		if name == "ignoreeof" {
+			a.Transfer.IgnoreEOF = v
+		} else {
+			a.Transfer.NullEOF = v
+		}
 		return nil
 	case "end-close":
 		v, err := optionalBool(o)
@@ -360,26 +288,14 @@ func decodeOption(a *Address, o parse.Option) error {
 		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownNull)
 	case "shut":
 		return decodeShutdown(&a.Transfer.Shutdown, o)
-	case "binary":
+	case "binary", "text":
 		v, err := optionalBool(o)
-		if err != nil {
-			return err
+		if name == "binary" {
+			a.Common.Binary = v
+		} else {
+			a.Common.Text = v
 		}
-		a.Common.Binary = v
-		if v.Value {
-			a.Common.DescriptorMode = DescriptorModeBinary
-		}
-		return nil
-	case "text":
-		v, err := optionalBool(o)
-		if err != nil {
-			return err
-		}
-		a.Common.Text = v
-		if v.Value {
-			a.Common.DescriptorMode = DescriptorModeText
-		}
-		return nil
+		return err
 	case "netns":
 		v, err := requiredString(o)
 		if err == nil {
@@ -394,27 +310,22 @@ func decodeOption(a *Address, o parse.Option) error {
 		if _, err := ParseResNSAddr(v); err != nil {
 			return err
 		}
-		a.Common.Resolver.NameServer = OptionalString{Set: true, Value: v}
+		a.Common.NameServer = OptionalString{Set: true, Value: v}
 		return nil
-	case "res-usevc":
+	case "res-usevc", "ai-addrconfig", "ai-passive", "ai-v4mapped", "ai-all":
 		v, err := optionalBool(o)
-		a.Common.Resolver.UseVC = v
-		return err
-	case "ai-addrconfig":
-		v, err := optionalBool(o)
-		a.Common.Resolver.AddrConfig = v
-		return err
-	case "ai-passive":
-		v, err := optionalBool(o)
-		a.Common.Resolver.Passive = v
-		return err
-	case "ai-v4mapped":
-		v, err := optionalBool(o)
-		a.Common.Resolver.V4Mapped = v
-		return err
-	case "ai-all":
-		v, err := optionalBool(o)
-		a.Common.Resolver.All = v
+		switch name {
+		case "res-usevc":
+			a.Common.UseVC = v
+		case "ai-addrconfig":
+			a.Common.AddrConfig = v
+		case "ai-passive":
+			a.Common.Passive = v
+		case "ai-v4mapped":
+			a.Common.V4Mapped = v
+		default:
+			a.Common.AddrInfoAll = v
+		}
 		return err
 	}
 	return nil
@@ -489,20 +400,6 @@ func activeBool(o parse.Option) OptionalBool {
 	return OptionalBool{Set: true, Value: v != "" && v != "0" && v != "false" && v != "no" && v != "off"}
 }
 
-func optionalSignedInt(o parse.Option) error {
-	if !o.Has {
-		return nil
-	}
-	value, err := requiredString(o)
-	if err != nil {
-		return err
-	}
-	if _, err := strconv.ParseInt(strings.TrimSpace(value), 0, 64); err != nil {
-		return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
-	}
-	return nil
-}
-
 func optionText(o parse.Option) string {
 	if !o.Has {
 		return "1"
@@ -534,14 +431,14 @@ func duration(o parse.Option) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	d, err := parseDuration(value)
+	d, err := ParseDuration(value)
 	if err != nil || d < 0 {
 		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
 	}
 	return d, nil
 }
 
-func parseDuration(value string) (time.Duration, error) {
+func ParseDuration(value string) (time.Duration, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return 0, fmt.Errorf("empty duration")
@@ -561,14 +458,29 @@ func sizeT(o parse.Option) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	n, err := ParseSizeT(value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+	}
+	return n, nil
+}
+
+// ParseSizeT parses an unsigned size; a leading minus wraps modulo 2^64.
+func ParseSizeT(value string) (uint64, error) {
 	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, fmt.Errorf("empty value")
+	}
 	negative := value[0] == '-'
 	if negative || value[0] == '+' {
 		value = value[1:]
+		if value == "" {
+			return 0, fmt.Errorf("invalid value")
+		}
 	}
 	n, err := strconv.ParseUint(value, 0, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return 0, err
 	}
 	if negative {
 		return -n, nil

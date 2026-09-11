@@ -18,10 +18,9 @@ const (
 
 // NeedRecvErr reports whether the spec enables IP_RECVERR (Linux).
 func NeedRecvErr(s addrconfig.Address) bool {
-	config := s
 	var n int
 	var set bool
-	for _, action := range config.Network.Actions {
+	for _, action := range s.Network.Actions {
 		if action.Kind == addrconfig.SocketActionRecvErr && action.Text == "ip-recverr" {
 			n = action.Number
 			set = true
@@ -33,12 +32,8 @@ func NeedRecvErr(s addrconfig.Address) bool {
 // RejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for
 // ip-recverr on platforms that do not implement IP_RECVERR.
 func RejectUnsupportedRecvErr(s addrconfig.Address) error {
-	config := s
-	typ := config.Type
-	if typ == "" {
-		typ = s.Type
-	}
-	for _, action := range config.Network.Actions {
+	typ := s.Type
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionRecvErr {
 			continue
 		}

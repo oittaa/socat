@@ -42,16 +42,15 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 	if err != nil {
 		return nil, err
 	}
-	config := s
-	bind := xio.BindHost(config)
+	bind := xio.BindHost(s)
 	// DATAGRAM ignores sourceport for the local bind; SENDTO uses it as the local port.
 	sp := ""
 	if exactPeer {
-		sp = xio.SourcePortText(config)
+		sp = xio.SourcePortText(s)
 	}
 	var laddr *net.UDPAddr
 	// lowport: bind a port in 640..1023 (log even if EACCES).
-	if config.Network.Peer.LowPort.Value && sp == "" {
+	if s.Network.LowPort.Value && sp == "" {
 		bind, err = xio.ListenBindHost(s, network, bind)
 		if err != nil {
 			return nil, err
@@ -197,9 +196,8 @@ type udpDatagramConn struct {
 }
 
 func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr, s addrconfig.Address, g *xio.Global, exactPeer bool) (*udpDatagramConn, error) {
-	config := s
-	sourcePortFilter := config.Network.Peer.SourcePortSet
-	filter, err := xio.NewPeerFilter(ctx, config.Network.Peer.WithoutSourcePort(), xio.LookupResolver(config), g)
+	sourcePortFilter := s.Network.SourcePortSet
+	filter, err := xio.NewPeerFilter(ctx, s.Network.WithoutSourcePort(), xio.LookupResolver(s), g)
 	if err != nil {
 		return nil, err
 	}
@@ -353,8 +351,7 @@ func openUDPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		return nil, err
 	}
 	if recvfrom {
-		config := s
-		if xio.ForkRequested(config) {
+		if xio.ForkRequested(s) {
 			return openUDPRecvfromFork(ctx, s, g, pc, laddr, network)
 		}
 		return openUDPRecvfromOne(ctx, s, g, pc)
@@ -373,7 +370,6 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config := s
 	ln := &udpForkListener{
 		pc:      pc,
 		network: network,
@@ -382,7 +378,7 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		g:       g,
 		ctx:     ctx,
 		oneShot: true,
-		nullEOF: config.Transfer.NullEOF.Value,
+		nullEOF: s.Transfer.NullEOF.Value,
 		filter:  peerFilter,
 	}
 	if err := applyUDPForkTimeouts(ln, s); err != nil {
@@ -425,8 +421,7 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	config := s
-	nullEOF := config.Transfer.NullEOF.Value
+	nullEOF := s.Transfer.NullEOF.Value
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		ch := make(chan res, 1)

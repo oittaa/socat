@@ -21,11 +21,7 @@ import (
 )
 
 func openWSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	prepared, err := preparedWebSocketConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(prepared.Type, prepared.TLS); err != nil {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
 	return openWSListenTLS(ctx, s, mode, g, false)
@@ -36,21 +32,12 @@ func openWSSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 }
 
 func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
-	prepared, err := preparedWebSocketConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	websocketConfig := prepared.WebSocket
-	pathOption := ""
-	if websocketConfig.Path.Set {
-		pathOption = websocketConfig.Path.Value
-	}
-	_, port, wpath, err := wsTargetWithPath(s, true, pathOption)
+	_, port, wpath, err := wsTarget(s, true)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.ListenNetwork(g, s)
-	network = xio.DualStackListenNetwork(prepared, network)
+	network = xio.DualStackListenNetwork(s, network)
 	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
@@ -62,7 +49,7 @@ func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 	}
 	ln := net.Listener(rawLn)
 	if useTLS {
-		tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, prepared.TLS)
+		tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
 		if err != nil {
 			logx.CloseQuiet(rawLn)
 			return nil, err
@@ -70,8 +57,8 @@ func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		ln = tls.NewListener(rawLn, tlsCfg)
 	}
 
-	origin := websocketConfig.Origin.Value
-	proto := websocketConfig.Protocol.Value
+	origin := s.TLS.WSOrigin.Value
+	proto := s.TLS.WSProtocol.Value
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {

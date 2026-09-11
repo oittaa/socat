@@ -200,9 +200,8 @@ func listenUnixNetwork(ctx context.Context, s addrconfig.Address, network, path 
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	config := s
-	tight := unixTightSocklen(config.Network.UnixTightSocklen)
-	err = xio.WithConfiguredUmask(config.File, func() error {
+	tight := unixTightSocklen(s.Network.UnixTightSocklen)
+	err = xio.WithConfiguredUmask(s.File, func() error {
 		return unixBindPath(fd, path, tight)
 	})
 	if err != nil {

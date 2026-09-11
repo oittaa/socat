@@ -7,39 +7,31 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-type httpMajor int
-
-const (
-	httpVer1 httpMajor = 1
-	httpVer2 httpMajor = 2
-	httpVer3 httpMajor = 3
-)
-
 func rejectProxyPlaintextPolicy(config addrconfig.Address) error {
 	major, _ := proxyHTTPVersion(config.Proxy)
 	h2c := config.Proxy.H2C.Value
-	if h2c && major != httpVer2 {
+	if h2c && major != addrconfig.HTTPVersion2 {
 		return fmt.Errorf("h2c requires http-version=2")
 	}
-	if config.Proxy.IgnoreCR.Value && major != httpVer1 {
+	if config.Proxy.IgnoreCR.Value && major >= addrconfig.HTTPVersion2 {
 		return fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
 	}
-	if major == httpVer1 || (major == httpVer2 && h2c) {
+	if major <= addrconfig.HTTPVersion11 || (major == addrconfig.HTTPVersion2 && h2c) {
 		return tlsopen.RejectPROXYTLSOnPlaintext(config.Type, config.TLS)
 	}
 	return nil
 }
 
-func proxyHTTPVersion(p addrconfig.Proxy) (httpMajor, string) {
+func proxyHTTPVersion(p addrconfig.Proxy) (addrconfig.HTTPVersion, string) {
 	switch p.HTTPVersion {
 	case addrconfig.HTTPVersion11:
-		return httpVer1, "1.1"
+		return addrconfig.HTTPVersion11, "1.1"
 	case addrconfig.HTTPVersion2:
-		return httpVer2, "2"
+		return addrconfig.HTTPVersion2, "2"
 	case addrconfig.HTTPVersion3:
-		return httpVer3, "3"
+		return addrconfig.HTTPVersion3, "3"
 	default:
-		return httpVer1, "1.0"
+		return addrconfig.HTTPVersion10, "1.0"
 	}
 }
 

@@ -42,8 +42,7 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 		o.MaxChildren = maxChildren
 		o.Interval = RetryPolicyFromContext(ctx).Interval
 		dial := carryPreparedConfig(ctx, d.Dial)
-		config := s
-		o.Dial = WrapNetNSDial(netNamespaceName(config), g, dial)
+		o.Dial = WrapNetNSDial(netNamespaceName(s), g, dial)
 		o.WrapDial = wrap
 		return o, nil
 	}

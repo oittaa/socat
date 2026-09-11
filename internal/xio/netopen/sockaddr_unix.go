@@ -24,14 +24,6 @@ type rawSockaddr struct {
 	buf []byte
 }
 
-func preparedSocketConfig(ctx context.Context) (addrconfig.Address, error) {
-	config, ok := xio.PreparedConfig(ctx)
-	if !ok || config.Network.Kind != addrconfig.AddressKindSocket {
-		return addrconfig.Address{}, fmt.Errorf("SOCKET: prepared socket configuration is required")
-	}
-	return config, nil
-}
-
 func socketCallFromConfig(config addrconfig.Address) (socketCall, error) {
 	raw := config.Network.RawSocket
 	if !raw.Set {
@@ -182,7 +174,7 @@ func applySocketOpts(fd int, config addrconfig.Address) error {
 	if err := xio.ApplySocketOptions(fd, config); err != nil {
 		return err
 	}
-	return xio.ApplyPreparedGenericSetsockopt(fd, config, xio.SockoptPhasePrebind)
+	return xio.ApplyGenericSetsockopt(fd, config, xio.SockoptPhasePrebind)
 }
 
 func newSocket(domain, typ, proto int) (int, error) {

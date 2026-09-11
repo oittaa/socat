@@ -34,8 +34,7 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
 	remote := unixAddr(s.Params[0])
-	config := s
-	bindPath, err := resolveUnixBindConfig(config)
+	bindPath, err := resolveUnixBindConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -45,7 +44,7 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	bound := ""
 	if bindPath != "" {
 		bound = unixAddr(bindPath)
-		if err := prepareUnixClientBind(bound, config); err != nil {
+		if err := prepareUnixClientBind(bound, s); err != nil {
 			return nil, err
 		}
 		laddr := &net.UnixAddr{Name: bound, Net: "unixgram"}
@@ -56,12 +55,12 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bound, config)
+	life := trackUnixBind(bound, s)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredNamedAfterBind(bound, config, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bound, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
@@ -102,12 +101,11 @@ func listenUnixgramBound(s addrconfig.Address, laddr *net.UnixAddr, applyUmask b
 		logx.CloseErr(syscall.Close(fd))
 		return nil, err
 	}
-	config := s
 	bind := func() error {
-		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(config.Network.UnixTightSocklen))
+		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(s.Network.UnixTightSocklen))
 	}
 	if applyUmask {
-		err = xio.WithConfiguredUmask(config.File, bind)
+		err = xio.WithConfiguredUmask(s.File, bind)
 	} else {
 		err = bind()
 	}
@@ -156,8 +154,7 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
 	path := unixAddr(s.Params[0])
-	config := s
-	if err := prepareUnixFilesystemPath(path, config); err != nil {
+	if err := prepareUnixFilesystemPath(path, s); err != nil {
 		return nil, err
 	}
 	laddr := &net.UnixAddr{Name: path, Net: "unixgram"}
@@ -165,18 +162,18 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(path, config)
+	life := trackUnixBind(path, s)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredNamedAfterBind(path, config, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
 	label := s.Type + ":" + path
-	if xio.ForkRequested(config) && from {
-		ln := &unixgramListener{c: c, path: path, config: s, g: g, ctx: ctx, nullEOF: config.Transfer.NullEOF.Value}
+	if xio.ForkRequested(s) && from {
+		ln := &unixgramListener{c: c, path: path, config: s, g: g, ctx: ctx, nullEOF: s.Transfer.NullEOF.Value}
 		d, terr := xio.RecvTimeout(s)
 		if terr != nil {
 			life.drop(ln)
@@ -202,7 +199,7 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 	}
 
 	if from {
-		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, config.Transfer.NullEOF.Value)
+		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, s.Transfer.NullEOF.Value)
 		if err != nil {
 			life.drop(c)
 			return nil, err

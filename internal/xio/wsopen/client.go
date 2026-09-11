@@ -19,11 +19,7 @@ import (
 )
 
 func openWSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	prepared, err := preparedWebSocketConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(prepared.Type, prepared.TLS); err != nil {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
 	return openWSConnectScheme(ctx, s, mode, g, "ws")
@@ -34,16 +30,7 @@ func openWSSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 }
 
 func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
-	prepared, err := preparedWebSocketConfig(ctx, s)
-	if err != nil {
-		return nil, err
-	}
-	websocketConfig := prepared.WebSocket
-	pathOption := ""
-	if websocketConfig.Path.Set {
-		pathOption = websocketConfig.Path.Value
-	}
-	host, port, path, err := wsTargetWithPath(s, false, pathOption)
+	host, port, path, err := wsTarget(s, false)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +46,7 @@ func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
-		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, prepared.TLS, host)
+		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, s.TLS, host)
 		if err != nil {
 			return nil, err
 		}
@@ -68,7 +55,7 @@ func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Type, func() error {
-			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout, websocketConfig)
+			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout)
 			if e != nil {
 				return e
 			}
@@ -105,7 +92,7 @@ func (t wsDialTarget) httpURL() url.URL {
 	}
 }
 
-func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration, websocketConfig addrconfig.WebSocket) (net.Conn, error) {
+func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
 	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
 	if err != nil {
 		return nil, err
@@ -155,11 +142,11 @@ func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio
 		opts := &websocket.DialOptions{
 			HTTPClient: &http.Client{Transport: tr},
 		}
-		if origin := websocketConfig.Origin.Value; origin != "" {
+		if origin := s.TLS.WSOrigin.Value; origin != "" {
 			opts.HTTPHeader = make(http.Header)
 			opts.HTTPHeader.Set("Origin", origin)
 		}
-		if proto := websocketConfig.Protocol.Value; proto != "" {
+		if proto := s.TLS.WSProtocol.Value; proto != "" {
 			opts.Subprotocols = []string{proto}
 		}
 		c, _, err := websocket.Dial(hctx, rawURL, opts)
@@ -178,11 +165,4 @@ func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio
 	}
 	owned = true
 	return conn, nil
-}
-
-func preparedWebSocketConfig(ctx context.Context, s addrconfig.Address) (addrconfig.Address, error) {
-	if config, ok := xio.PreparedConfig(ctx); ok {
-		return config, nil
-	}
-	return s, nil
 }

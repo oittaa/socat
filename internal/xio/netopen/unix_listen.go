@@ -18,8 +18,7 @@ func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xi
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
 	path := s.Params[0]
-	config := s
-	if config.Network.BindSet || config.Common.ConnectBind.Set {
+	if s.Network.BindSet {
 		// bind= on UNIX-LISTEN is invalid (must not bind twice).
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
 	}
@@ -31,7 +30,7 @@ func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xi
 		return nil, fmt.Errorf("%s: SOCK_DGRAM does not support listen; use UNIX-RECV or UNIX-RECVFROM", s.Type)
 	}
 
-	if err := prepareUnixFilesystemPath(path, config); err != nil {
+	if err := prepareUnixFilesystemPath(path, s); err != nil {
 		return nil, err
 	}
 
@@ -42,14 +41,14 @@ func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xi
 
 	// Go's UnixListener unlinks the path on Close by default. Match
 	// unlink-close: default true; unlink-close=0 keeps the filesystem entry.
-	doUnlink := unixUnlinkOnClose(config)
+	doUnlink := unixUnlinkOnClose(s)
 	if ul, ok := ln.(*net.UnixListener); ok {
 		ul.SetUnlinkOnClose(doUnlink)
 	}
 
 	// mode/perm/user then perm-early/user-early/group-early on the socket
 	// file after bind.
-	if err := xio.ApplyConfiguredNamedAfterBind(path, config, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
 			_ = xio.Unlink(path)

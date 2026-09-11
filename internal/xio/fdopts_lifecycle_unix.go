@@ -282,13 +282,11 @@ func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
 }
 
 func applyFDLifecycleToFile(f *os.File, s addrconfig.Address, skip FDSkip) error {
-	config := s
-	return ApplyConfiguredFDOptions(f, config.File, skip)
+	return ApplyConfiguredFDOptions(f, s.File, skip)
 }
 
 func applyFDLifecycleOnFD(fd int, s addrconfig.Address, skip FDSkip) error {
-	config := s
-	return applyConfiguredFDOnFD(fd, config.File, skip)
+	return applyConfiguredFDOnFD(fd, s.File, skip)
 }
 
 // applyFDLifecycleToStream applies descriptor lifecycle once per unique
@@ -305,12 +303,11 @@ func applyFDLifecycleLateToStream(s addrconfig.Address, stream relay.Stream) err
 }
 
 func applyFDLifecycleToStreamMode(s addrconfig.Address, stream relay.Stream, skip FDSkip, lateOnly bool) error {
-	config := s
 	if lateOnly {
-		if !hasConfiguredFDActions(config.File, FDSkip{}) {
+		if !hasConfiguredFDActions(s.File, FDSkip{}) {
 			return nil
 		}
-	} else if !hasConfiguredFDActions(config.File, skip) {
+	} else if !hasConfiguredFDActions(s.File, skip) {
 		return nil
 	}
 	targets := streamSyscallConns(stream)
@@ -327,10 +324,10 @@ func applyFDLifecycleToStreamMode(s addrconfig.Address, stream relay.Stream, ski
 			}
 			seen[n] = struct{}{}
 			if lateOnly {
-				fdErr = applyConfiguredLate(n, config.File, FDSkip{})
+				fdErr = applyConfiguredLate(n, s.File, FDSkip{})
 				return
 			}
-			fdErr = applyConfiguredFDOnFD(n, config.File, skip)
+			fdErr = applyConfiguredFDOnFD(n, s.File, skip)
 		})
 		if err := errors.Join(ctrlErr, fdErr); err != nil {
 			return err
@@ -351,8 +348,7 @@ func ApplyFDLifecycleToConnSkip(c syscall.Conn, s addrconfig.Address, skip FDSki
 	if c == nil {
 		return nil
 	}
-	config := s
-	if !hasConfiguredFDActions(config.File, skip) {
+	if !hasConfiguredFDActions(s.File, skip) {
 		return nil
 	}
 	raw, err := c.SyscallConn()
@@ -361,7 +357,7 @@ func ApplyFDLifecycleToConnSkip(c syscall.Conn, s addrconfig.Address, skip FDSki
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyConfiguredFDOnFD(int(fd), config.File, skip)
+		optionErr = applyConfiguredFDOnFD(int(fd), s.File, skip)
 	})
 	return errors.Join(ctrlErr, optionErr)
 }
@@ -373,14 +369,13 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	if c == nil {
 		return nil
 	}
-	config := s
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err
 	}
 	var optionErr error
 	ctrlErr := raw.Control(func(fd uintptr) {
-		optionErr = applyConfiguredFDPhase(int(fd), config.File, FDSkip{})
+		optionErr = applyConfiguredFDPhase(int(fd), s.File, FDSkip{})
 	})
 	return errors.Join(ctrlErr, optionErr)
 }
@@ -392,8 +387,7 @@ func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error
 	if pc == nil {
 		return nil
 	}
-	config := s
-	if !hasConfiguredFDActions(config.File, FDSkip{}) {
+	if !hasConfiguredFDActions(s.File, FDSkip{}) {
 		return nil
 	}
 	sc, ok := pc.(syscall.Conn)

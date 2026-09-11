@@ -8,7 +8,7 @@ import (
 
 // ForkRequested reports whether fork is enabled on the prepared address.
 func ForkRequested(config addrconfig.Address) bool {
-	return config.Common.Fork.Enabled.Value
+	return config.Common.Fork.Value
 }
 
 // ForkLimits reads prepared fork and max-children. A present max-children

@@ -15,11 +15,3 @@ func applyPreparedMulticast(_ int, req addrconfig.MulticastRequest) error {
 	}
 	return fmt.Errorf("%s: not supported on Windows", name)
 }
-
-func applyPreparedSourceMulticast(_ int, req addrconfig.SourceMulticastRequest) error {
-	name := req.Name
-	if name == "" {
-		name = "ip-add-source-membership"
-	}
-	return fmt.Errorf("%s: not supported on Windows", name)
-}

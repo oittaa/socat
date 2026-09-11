@@ -9,8 +9,7 @@ import (
 )
 
 func wrapShutPolicy(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	config := s
-	return wrapTransferShut(config.Transfer.Shutdown, stream), nil
+	return wrapTransferShut(s.Transfer.Shutdown, stream), nil
 }
 
 func wrapTransferShut(mode addrconfig.ShutdownMode, stream relay.Stream) relay.Stream {

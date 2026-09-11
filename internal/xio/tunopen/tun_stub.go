@@ -10,10 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func openTUN(_ context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	if _, err := tunPositional(s); err != nil {
-		return nil, err
-	}
+func openTUN(_ context.Context, _ addrconfig.Address, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	return nil, fmt.Errorf("TUN is only supported on Linux")
 }
 
@@ -22,21 +19,4 @@ func openINTERFACE(_ context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.G
 		return nil, fmt.Errorf("INTERFACE requires interface name")
 	}
 	return nil, fmt.Errorf("INTERFACE is only supported on Linux")
-}
-
-// tunPositional checks TUN arity. Linux also uses this check after Decode.
-func tunPositional(s addrconfig.Address) (string, error) {
-	n := 0
-	for _, p := range s.Params {
-		if p != "" {
-			n++
-		}
-	}
-	if n > 1 || len(s.Params) > 1 {
-		return "", fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(s.Params))
-	}
-	if len(s.Params) == 1 {
-		return s.Params[0], nil
-	}
-	return "", nil
 }

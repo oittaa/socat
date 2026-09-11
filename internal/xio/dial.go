@@ -72,10 +72,9 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	config := s
-	bindOpt := BindHost(config)
-	sp := SourcePortText(config)
-	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
+	bindOpt := BindHost(s)
+	sp := SourcePortText(s)
+	lowport := s.Network.LowPort.Value && (sp == "" || sp == "0")
 
 	var lastErr error
 	for _, ip := range ips {
@@ -213,8 +212,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
 	// IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
-		config := s
-		if config.Common.Resolver.Passive.Value {
+		if s.Common.Passive.Value {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
@@ -319,8 +317,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 	if bindHost == "" {
 		// sourceport only: wildcard of matching family, or loopback when
 		// ai-passive=0.
-		config := s
-		if listenAIPassive(config) {
+		if listenAIPassive(s) {
 			if want4 {
 				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
 			}

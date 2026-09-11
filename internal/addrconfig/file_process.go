@@ -10,37 +10,23 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-// File holds statically-decoded descriptor and filesystem configuration.
-// Actions retain their source order; values that need passwd/group or
-// filesystem resolution deliberately retain only their unresolved reference.
+// File is decoded descriptor and filesystem configuration.
 type File struct {
-	Open        OpenSettings
+	Access      FileAccess
+	Create      OptionalBool
+	Exclusive   bool
+	AppendSet   bool
+	Append      bool
+	Truncate    bool
+	Nonblock    bool
 	Actions     []FileAction
 	Umask       OptionalUint32
 	UnlinkEarly OptionalBool
 	UnlinkLate  OptionalBool
 	UnlinkClose OptionalBool
-	Lock        FileLock
-}
-
-// FileLock is lockfile= or waitlock=. Only one of those options may appear.
-type FileLock struct {
-	Set  bool
-	Wait bool
-	Path string
-}
-
-// OpenSettings is the final open(2) flag policy. The decoder updates it in
-// source order, so aliases and explicit false values keep their usual effect.
-type OpenSettings struct {
-	Access    FileAccess
-	Create    OptionalBool
-	Exclusive bool
-	AppendSet bool
-	Append    bool
-	Truncate  bool
-	Nonblock  bool
-	Flags     []OpenFlagAction
+	LockSet     bool
+	LockWait    bool
+	LockPath    string
 }
 
 // FileAccess is an open access mode.
@@ -52,13 +38,6 @@ const (
 	FileAccessWrite
 	FileAccessReadWrite
 )
-
-// OpenFlagAction is a platform-owned open flag. Name identifies the fixed
-// flag family; Enabled is the already-decoded optional-boolean value.
-type OpenFlagAction struct {
-	Name    string
-	Enabled bool
-}
 
 // FileActionKind identifies one after-open action.
 type FileActionKind uint8
@@ -88,11 +67,10 @@ const (
 	FileActionGroupEarly
 	FileActionUnlink
 	FileActionNoInherit
+	FileActionOpenFlag
 )
 
-// FileAction carries the fully decoded operand of one filesystem operation.
-// Text remains only for unresolved user/group names, which resolve at the
-// existing ownership-application point.
+// FileAction is one filesystem operation in source order.
 type FileAction struct {
 	Kind      FileActionKind
 	Name      string
@@ -106,8 +84,7 @@ type FileAction struct {
 	ValueKind uint8
 }
 
-// Process holds static EXEC/SYSTEM/SHELL choices. Command strings remain
-// positional text because their interpretation belongs to os/exec.
+// Process holds EXEC/SYSTEM/SHELL choices. Commands stay positional.
 type Process struct {
 	Pipes         OptionalBool
 	PTY           OptionalBool
@@ -123,8 +100,7 @@ type Process struct {
 	ParentSignals []ParentSignal
 }
 
-// ParentSignal is one EXEC/SYSTEM/SHELL parent-to-child signal pass-through.
-// Each source occurrence is retained so registration can occupy one slot.
+// ParentSignal is one parent-to-child signal pass-through.
 type ParentSignal uint8
 
 const (
@@ -144,8 +120,7 @@ type Terminal struct {
 	CTTY         OptionalBool
 }
 
-// TerminalActionKind identifies one termios update without preserving its
-// textual value grammar for the executor.
+// TerminalActionKind identifies one termios update.
 type TerminalActionKind uint8
 
 const (
@@ -158,9 +133,7 @@ const (
 	TerminalActionWinSize
 )
 
-// TerminalAction carries one decoded terminal update. Name is the canonical
-// terminal control identifier used by the platform termios owner; numeric and
-// boolean operands are never parsed again at application time.
+// TerminalAction is one decoded terminal update.
 type TerminalAction struct {
 	Kind    TerminalActionKind
 	Name    string
@@ -179,88 +152,76 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		a.File.Actions = append(a.File.Actions, action)
 	}
 	switch name {
-	case "rdonly":
+	case "rdonly", "wronly", "rdwr":
 		if activeBool(o).Value {
-			a.File.Open.Access = FileAccessRead
-		}
-		return true, nil
-	case "wronly":
-		if activeBool(o).Value {
-			a.File.Open.Access = FileAccessWrite
-		}
-		return true, nil
-	case "rdwr":
-		if activeBool(o).Value {
-			a.File.Open.Access = FileAccessReadWrite
+			switch name {
+			case "rdonly":
+				a.File.Access = FileAccessRead
+			case "wronly":
+				a.File.Access = FileAccessWrite
+			default:
+				a.File.Access = FileAccessReadWrite
+			}
 		}
 		return true, nil
 	case "creat":
-		a.File.Open.Create = activeBool(o)
+		a.File.Create = activeBool(o)
 		return true, nil
 	case "excl":
-		a.File.Open.Exclusive = activeBool(o).Value
+		a.File.Exclusive = activeBool(o).Value
 		return true, nil
 	case "append":
 		enabled := activeBool(o).Value
-		a.File.Open.AppendSet = true
-		a.File.Open.Append = enabled
+		a.File.AppendSet = true
+		a.File.Append = enabled
 		appendAction(FileAction{Kind: FileActionAppend, Enabled: enabled})
 		return true, nil
 	case "trunc":
-		a.File.Open.Truncate = activeBool(o).Value
+		a.File.Truncate = activeBool(o).Value
 		return true, nil
 	case "nonblock":
-		a.File.Open.Nonblock = activeBool(o).Value
+		a.File.Nonblock = activeBool(o).Value
 		return true, nil
 	case "o-direct", "o-sync", "o-dsync", "o-rsync", "o-noctty", "o-nofollow", "o-directory", "o-largefile":
-		a.File.Open.Flags = append(a.File.Open.Flags, OpenFlagAction{Name: name, Enabled: activeBool(o).Value})
+		appendAction(FileAction{Kind: FileActionOpenFlag, Text: name, Enabled: activeBool(o).Value})
 		return true, nil
 	case "async":
 		enabled := activeBool(o).Value
-		a.File.Open.Flags = append(a.File.Open.Flags, OpenFlagAction{Name: name, Enabled: enabled})
-		appendAction(FileAction{Kind: FileActionAsync, Enabled: enabled})
+		appendAction(FileAction{Kind: FileActionAsync, Text: name, Enabled: enabled})
 		return true, nil
-	case "perm":
+	case "perm", "perm-late", "perm-early":
 		mode, err := fileMode(o, 0o7777)
 		if err != nil {
 			return true, err
 		}
-		appendAction(FileAction{Kind: FileActionPerm, Mode: mode})
-		return true, nil
-	case "perm-late":
-		mode, err := fileMode(o, 0o7777)
-		if err != nil {
-			return true, err
+		kind := FileActionPerm
+		switch name {
+		case "perm-late":
+			kind = FileActionPermLate
+		case "perm-early":
+			kind = FileActionPermEarly
 		}
-		appendAction(FileAction{Kind: FileActionPermLate, Mode: mode})
+		appendAction(FileAction{Kind: kind, Mode: mode})
 		return true, nil
-	case "user":
+	case "user", "group", "user-late", "group-late", "user-early", "group-early":
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		appendAction(FileAction{Kind: FileActionUser, Text: value})
-		return true, nil
-	case "group":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
+		kind := FileActionUser
+		switch name {
+		case "group":
+			kind = FileActionGroup
+		case "user-late":
+			kind = FileActionUserLate
+		case "group-late":
+			kind = FileActionGroupLate
+		case "user-early":
+			kind = FileActionUserEarly
+		case "group-early":
+			kind = FileActionGroupEarly
 		}
-		appendAction(FileAction{Kind: FileActionGroup, Text: value})
-		return true, nil
-	case "user-late":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(FileAction{Kind: FileActionUserLate, Text: value})
-		return true, nil
-	case "group-late":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(FileAction{Kind: FileActionGroupLate, Text: value})
+		appendAction(FileAction{Kind: kind, Text: value})
 		return true, nil
 	case "ftruncate":
 		n, err := nonnegativeInt64(o)
@@ -285,29 +246,25 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		}
 		appendAction(FileAction{Kind: kind, Offset: n})
 		return true, nil
-	case "flock":
-		appendAction(FileAction{Kind: FileActionFlock, Enabled: activeBool(o).Value, Value: 1})
-		return true, nil
-	case "flock-nb":
-		appendAction(FileAction{Kind: FileActionFlock, Enabled: activeBool(o).Value, Value: 2})
-		return true, nil
-	case "flock-sh":
-		appendAction(FileAction{Kind: FileActionFlock, Enabled: activeBool(o).Value, Value: 3})
-		return true, nil
-	case "flock-sh-nb":
-		appendAction(FileAction{Kind: FileActionFlock, Enabled: activeBool(o).Value, Value: 4})
-		return true, nil
-	case "setlk":
-		appendAction(FileAction{Kind: FileActionLock, Enabled: activeBool(o).Value, Value: 1})
-		return true, nil
-	case "setlkw":
-		appendAction(FileAction{Kind: FileActionLock, Enabled: activeBool(o).Value, Value: 2})
-		return true, nil
-	case "setlk-rd":
-		appendAction(FileAction{Kind: FileActionLock, Enabled: activeBool(o).Value, Value: 3})
-		return true, nil
-	case "setlkw-rd":
-		appendAction(FileAction{Kind: FileActionLock, Enabled: activeBool(o).Value, Value: 4})
+	case "flock", "flock-nb", "flock-sh", "flock-sh-nb", "setlk", "setlkw", "setlk-rd", "setlkw-rd":
+		kind, value := FileActionFlock, 1
+		switch name {
+		case "flock-nb":
+			value = 2
+		case "flock-sh":
+			value = 3
+		case "flock-sh-nb":
+			value = 4
+		case "setlk":
+			kind, value = FileActionLock, 1
+		case "setlkw":
+			kind, value = FileActionLock, 2
+		case "setlk-rd":
+			kind, value = FileActionLock, 3
+		case "setlkw-rd":
+			kind, value = FileActionLock, 4
+		}
+		appendAction(FileAction{Kind: kind, Enabled: activeBool(o).Value, Value: value})
 		return true, nil
 	case "cloexec":
 		enabled, err := optionalBool(o)
@@ -350,54 +307,34 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		}
 		a.File.Umask = OptionalUint32{Set: true, Value: mode}
 		return true, nil
-	case "perm-early":
-		mode, err := fileMode(o, 0o7777)
-		if err != nil {
-			return true, err
-		}
-		appendAction(FileAction{Kind: FileActionPermEarly, Mode: mode})
-		return true, nil
-	case "user-early":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(FileAction{Kind: FileActionUserEarly, Text: value})
-		return true, nil
-	case "group-early":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(FileAction{Kind: FileActionGroupEarly, Text: value})
-		return true, nil
 	case "unlink":
 		appendAction(FileAction{Kind: FileActionUnlink, Enabled: activeBool(o).Value})
 		return true, nil
-	case "unlink-early":
-		a.File.UnlinkEarly = activeBool(o)
+	case "unlink-early", "unlink-late", "unlink-close":
+		v := activeBool(o)
+		switch name {
+		case "unlink-early":
+			a.File.UnlinkEarly = v
+		case "unlink-late":
+			a.File.UnlinkLate = v
+		default:
+			a.File.UnlinkClose = v
+		}
 		return true, nil
-	case "unlink-late":
-		a.File.UnlinkLate = activeBool(o)
-		return true, nil
-	case "unlink-close":
-		value := activeBool(o)
-		a.File.UnlinkClose = value
-		return true, nil
-	case "pipes":
-		a.Process.Pipes = activeBool(o)
-		return true, nil
-	case "pty", "ptmx", "openpty":
-		a.Process.PTY = activeBool(o)
-		return true, nil
-	case "stderr":
-		a.Process.Stderr = activeBool(o)
-		return true, nil
-	case "setsid":
-		a.Process.SetSID = activeBool(o)
-		return true, nil
-	case "dash":
-		a.Process.Dash = activeBool(o)
+	case "pipes", "pty", "ptmx", "openpty", "stderr", "setsid", "dash":
+		v := activeBool(o)
+		switch name {
+		case "pipes":
+			a.Process.Pipes = v
+		case "stderr":
+			a.Process.Stderr = v
+		case "setsid":
+			a.Process.SetSID = v
+		case "dash":
+			a.Process.Dash = v
+		default:
+			a.Process.PTY = v
+		}
 		return true, nil
 	case "setpgid":
 		n, err := signedOptionalInt(o)
@@ -406,19 +343,17 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		}
 		a.Process.SetPGID = OptionalInt{Set: true, Value: n}
 		return true, nil
-	case "fdin":
+	case "fdin", "fdout":
 		n, set, err := processFD(o)
 		if err != nil {
 			return true, err
 		}
-		a.Process.FDIn = OptionalInt{Set: set, Value: n}
-		return true, nil
-	case "fdout":
-		n, set, err := processFD(o)
-		if err != nil {
-			return true, err
+		fd := OptionalInt{Set: set, Value: n}
+		if name == "fdin" {
+			a.Process.FDIn = fd
+		} else {
+			a.Process.FDOut = fd
 		}
-		a.Process.FDOut = OptionalInt{Set: set, Value: n}
 		return true, nil
 	case "shell":
 		a.Process.Shell = OptionalString{Set: true, Value: optionText(o)}
@@ -446,14 +381,14 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		a.Process.ParentSignals = append(a.Process.ParentSignals, sig)
 		return true, nil
 	case "lockfile", "waitlock":
-		if a.File.Lock.Set {
+		if a.File.LockSet {
 			return true, errors.New("only one use of options lockfile and waitlock allowed")
 		}
 		value, err := requiredString(o)
 		if err != nil {
 			return true, err
 		}
-		a.File.Lock = FileLock{Set: true, Wait: name == "waitlock", Path: value}
+		a.File.LockSet, a.File.LockWait, a.File.LockPath = true, name == "waitlock", value
 		return true, nil
 	}
 	return false, nil
@@ -535,7 +470,7 @@ func decodeTerminal(a *Address, o parse.Option) (bool, error) {
 		return true, nil
 	case "pty-interval":
 		value := optionText(o)
-		d, err := parseDuration(value)
+		d, err := ParseDuration(value)
 		if err != nil {
 			d = 0
 		}
@@ -545,7 +480,7 @@ func decodeTerminal(a *Address, o parse.Option) (bool, error) {
 		if !o.Has || strings.TrimSpace(o.Value) == "" {
 			return true, fmt.Errorf("sitout-eio: option requires a value")
 		}
-		d, err := parseDuration(o.Value)
+		d, err := ParseDuration(o.Value)
 		if err != nil || d < 0 {
 			return true, fmt.Errorf("sitout-eio: invalid timeval %q", o.Value)
 		}

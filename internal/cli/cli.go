@@ -3,7 +3,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/parse"
@@ -391,18 +391,7 @@ func optArg(a, key string, args []string, i *int) (string, error) {
 }
 
 func parseDuration(v string) (time.Duration, error) {
-	d, err := xio.ParseDurationValue(v)
-	if err != nil {
-		switch {
-		case errors.Is(err, xio.ErrEmptyDuration):
-			return 0, fmt.Errorf("empty duration")
-		case errors.Is(err, xio.ErrDurationOutOfRange):
-			return 0, fmt.Errorf("duration out of range")
-		default:
-			return 0, err
-		}
-	}
-	return d, nil
+	return addrconfig.ParseDuration(v)
 }
 
 // Field selectors for plainFlag.

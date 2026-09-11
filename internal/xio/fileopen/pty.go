@@ -15,7 +15,6 @@ import (
 // create a symlink to the slave (link=), optionally put master in raw mode (cfmakeraw).
 // The transfer stream is the master side; peers open the slave path via the link.
 func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
 	// PTY takes no positional parameters (PTY::::: probes / PTY_VOIDARG).
 	if len(s.Params) > 0 {
 		return nil, fmt.Errorf("PTY: wrong number of parameters (expected 0)")
@@ -33,18 +32,18 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 		g.Log.Noticef("PTY is %s", slaveName)
 	}
 
-	if err := xio.ApplyConfiguredTermios(int(slave.Fd()), config.Terminal); err != nil {
+	if err := xio.ApplyConfiguredTermios(int(slave.Fd()), s.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredTermios(int(master.Fd()), config.Terminal); err != nil {
+	if err := xio.ApplyConfiguredTermios(int(master.Fd()), s.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
 
-	unlink, err := xio.CreateConfiguredPtySlaveLink(config, slaveName)
+	unlink, err := xio.CreateConfiguredPtySlaveLink(s, slaveName)
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -52,14 +51,14 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 	}
 
 	// perm=/user= on PTY apply to the slave node (stat -L follows link).
-	if err := xio.ApplyConfiguredNamedAttrs(slaveName, slave, config.File); err != nil {
+	if err := xio.ApplyConfiguredNamedAttrs(slaveName, slave, s.File); err != nil {
 		unlink()
 		_ = master.Close()
 		_ = slave.Close()
 		return nil, err
 	}
 
-	if err := xio.ApplyConfiguredFDOptions(master, config.File, xio.FDSkipOwner); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(master, s.File, xio.FDSkipOwner); err != nil {
 		unlink()
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -67,7 +66,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 	}
 
 	// Use xio.PtyStream so half-close does not xio.Close the master (xio.FileStream would).
-	st, err := xio.PtyStreamConfigured(master, config.Terminal)
+	st, err := xio.PtyStreamConfigured(master, s.Terminal)
 	if err != nil {
 		unlink()
 		logx.CloseQuiet(master)
@@ -85,12 +84,12 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 		Stream: st,
 		Label:  "PTY:" + slaveName,
 	}
-	if config.Terminal.WaitSlave.Value {
+	if s.Terminal.WaitSlave.Value {
 		_ = slave.Close()
 		slave = nil
 		interval := time.Second
-		if config.Terminal.WaitInterval.Set {
-			interval = config.Terminal.WaitInterval.Value
+		if s.Terminal.WaitInterval.Set {
+			interval = s.Terminal.WaitInterval.Value
 		}
 		if err := xio.WaitPTYSlave(int(master.Fd()), interval); err != nil {
 			unlink()

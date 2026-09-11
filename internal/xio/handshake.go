@@ -22,8 +22,8 @@ const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 // connect-timeout remains the dial bound only. accept-timeout is the
 // accept-side bound.
 func HandshakeTimeout(config addrconfig.Address) time.Duration {
-	if config.Common.Timeouts.Handshake.Set {
-		return config.Common.Timeouts.Handshake.Value
+	if config.Common.HandshakeTimeout.Set {
+		return config.Common.HandshakeTimeout.Value
 	}
 	return defaultHandshakeTimeout
 }

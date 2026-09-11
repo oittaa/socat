@@ -21,10 +21,10 @@ func TestOwnerIoctlNamesDecode(t *testing.T) {
 		if action.Kind != addrconfig.SocketActionNamed {
 			continue
 		}
-		switch action.Named {
-		case addrconfig.NamedSocketFIOSetown:
+		switch action.Text {
+		case "fiosetown":
 			sawFIOS = action.Number == 1
-		case addrconfig.NamedSocketSIOCSPGRP:
+		case "siocspgrp":
 			sawPGRP = action.Number == 2
 		}
 	}
@@ -44,7 +44,7 @@ func TestUnrelatedNamesAreNotOwnerIoctls(t *testing.T) {
 	}
 	for _, action := range config.Network.Actions {
 		if action.Kind == addrconfig.SocketActionNamed &&
-			(action.Named == addrconfig.NamedSocketFIOSetown || action.Named == addrconfig.NamedSocketSIOCSPGRP) {
+			(action.Text == "fiosetown" || action.Text == "siocspgrp") {
 			t.Fatalf("so-debug decoded as owner ioctl: %+v", action)
 		}
 	}

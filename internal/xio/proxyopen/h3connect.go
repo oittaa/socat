@@ -37,8 +37,7 @@ func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, pr
 	if err != nil {
 		return nil, "", err
 	}
-	config := s
-	sourceport := xio.SourcePortText(config)
+	sourceport := xio.SourcePortText(s)
 	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	listen := func(port string) (net.PacketConn, error) {
 		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
@@ -49,7 +48,7 @@ func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, pr
 		return lc.ListenPacket(ctx, network, resolved.String())
 	}
 	var pc net.PacketConn
-	if config.Network.Peer.LowPort.Value && (sourceport == "" || sourceport == "0") {
+	if s.Network.LowPort.Value && (sourceport == "" || sourceport == "0") {
 		_, err = xio.FirstAvailableLowport(func(port int) error {
 			if g != nil && g.Log != nil {
 				g.Log.Debugf("bind(%s:%d)", bindHost, port)
@@ -90,8 +89,7 @@ func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, pr
 }
 
 func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	config := s
-	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, config.TLS, t.proxyHost)
+	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, t.proxyHost)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +97,7 @@ func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 	if tlsCfg.MinVersion < tls.VersionTLS13 {
 		tlsCfg.MinVersion = tls.VersionTLS13
 	}
-	tlsCfg.NextProtos = []string{proxyALPN(config.TLS, http3.NextProtoH3)}
+	tlsCfg.NextProtos = []string{proxyALPN(s.TLS, http3.NextProtoH3)}
 
 	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
 	authority := net.JoinHostPort(t.connectHost, t.targetPort)
@@ -149,7 +147,7 @@ func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 		}
 		req.Host = authority
 		req.ContentLength = -1
-		if auth, e := proxyAuthString(config.Proxy); e != nil {
+		if auth, e := proxyAuthString(s.Proxy); e != nil {
 			_ = pw.Close()
 			return e
 		} else if auth != "" {

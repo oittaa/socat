@@ -3,6 +3,7 @@ package addrconfig
 import (
 	"crypto/tls"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -11,39 +12,32 @@ import (
 
 // TLS holds static TLS settings. Certificate and CA paths remain live inputs.
 type TLS struct {
-	Certificate       OptionalString
-	Key               OptionalString
-	CAFile            OptionalString
-	CAPath            OptionalString
-	Verify            OptionalBool
-	CommonName        OptionalString
-	SNIHost           OptionalString
-	NoSNI             OptionalBool
-	CipherSuites      []uint16
-	MinVersion        uint16
-	MaxVersion        uint16
-	ALPN              OptionalString
-	Unsupported       TLSUnsupported
-	LastHiddenName    string
-	LastPlaintextName string
-}
-
-// TLSUnsupported retains the final unsupported OpenSSL request for its
-// configured TLS endpoint.
-type TLSUnsupported struct {
-	Set       bool
-	Canonical string
-	Name      string
-	Reason    string
-}
-
-// DTLS holds the DTLS-specific static policy.
-type DTLS struct {
-	MTU                OptionalInt
-	Migration          OptionalBool
-	UnfragmentedProbes OptionalBool
-	MinVersion         OptionalInt
-	MaxVersion         OptionalInt
+	Certificate            OptionalString
+	Key                    OptionalString
+	CAFile                 OptionalString
+	CAPath                 OptionalString
+	Verify                 OptionalBool
+	CommonName             OptionalString
+	SNIHost                OptionalString
+	NoSNI                  OptionalBool
+	CipherSuites           []uint16
+	MinVersion             uint16
+	MaxVersion             uint16
+	ALPN                   OptionalString
+	LastHiddenName         string
+	LastPlaintextName      string
+	UnsupportedSet         bool
+	UnsupportedCanonical   string
+	UnsupportedName        string
+	UnsupportedReason      string
+	DTLSMTU                OptionalInt
+	DTLSMigration          OptionalBool
+	DTLSUnfragmentedProbes OptionalBool
+	DTLSMinVersion         OptionalInt
+	DTLSMaxVersion         OptionalInt
+	WSPath                 OptionalString
+	WSOrigin               OptionalString
+	WSProtocol             OptionalString
 }
 
 // HTTPVersion selects a CONNECT transport.
@@ -70,14 +64,6 @@ type Proxy struct {
 	SOCKSPassword     OptionalString
 }
 
-// WebSocket holds WebSocket-only textual payloads. Protocol deliberately stays
-// case-sensitive and distinct from a socket protocol number.
-type WebSocket struct {
-	Path     OptionalString
-	Origin   OptionalString
-	Protocol OptionalString
-}
-
 func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 	name := optionIdentity(o)
 	recordTLSPlaintextName(a, o, name)
@@ -86,26 +72,27 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 			return true, err
 		}
 		if !compatibleDisabledTLSOption(name, o) {
-			a.TLS.Unsupported = TLSUnsupported{
-				Set:       true,
-				Canonical: name,
-				Name:      o.OriginalSpelling(),
-				Reason:    def.TLSRejectReason,
-			}
-		} else if a.TLS.Unsupported.Canonical == name {
-			a.TLS.Unsupported = TLSUnsupported{}
+			a.TLS.UnsupportedSet = true
+			a.TLS.UnsupportedCanonical = name
+			a.TLS.UnsupportedName = o.OriginalSpelling()
+			a.TLS.UnsupportedReason = def.TLSRejectReason
+		} else if a.TLS.UnsupportedCanonical == name {
+			a.TLS.UnsupportedSet = false
+			a.TLS.UnsupportedCanonical = ""
+			a.TLS.UnsupportedName = ""
+			a.TLS.UnsupportedReason = ""
 		}
 		return true, nil
 	}
 	switch name {
 	case "cert":
-		return true, decodeProtocolString(&a.TLS.Certificate, o)
+		return true, setOptionText(&a.TLS.Certificate, o)
 	case "key":
-		return true, decodeProtocolString(&a.TLS.Key, o)
+		return true, setOptionText(&a.TLS.Key, o)
 	case "cafile":
-		return true, decodeProtocolString(&a.TLS.CAFile, o)
+		return true, setOptionText(&a.TLS.CAFile, o)
 	case "capath":
-		return true, decodeProtocolString(&a.TLS.CAPath, o)
+		return true, setOptionText(&a.TLS.CAPath, o)
 	case "verify":
 		a.TLS.Verify = activeBool(o)
 		return true, nil
@@ -156,18 +143,18 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		if err != nil || value > 65507 {
 			return true, fmt.Errorf("dtls-mtu: value must be between 256 and 65507")
 		}
-		a.DTLS.MTU = OptionalInt{Set: true, Value: value}
+		a.TLS.DTLSMTU = OptionalInt{Set: true, Value: value}
 		return true, nil
-	case "dtls-migration":
+	case "dtls-migration", "dtls-unfragmented-probes":
 		value, err := optionalBool(o)
-		a.DTLS.Migration = value
-		return true, err
-	case "dtls-unfragmented-probes":
-		value, err := optionalBool(o)
-		a.DTLS.UnfragmentedProbes = value
+		if name == "dtls-migration" {
+			a.TLS.DTLSMigration = value
+		} else {
+			a.TLS.DTLSUnfragmentedProbes = value
+		}
 		return true, err
 	case "proxyport":
-		return true, decodeProtocolString(&a.Proxy.Port, o)
+		return true, setOptionText(&a.Proxy.Port, o)
 	case "http-version":
 		value, err := requiredString(o)
 		if err != nil {
@@ -195,26 +182,28 @@ func decodeProtocolOption(a *Address, o parse.Option) (bool, error) {
 		a.Proxy.Authorization = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "proxy-authorization-file":
-		return true, decodeProtocolString(&a.Proxy.AuthorizationFile, o)
+		return true, setOptionText(&a.Proxy.AuthorizationFile, o)
 	case "socksport":
-		return true, decodeProtocolString(&a.Proxy.SOCKSPort, o)
+		return true, setOptionText(&a.Proxy.SOCKSPort, o)
 	case "socksuser":
 		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "sockspass":
 		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
-	case "path":
-		a.WebSocket.Path = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
-	case "origin":
-		a.WebSocket.Origin = OptionalString{Set: true, Value: optionText(o)}
+	case "path", "origin":
+		opt := OptionalString{Set: true, Value: optionText(o)}
+		if name == "path" {
+			a.TLS.WSPath = opt
+		} else {
+			a.TLS.WSOrigin = opt
+		}
 		return true, nil
 	case "protocol":
 		if a.Network.Kind == AddressKindSocket || a.Network.Kind == AddressKindVSOCK {
 			return false, nil
 		}
-		a.WebSocket.Protocol = OptionalString{Set: true, Value: optionText(o)}
+		a.TLS.WSProtocol = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	}
 	return false, nil
@@ -260,13 +249,20 @@ func decodeUnsupportedTLSValue(name string, o parse.Option) error {
 		_, err := optionalBool(o)
 		return err
 	case "openssl-maxfraglen", "openssl-maxsendfrag":
-		return optionalSignedInt(o)
+		if !o.Has {
+			return nil
+		}
+		_, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
+		if err != nil {
+			return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		}
+		return nil
 	default:
 		return nil
 	}
 }
 
-func decodeProtocolString(dst *OptionalString, o parse.Option) error {
+func setOptionText(dst *OptionalString, o parse.Option) error {
 	*dst = OptionalString{Set: true, Value: optionText(o)}
 	return nil
 }
@@ -285,9 +281,9 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 			return fmt.Errorf("%s: only DTLS 1.3 is supported", optionIdentity(o))
 		}
 		if minimum {
-			a.DTLS.MinVersion = OptionalInt{Set: true, Value: version}
+			a.TLS.DTLSMinVersion = OptionalInt{Set: true, Value: version}
 		} else {
-			a.DTLS.MaxVersion = OptionalInt{Set: true, Value: version}
+			a.TLS.DTLSMaxVersion = OptionalInt{Set: true, Value: version}
 		}
 		return nil
 	}

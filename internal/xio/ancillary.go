@@ -25,17 +25,16 @@ func NeedAncillary(s addrconfig.Address) bool {
 // ancillary action is applied in command-line order (ippktinfo then
 // ip-pktinfo=0 is two setsockopt calls).
 func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
-	config := s
 	family, err := socketIPFamily(fd)
 	if err != nil {
 		return err
 	}
 	resolved := family
-	for _, action := range config.Network.Actions {
+	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		name, kind, ok := ancillaryOptionIdentity(action.Ancillary)
+		name, kind, ok := ancillaryOptionIdentity(action)
 		if !ok || kind&IPAncillaryRecv == 0 {
 			continue
 		}

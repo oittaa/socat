@@ -28,7 +28,7 @@ func init() {
 // used by prepared file address openers.
 func ConfiguredOpenFlags(config addrconfig.File, mode xio.Mode) (int, error) {
 	var flags int
-	switch config.Open.Access {
+	switch config.Access {
 	case addrconfig.FileAccessRead:
 		flags = os.O_RDONLY
 	case addrconfig.FileAccessWrite:
@@ -45,27 +45,35 @@ func ConfiguredOpenFlags(config addrconfig.File, mode xio.Mode) (int, error) {
 			flags = os.O_RDWR
 		}
 	}
-	if config.Open.Create.Value {
+	if config.Create.Value {
 		flags |= os.O_CREATE
 	}
-	if config.Open.Exclusive {
+	if config.Exclusive {
 		flags |= os.O_EXCL
 	}
-	if config.Open.Append {
+	if config.Append {
 		flags |= os.O_APPEND
 	}
-	if config.Open.Truncate {
+	if config.Truncate {
 		flags |= os.O_TRUNC
 	}
-	if config.Open.Nonblock {
+	if config.Nonblock {
 		flags |= oNonblock
 	}
 	return configuredOpenFlags(config, flags)
 }
 
 func configuredOpenFlags(config addrconfig.File, flags int) (int, error) {
-	for _, action := range config.Open.Flags {
-		flag, ok := openFlagByName[action.Name]
+	for _, action := range config.Actions {
+		name := action.Text
+		switch action.Kind {
+		case addrconfig.FileActionOpenFlag:
+		case addrconfig.FileActionAsync:
+			name = "async"
+		default:
+			continue
+		}
+		flag, ok := openFlagByName[name]
 		if !ok {
 			continue
 		}
@@ -85,11 +93,11 @@ func configuredOpenFlags(config addrconfig.File, flags int) (int, error) {
 // unnamed PIPE: pipe(2) has no open(2) phase, so those flags would be
 // dropped. async is applied later with F_SETFL.
 func rejectUnnamedPIPEOpenFlags(config addrconfig.File) error {
-	for _, action := range config.Open.Flags {
-		if action.Name == "async" || !action.Enabled {
+	for _, action := range config.Actions {
+		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
 			continue
 		}
-		flag, ok := openFlagByName[action.Name]
+		flag, ok := openFlagByName[action.Text]
 		if !ok {
 			continue
 		}
@@ -105,11 +113,11 @@ func rejectUnnamedPIPEOpenFlags(config addrconfig.File) error {
 // no open(2) phase. Reject enabled o-direct / o-sync / … instead of
 // silently dropping them. async remains meaningful on the connected socket.
 func rejectGOPENSocketOpenFlags(config addrconfig.File) error {
-	for _, action := range config.Open.Flags {
-		if action.Name == "async" || !action.Enabled {
+	for _, action := range config.Actions {
+		if action.Kind != addrconfig.FileActionOpenFlag || !action.Enabled {
 			continue
 		}
-		flag, ok := openFlagByName[action.Name]
+		flag, ok := openFlagByName[action.Text]
 		if !ok {
 			continue
 		}

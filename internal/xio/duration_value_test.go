@@ -1,17 +1,18 @@
 package xio
 
 import (
-	"errors"
+	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestParseDurationValueRejectsEmptyAndRange(t *testing.T) {
-	if _, err := ParseDurationValue(""); err == nil || !errors.Is(err, ErrEmptyDuration) {
+func TestParseDurationRejectsEmptyAndRange(t *testing.T) {
+	if _, err := addrconfig.ParseDuration(""); err == nil || !strings.Contains(err.Error(), "empty duration") {
 		t.Fatalf("empty: %v", err)
 	}
-	if _, err := ParseDurationValue("NaN"); err == nil || !errors.Is(err, ErrDurationOutOfRange) {
+	if _, err := addrconfig.ParseDuration("NaN"); err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("range: %v", err)
 	}
 }

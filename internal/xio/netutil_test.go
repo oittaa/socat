@@ -2,11 +2,35 @@ package xio
 
 import (
 	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
+
+func ParsePositiveInt(v string) (int, error) {
+	n, err := ParseIntAny(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid")
+	}
+	return n, nil
+}
+
+func ParseIntAny(v string) (int, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 0, 64)
+	if err != nil {
+		return 0, err
+	}
+	if n > math.MaxInt || n < math.MinInt {
+		return 0, fmt.Errorf("out of range")
+	}
+	return int(n), nil
+}
 
 func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
 	var tried []int
@@ -95,12 +119,12 @@ func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
 		{value: "0x10", want: 16},
 		{value: "-1", want: ^uint64(0)},
 	} {
-		got, err := ParseSizeT(tc.value)
+		got, err := addrconfig.ParseSizeT(tc.value)
 		if err != nil || got != tc.want {
 			t.Errorf("ParseSizeT(%q)=%d,%v want %d", tc.value, got, err, tc.want)
 		}
 	}
-	if _, err := ParseSizeT("10junk"); err == nil {
+	if _, err := addrconfig.ParseSizeT("10junk"); err == nil {
 		t.Fatal("ParseSizeT accepted trailing junk")
 	}
 }

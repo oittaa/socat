@@ -13,24 +13,23 @@ import (
 )
 
 func openSTDIO(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	// setsid= calls setsid(2) in the main process (session leader) before
 	// opening EXEC/etc. children.
-	if config.Process.SetSID.Value {
+	if s.Process.SetSID.Value {
 		if err := xio.Setsid(); err != nil {
 			return nil, fmt.Errorf("setsid: %w", err)
 		}
 	}
-	if err := applyConfiguredFileLocks(config.File, os.Stdin, os.Stdout); err != nil {
+	if err := applyConfiguredFileLocks(s.File, os.Stdin, os.Stdout); err != nil {
 		return nil, err
 	}
 	if mode != xio.ModeWrite {
-		if err := applyInheritedFDAndSocket(os.Stdin, config); err != nil {
+		if err := applyInheritedFDAndSocket(os.Stdin, s); err != nil {
 			return nil, err
 		}
 	}
 	if mode != xio.ModeRead {
-		if err := applyInheritedFDAndSocket(os.Stdout, config); err != nil {
+		if err := applyInheritedFDAndSocket(os.Stdout, s); err != nil {
 			return nil, err
 		}
 	}
@@ -59,11 +58,11 @@ func openSTDIO(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 	o := &xio.Opened{Stream: st, Label: "STDIO"}
 	switch mode {
 	case xio.ModeRead:
-		err = attachConfiguredTermios(o, config, os.Stdin)
+		err = attachConfiguredTermios(o, s, os.Stdin)
 	case xio.ModeWrite:
-		err = attachConfiguredTermios(o, config, os.Stdout)
+		err = attachConfiguredTermios(o, s, os.Stdout)
 	default:
-		err = attachConfiguredTermios(o, config, os.Stdin, os.Stdout)
+		err = attachConfiguredTermios(o, s, os.Stdin, os.Stdout)
 	}
 	if err != nil {
 		_ = o.Close()
@@ -73,14 +72,13 @@ func openSTDIO(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 }
 
 func openSTDIN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	if mode == xio.ModeWrite {
 		return nil, fmt.Errorf("STDIN is read-only")
 	}
-	if err := applyConfiguredFileLocks(config.File, os.Stdin, nil); err != nil {
+	if err := applyConfiguredFileLocks(s.File, os.Stdin, nil); err != nil {
 		return nil, err
 	}
-	if err := applyInheritedFDAndSocket(os.Stdin, config); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stdin, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapAfterFD(s, relay.FDStream{R: os.Stdin, W: io.Discard, C: xio.NopCloser{}})
@@ -88,7 +86,7 @@ func openSTDIN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "STDIN"}
-	if err := attachConfiguredTermios(o, config, os.Stdin); err != nil {
+	if err := attachConfiguredTermios(o, s, os.Stdin); err != nil {
 		_ = o.Close()
 		return nil, err
 	}
@@ -96,14 +94,13 @@ func openSTDIN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 }
 
 func openSTDOUT(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	if mode == xio.ModeRead {
 		return nil, fmt.Errorf("STDOUT is write-only")
 	}
-	if err := applyConfiguredFileLocks(config.File, nil, os.Stdout); err != nil {
+	if err := applyConfiguredFileLocks(s.File, nil, os.Stdout); err != nil {
 		return nil, err
 	}
-	if err := applyInheritedFDAndSocket(os.Stdout, config); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stdout, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapAfterFD(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stdout, C: xio.NopCloser{}})
@@ -111,7 +108,7 @@ func openSTDOUT(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "STDOUT"}
-	if err := attachConfiguredTermios(o, config, os.Stdout); err != nil {
+	if err := attachConfiguredTermios(o, s, os.Stdout); err != nil {
 		_ = o.Close()
 		return nil, err
 	}
@@ -119,14 +116,13 @@ func openSTDOUT(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 }
 
 func openSTDERR(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	config := s
 	if mode == xio.ModeRead {
 		return nil, fmt.Errorf("STDERR is write-only")
 	}
-	if err := applyConfiguredFileLocks(config.File, nil, os.Stderr); err != nil {
+	if err := applyConfiguredFileLocks(s.File, nil, os.Stderr); err != nil {
 		return nil, err
 	}
-	if err := applyInheritedFDAndSocket(os.Stderr, config); err != nil {
+	if err := applyInheritedFDAndSocket(os.Stderr, s); err != nil {
 		return nil, err
 	}
 	st, err := xio.WrapAfterFD(s, relay.FDStream{R: xio.EOFReader{}, W: os.Stderr, C: xio.NopCloser{}})
@@ -134,7 +130,7 @@ func openSTDERR(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 		return nil, err
 	}
 	o := &xio.Opened{Stream: st, Label: "STDERR"}
-	if err := attachConfiguredTermios(o, config, os.Stderr); err != nil {
+	if err := attachConfiguredTermios(o, s, os.Stderr); err != nil {
 		_ = o.Close()
 		return nil, err
 	}
@@ -142,7 +138,6 @@ func openSTDERR(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 }
 
 func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	config := s
 	n, err := parseFDNum(s)
 	if err != nil {
 		return nil, err
@@ -150,7 +145,7 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 	// FD applies after-open and after-socket() options, not before-bind or
 	// after-connect/accept. Reject those combinations instead of applying
 	// them to an existing socket or silently ignoring them.
-	if err := xio.RejectGenericSetsockoptPhases(config, config.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
+	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
 	// Default FD_CLOEXEC on the caller's descriptor before options, then
@@ -171,20 +166,20 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 		closeSessionFile(f)
 		return nil, err
 	}
-	if err := applyConfiguredFileLocks(config.File, f, f); err != nil {
+	if err := applyConfiguredFileLocks(s.File, f, f); err != nil {
 		return fail(err)
 	}
-	if err := xio.ApplyConfiguredFDOptions(f, config.File, xio.FDSkip{}); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(f, s.File, xio.FDSkip{}); err != nil {
 		return fail(err)
 	}
-	if err := mirrorInheritedFDFlags(n, f, config.File); err != nil {
+	if err := mirrorInheritedFDFlags(n, f, s.File); err != nil {
 		return fail(err)
 	}
 	// After socket() options (so-priority, …) apply to the inherited fd.
 	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
 		return fail(err)
 	}
-	closeOrig := config.Transfer.EndClose.Value && (g == nil || !g.ForkChild)
+	closeOrig := s.Transfer.EndClose.Value && (g == nil || !g.ForkChild)
 	st, err := xio.WrapOpened(configWithoutEndClose(s), inheritedFDStream(f, n, closeOrig))
 	if err != nil {
 		return fail(err)
@@ -193,7 +188,7 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 		Stream: st,
 		Label:  fmt.Sprintf("FD:%d", n),
 	}
-	if err := attachConfiguredTermios(o, config, f); err != nil {
+	if err := attachConfiguredTermios(o, s, f); err != nil {
 		_ = o.Close()
 		return nil, err
 	}

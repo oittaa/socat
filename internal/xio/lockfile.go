@@ -169,8 +169,8 @@ func releaseLockFile(path string, original os.FileInfo) {
 // before the opener so a failed open still releases and relative paths follow
 // chdir=.
 func applyAddressLock(ctx context.Context, config addrconfig.Address) (func(), error) {
-	if !config.File.Lock.Set || config.File.Lock.Path == "" {
+	if !config.File.LockSet || config.File.LockPath == "" {
 		return nil, nil
 	}
-	return HoldLockFile(ctx, config.File.Lock.Path, config.File.Lock.Wait, AddressWaitLockPollInterval)
+	return HoldLockFile(ctx, config.File.LockPath, config.File.LockWait, AddressWaitLockPollInterval)
 }

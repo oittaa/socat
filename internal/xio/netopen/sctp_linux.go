@@ -75,14 +75,13 @@ func listenSCTP(ctx context.Context, network, host, port string, s addrconfig.Ad
 		if network == "sctp" {
 			v6only = 0
 		}
-		config := s
-		if config.Common.IPv6V6Only.Set {
+		if s.Common.IPv6V6Only.Set {
 			v6only = 0
-			if config.Common.IPv6V6Only.Value {
+			if s.Common.IPv6V6Only.Value {
 				v6only = 1
 			}
 		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && config.Common.IPv6V6Only.Set {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && s.Common.IPv6V6Only.Set {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("ipv6-v6only: %w", err)
 		}
@@ -121,10 +120,9 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	config := s
-	bindOpt := xio.BindHost(config)
-	sp := xio.SourcePortText(config)
-	lowport := config.Network.Peer.LowPort.Value && (sp == "" || sp == "0")
+	bindOpt := xio.BindHost(s)
+	sp := xio.SourcePortText(s)
+	lowport := s.Network.LowPort.Value && (sp == "" || sp == "0")
 	var lastErr error
 	for _, ip := range ips {
 		af := 2

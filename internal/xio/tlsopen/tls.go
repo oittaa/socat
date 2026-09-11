@@ -58,8 +58,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 			if e != nil {
 				return e
 			}
-			config := s
-			timeoutRaw := xio.NewSocketTimeoutConn(raw, config.Common.Timeouts.Read.Value, config.Common.Timeouts.Write.Value)
+			timeoutRaw := xio.NewSocketTimeoutConn(raw, s.Common.ReadTimeout.Value, s.Common.WriteTimeout.Value)
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(timeoutRaw, cfg)
@@ -100,16 +99,15 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
 func openTLSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := xio.ListenNetwork(g, s)
-	config := s
 	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
-	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(config, netw))
+	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(s, netw))
 }
 
 func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
+	port, err := xio.ListenPortText(s)
+	if err != nil {
+		return nil, err
 	}
-	port := s.Params[0]
 	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
@@ -124,11 +122,10 @@ func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 	if err != nil {
 		return nil, err
 	}
-	config := s
 	tlsLn := tls.NewListener(&socketTimeoutListener{
 		Listener:     ln,
-		readTimeout:  config.Common.Timeouts.Read.Value,
-		writeTimeout: config.Common.Timeouts.Write.Value,
+		readTimeout:  s.Common.ReadTimeout.Value,
+		writeTimeout: s.Common.WriteTimeout.Value,
 	}, tlsCfg)
 
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
@@ -172,8 +169,7 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
 func TLSClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
-	config := s
-	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
+	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
 }
 
 func tlsClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
@@ -182,8 +178,7 @@ func tlsClientConfig(s addrconfig.Address, serverName string) (*tls.Config, erro
 
 // TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
 func TLSServerConfig(s addrconfig.Address) (*tls.Config, error) {
-	config := s
-	return TLSServerConfigSettings(s.Type, config.TLS)
+	return TLSServerConfigSettings(s.Type, s.TLS)
 }
 
 func tlsServerConfig(s addrconfig.Address) (*tls.Config, error) {
@@ -194,8 +189,8 @@ func rejectUnsupportedOpenSSLOptions(settings addrconfig.TLS, typ string) error 
 	if typ == "" {
 		typ = "TLS"
 	}
-	if settings.Unsupported.Set {
-		return fmt.Errorf("%s: option %q is not supported (%s)", typ, settings.Unsupported.Name, settings.Unsupported.Reason)
+	if settings.UnsupportedSet {
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, settings.UnsupportedName, settings.UnsupportedReason)
 	}
 	return nil
 }
@@ -229,8 +224,7 @@ func RejectPROXYTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
 }
 
 func tlsClientConfigForContext(ctx context.Context, s addrconfig.Address, serverName string) (*tls.Config, error) {
-	config := s
-	return TLSClientConfigSettings(s.Type, config.TLS, serverName)
+	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
 }
 
 // TLSClientConfigSettings builds a client config from prepared TLS settings.
@@ -301,8 +295,7 @@ func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName str
 }
 
 func tlsServerConfigForContext(ctx context.Context, s addrconfig.Address) (*tls.Config, error) {
-	config := s
-	return TLSServerConfigSettings(s.Type, config.TLS)
+	return TLSServerConfigSettings(s.Type, s.TLS)
 }
 
 // TLSServerConfigSettings builds a server config from prepared TLS settings.

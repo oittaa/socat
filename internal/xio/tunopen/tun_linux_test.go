@@ -58,10 +58,10 @@ func TestParseIffOpts(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := mustAddr(t, s)
-	if config.Network.TUN.InterfaceSet&unix.IFF_UP == 0 {
+	if config.Network.TUNInterfaceSet&unix.IFF_UP == 0 {
 		t.Fatal("iff-up not set")
 	}
-	if config.Network.TUN.InterfaceClr&unix.IFF_NOARP == 0 {
+	if config.Network.TUNInterfaceClr&unix.IFF_NOARP == 0 {
 		t.Fatal("iff-noarp=0 not cleared")
 	}
 }
