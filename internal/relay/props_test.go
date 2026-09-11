@@ -79,12 +79,8 @@ func (s *deadlineInspectPanic) StreamProps() Props {
 }
 
 func TestSetStreamDeadlineSkipsInspect(t *testing.T) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
-	s := newCloseSerialStream(&deadlineInspectPanic{Stream: FDStream{R: r, W: w, C: r}})
+	inner := &recordingDeadlineStream{}
+	s := newCloseSerialStream(&deadlineInspectPanic{Stream: inner})
 	deadline := time.Now().Add(time.Second)
 	if ok, err := SetStreamReadDeadline(s, deadline); err != nil || !ok {
 		t.Fatalf("set read deadline: ok=%v err=%v", ok, err)
