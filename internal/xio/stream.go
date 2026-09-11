@@ -1,12 +1,12 @@
 package xio
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -184,18 +184,18 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 // Size is parsed with base 0 (decimal, 0x hex, 0 octal).
 // readbytes=0 means unlimited and leaves the stream unwrapped.
 func ApplyReadBytes(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	v := s.OptionValue("readbytes", "")
-	if v == "" {
-		return stream, nil
-	}
-	n, err := ParseSizeT(v)
+	config, err := OpeningConfig(context.Background(), s)
 	if err != nil {
-		return nil, fmt.Errorf("invalid readbytes %q", v)
+		return nil, err
 	}
-	if n == 0 {
-		return stream, nil
+	return applyReadBytes(config.Transfer.ReadBytes, stream), nil
+}
+
+func applyReadBytes(limit addrconfig.OptionalUint64, stream relay.Stream) relay.Stream {
+	if !limit.Set || limit.Value == 0 {
+		return stream
 	}
-	return streamWithReader(stream, &readBytesWrap{r: stream, left: n}), nil
+	return streamWithReader(stream, &readBytesWrap{r: stream, left: limit.Value})
 }
 
 // crnlWriter converts LF → CRLF on write (internal RAW → external CRNL).
@@ -315,54 +315,6 @@ func (c *crnlReader) Read(p []byte) (int, error) {
 	return out, err
 }
 
-// lineTermMode is lineterm (raw/cr/crnl) plus Go-only crorlf. cr and
-// crnl/crlf share one ordered field; last active occurrence wins. crorlf
-// is a distinct conversion and is not folded into cr/crnl.
-//
-// cr and crnl are bare flags; assignments are rejected. Go-only crorlf
-// uses omitted/=1 to select and =0 to leave the previous conversion.
-type lineTermMode int
-
-const (
-	lineTermRaw lineTermMode = iota
-	lineTermCR
-	lineTermCRNL
-	lineTermCRorLF
-)
-
-func selectedLineTerm(s parse.Spec) lineTermMode {
-	seen := map[string]bool{}
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		o := s.Options[i]
-		name := parse.CanonicalOptionName(o.Name)
-		var mode lineTermMode
-		switch name {
-		case "cr":
-			mode = lineTermCR
-		case "crnl":
-			mode = lineTermCRNL
-		case "crorlf":
-			mode = lineTermCRorLF
-		default:
-			continue
-		}
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		if !o.Active() {
-			continue
-		}
-		return mode
-	}
-	return lineTermRaw
-}
-
-// wantCRNL reports crlf/crnl (not Go-only crorlf) line conversion.
-func wantCRNL(s parse.Spec) bool {
-	return selectedLineTerm(s) == lineTermCRNL
-}
-
 // crWriter converts NL → CR on write (RAW → CR).
 type crWriter struct {
 	w   io.Writer
@@ -457,30 +409,26 @@ func (s *transformStream) StreamProps() relay.Props {
 	return relay.WithoutZeroCopy(relay.PropsOf(s.Stream))
 }
 
-func applyLineTerm(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
-		case "cr", "crnl":
-			if o.Has {
-				return nil, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-			}
-		}
-	}
-	switch selectedLineTerm(s) {
-	case lineTermCR:
-		return &transformStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}, nil
-	case lineTermCRNL:
-		return &transformStream{Stream: stream, r: &crnlReader{r: stream}, w: &crnlWriter{w: stream}}, nil
-	case lineTermCRorLF:
-		return &transformStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}, nil
+func applyLineTerm(ending addrconfig.LineEnding, stream relay.Stream) relay.Stream {
+	switch ending {
+	case addrconfig.LineEndingCR:
+		return &transformStream{Stream: stream, r: crReader{r: stream}, w: &crWriter{w: stream}}
+	case addrconfig.LineEndingCRNL:
+		return &transformStream{Stream: stream, r: &crnlReader{r: stream}, w: &crnlWriter{w: stream}}
+	case addrconfig.LineEndingCROrLF:
+		return &transformStream{Stream: stream, r: &crorlfReader{r: stream}, w: &crnlWriter{w: stream}}
 	default:
-		return stream, nil
+		return stream
 	}
 }
 
 // ApplyCRNL wraps a stream with the selected line-termination mode.
 func ApplyCRNL(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	return applyLineTerm(s, stream)
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return nil, err
+	}
+	return applyLineTerm(config.Transfer.LineEnding, stream), nil
 }
 
 // escapeReader stops with EOF when the escape byte is seen (escape=N).
@@ -510,28 +458,18 @@ func (e *escapeReader) Read(p []byte) (int, error) {
 }
 
 func ApplyEscape(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	v := s.OptionValue("escape", "")
-	if v == "" {
-		return stream, nil
-	}
-	esc, err := parseEscapeByte(v)
+	config, err := OpeningConfig(context.Background(), s)
 	if err != nil {
 		return nil, err
 	}
-	return streamWithReader(stream, &escapeReader{r: stream, esc: esc}), nil
+	return applyEscape(config.Transfer.Escape, stream), nil
 }
 
-// parseEscapeByte accepts decimal (27), hex with a 0x prefix (0x1b), or a
-// single character. strconv.ParseUint base 0 is required for the hex form;
-// fmt.Sscanf %x stops at the 'x' and would silently yield 0.
-func parseEscapeByte(v string) (byte, error) {
-	if n, err := strconv.ParseUint(v, 0, 8); err == nil {
-		return byte(n), nil
+func applyEscape(esc addrconfig.OptionalByte, stream relay.Stream) relay.Stream {
+	if !esc.Set {
+		return stream
 	}
-	if len(v) == 1 {
-		return v[0], nil
-	}
-	return 0, fmt.Errorf("escape: invalid value %q", v)
+	return streamWithReader(stream, &escapeReader{r: stream, esc: esc.Value})
 }
 
 // nullEOFReader treats a zero-length successful Read as EOF (null-eof).
@@ -600,29 +538,13 @@ func (e socketTimeoutRetryError) Error() string   { return e.err.Error() }
 func (e socketTimeoutRetryError) Unwrap() error   { return e.err }
 func (e socketTimeoutRetryError) Retryable() bool { return true }
 
-func applySocketTimeouts(s parse.Spec, stream relay.Stream) (relay.Stream, error) {
-	var readTimeout, writeTimeout time.Duration
-	for _, item := range []struct {
-		name string
-		dst  *time.Duration
-	}{
-		{name: "rcvtimeo", dst: &readTimeout},
-		{name: "sndtimeo", dst: &writeTimeout},
-	} {
-		value := s.OptionValue(item.name, "")
-		if value == "" {
-			continue
-		}
-		d, err := parseTimeval(value)
-		if err != nil || d < 0 {
-			return nil, fmt.Errorf("%s: invalid timeout %q", item.name, value)
-		}
-		*item.dst = d
-	}
+func applySocketTimeouts(config addrconfig.Address, stream relay.Stream) relay.Stream {
+	readTimeout := config.Common.Timeouts.Read.Value
+	writeTimeout := config.Common.Timeouts.Write.Value
 	if readTimeout == 0 && writeTimeout == 0 {
-		return stream, nil
+		return stream
 	}
-	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}, nil
+	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}
 }
 
 // SocketTimeoutLayer selects where read/write timeouts are enforced.
@@ -636,7 +558,10 @@ const (
 // WrapStream applies stream transformations after transport setup is complete.
 // TLS enforces timeouts below its record layer; other streams enforce them here.
 func WrapStream(s parse.Spec, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
-	var err error
+	config, err := OpeningConfig(context.Background(), s)
+	if err != nil {
+		return nil, err
+	}
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
@@ -645,38 +570,23 @@ func WrapStream(s parse.Spec, stream relay.Stream, timeouts SocketTimeoutLayer) 
 		return nil, err
 	}
 	if timeouts == StreamSocketTimeouts {
-		stream, err = applySocketTimeouts(s, stream)
-		if err != nil {
-			return nil, err
-		}
+		stream = applySocketTimeouts(config, stream)
 	}
 	// ignoreeof first so it wraps the raw source: EOF is retried while
 	// outer byte caps like readbytes still terminate.
-	if s.BoolOption("ignoreeof") {
+	if config.Transfer.IgnoreEOF.Value {
 		stream = newIgnoreEOFStream(stream)
 	}
-	stream, err = ApplyReadBytes(s, stream)
-	if err != nil {
-		return nil, err
-	}
-	stream, err = ApplyCRNL(s, stream)
-	if err != nil {
-		return nil, err
-	}
-	stream, err = ApplyEscape(s, stream)
-	if err != nil {
-		return nil, err
-	}
-	if s.BoolOption("null-eof") {
+	stream = applyReadBytes(config.Transfer.ReadBytes, stream)
+	stream = applyLineTerm(config.Transfer.LineEnding, stream)
+	stream = applyEscape(config.Transfer.Escape, stream)
+	if config.Transfer.NullEOF.Value {
 		stream = streamWithReader(stream, &nullEOFReader{r: stream})
 	}
-	stream, err = wrapShutPolicy(s, stream)
-	if err != nil {
-		return nil, err
-	}
+	stream = wrapTransferShut(config.Transfer.Shutdown, stream)
 	// end-close: do not half-close or fully close the underlying FD when the
 	// transfer finishes.
-	if s.BoolOption("end-close") {
+	if config.Transfer.EndClose.Value {
 		stream = endCloseStream{Stream: stream}
 	}
 	return stream, nil

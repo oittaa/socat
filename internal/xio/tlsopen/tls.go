@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
@@ -59,11 +60,12 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 			if e != nil {
 				return e
 			}
-			timeoutRaw, e := xio.NewSocketTimeoutConn(s, raw)
+			config, e := xio.OpeningConfig(cctx, s)
 			if e != nil {
 				logx.CloseQuiet(raw)
 				return e
 			}
+			timeoutRaw := xio.NewSocketTimeoutConn(raw, config.Common.Timeouts.Read.Value, config.Common.Timeouts.Write.Value)
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(timeoutRaw, cfg)
@@ -130,7 +132,16 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	tlsLn := tls.NewListener(&socketTimeoutListener{Listener: ln, spec: s}, tlsCfg)
+	config, err := xio.OpeningConfig(ctx, s)
+	if err != nil {
+		logx.CloseQuiet(ln)
+		return nil, err
+	}
+	tlsLn := tls.NewListener(&socketTimeoutListener{
+		Listener:     ln,
+		readTimeout:  config.Common.Timeouts.Read.Value,
+		writeTimeout: config.Common.Timeouts.Write.Value,
+	}, tlsCfg)
 
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		xio.EnableSocketTimeouts(c)
@@ -159,7 +170,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 type socketTimeoutListener struct {
 	net.Listener
-	spec parse.Spec
+	readTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 func (l *socketTimeoutListener) Accept() (net.Conn, error) {
@@ -167,12 +179,7 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	wrapped, err := xio.NewSocketTimeoutConn(l.spec, conn)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	return wrapped, nil
+	return xio.NewSocketTimeoutConn(conn, l.readTimeout, l.writeTimeout), nil
 }
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.

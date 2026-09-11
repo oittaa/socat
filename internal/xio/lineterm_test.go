@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -58,14 +59,22 @@ func TestWantCRNLAliasLastWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !wantCRNL(on) {
+	config, err := addrconfig.Decode(on, addrconfig.Facts{Type: "TCP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Transfer.LineEnding != addrconfig.LineEndingCRNL {
 		t.Fatal("crlf alias should enable CRNL conversion")
 	}
 	crorlf, err := parse.ParseSpec("TCP:127.0.0.1:9,crorlf")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantCRNL(crorlf) {
+	config, err = addrconfig.Decode(crorlf, addrconfig.Facts{Type: "TCP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Transfer.LineEnding != addrconfig.LineEndingCROrLF {
 		t.Fatal("crorlf must stay distinct from crnl")
 	}
 }
