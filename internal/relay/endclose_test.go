@@ -28,6 +28,32 @@ func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
 	}
 }
 
+func TestPokeReadDeadlineStopsAtWrappedSession(t *testing.T) {
+	inner := &recordingDeadlineStream{}
+	s := newCloseSerialStream(newSessionWrap(inner))
+	inner.mu.Lock()
+	inner.readDeadline = time.Time{}
+	inner.mu.Unlock()
+	pokeReadDeadline(s)
+	inner.mu.Lock()
+	got := inner.readDeadline
+	inner.mu.Unlock()
+	if !got.IsZero() {
+		t.Fatalf("pokeReadDeadline wrote through closeSerialStream to the shared endpoint: %v", got)
+	}
+}
+
+func TestPokeReadDeadlineStillPokesCloseSerialStream(t *testing.T) {
+	inner := &recordingDeadlineStream{}
+	pokeReadDeadline(newCloseSerialStream(inner))
+	inner.mu.Lock()
+	got := inner.readDeadline
+	inner.mu.Unlock()
+	if got.IsZero() {
+		t.Fatal("expected poke through closeSerialStream without a session wrap")
+	}
+}
+
 type nopCloser struct{}
 
 func (nopCloser) Close() error { return nil }

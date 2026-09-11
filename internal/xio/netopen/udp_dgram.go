@@ -408,9 +408,7 @@ func openUDPRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, pc *n
 		ForkSocketpair: true,
 		MaxChildren:    maxChildren,
 		PeerFilter:     peerFilter.AllowConn,
-		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})
-		},
+		WrapDial:       xio.DefaultWrapOpened(s),
 	}, nil
 }
 

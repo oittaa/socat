@@ -35,6 +35,14 @@ func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	}
 }
 
+// DefaultWrapOpened wraps a net.Conn after the opener applied descriptor
+// lifecycle on the real owner.
+func DefaultWrapOpened(s parse.Spec) func(net.Conn) (relay.Stream, error) {
+	return func(c net.Conn) (relay.Stream, error) {
+		return WrapOpened(s, relay.NetStream{Conn: c})
+	}
+}
+
 // OpenListenSession compiles peer filtering before accept, then either
 // returns a fork parent or accepts one permitted connection. Each refused peer
 // restarts accept-timeout.
