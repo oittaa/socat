@@ -32,10 +32,11 @@ func openWSSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 }
 
 func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
-	websocketConfig, err := preparedWebSocketConfig(ctx, s)
+	prepared, err := preparedWebSocketConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
+	websocketConfig := prepared.WebSocket
 	pathOption := ""
 	if websocketConfig.Path.Set {
 		pathOption = websocketConfig.Path.Value
@@ -59,7 +60,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	}
 	ln := net.Listener(rawLn)
 	if useTLS {
-		tlsCfg, err := tlsopen.TLSServerConfig(s)
+		tlsCfg, err := tlsopen.TLSServerConfigSettings(s, prepared.TLS)
 		if err != nil {
 			logx.CloseQuiet(rawLn)
 			return nil, err

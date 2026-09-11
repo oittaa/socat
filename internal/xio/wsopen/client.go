@@ -31,10 +31,11 @@ func openWSSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glo
 }
 
 func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
-	websocketConfig, err := preparedWebSocketConfig(ctx, s)
+	prepared, err := preparedWebSocketConfig(ctx, s)
 	if err != nil {
 		return nil, err
 	}
+	websocketConfig := prepared.WebSocket
 	pathOption := ""
 	if websocketConfig.Path.Set {
 		pathOption = websocketConfig.Path.Value
@@ -55,7 +56,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
-		tlsCfg, err = tlsopen.TLSClientConfig(s, host)
+		tlsCfg, err = tlsopen.TLSClientConfigSettings(s, prepared.TLS, host)
 		if err != nil {
 			return nil, err
 		}
@@ -176,14 +177,14 @@ func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global,
 	return conn, nil
 }
 
-func preparedWebSocketConfig(ctx context.Context, s parse.Spec) (addrconfig.WebSocket, error) {
+func preparedWebSocketConfig(ctx context.Context, s parse.Spec) (addrconfig.Address, error) {
 	config, ok := xio.PreparedConfig(ctx)
 	if ok {
-		return config.WebSocket, nil
+		return config, nil
 	}
 	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type, Group: xio.GroupWebSocket})
 	if err != nil {
-		return addrconfig.WebSocket{}, err
+		return addrconfig.Address{}, err
 	}
-	return config.WebSocket, nil
+	return config, nil
 }

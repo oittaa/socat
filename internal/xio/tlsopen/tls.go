@@ -182,7 +182,7 @@ func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tlsClientConfigWithSettings(s, settings, serverName)
+	return TLSClientConfigSettings(s, settings, serverName)
 }
 
 func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
@@ -195,7 +195,7 @@ func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	return tlsServerConfigWithSettings(s, settings)
+	return TLSServerConfigSettings(s, settings)
 }
 
 func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
@@ -280,10 +280,12 @@ func tlsClientConfigForContext(ctx context.Context, s parse.Spec, serverName str
 	if !ok {
 		return TLSClientConfig(s, serverName)
 	}
-	return tlsClientConfigWithSettings(s, settings, serverName)
+	return TLSClientConfigSettings(s, settings, serverName)
 }
 
-func tlsClientConfigWithSettings(s parse.Spec, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
+// TLSClientConfigSettings builds a client config from prepared TLS settings.
+// s remains only for the temporary compatibility rejection adapter.
+func TLSClientConfigSettings(s parse.Spec, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
 	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
 		return nil, err
 	}
@@ -353,10 +355,12 @@ func tlsServerConfigForContext(ctx context.Context, s parse.Spec) (*tls.Config, 
 	if !ok {
 		return TLSServerConfig(s)
 	}
-	return tlsServerConfigWithSettings(s, settings)
+	return TLSServerConfigSettings(s, settings)
 }
 
-func tlsServerConfigWithSettings(s parse.Spec, settings addrconfig.TLS) (*tls.Config, error) {
+// TLSServerConfigSettings builds a server config from prepared TLS settings.
+// s remains only for the temporary compatibility rejection adapter.
+func TLSServerConfigSettings(s parse.Spec, settings addrconfig.TLS) (*tls.Config, error) {
 	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
 		return nil, err
 	}
