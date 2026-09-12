@@ -183,7 +183,7 @@ type posixMQQueue struct {
 func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, config addrconfig.Address) (*posixMQQueue, error) {
 	var fd int
 	err := xio.WithConfiguredUmask(config.File, func() error {
-		return xio.WithRetry(ctx, g, "mq_open", func() error {
+		return xio.WithRetry(ctx, g, config.Common.Retry.Policy(), "mq_open", func() error {
 			var e error
 			fd, e = mqOpen(p.name, p.oflag, p.modePerm, p.attr)
 			if e != nil {
@@ -263,7 +263,7 @@ func (q *posixMQQueue) wrapSendFork(ctx context.Context, s addrconfig.Address, p
 	o := &xio.Opened{
 		Kind:        xio.KindDial,
 		MaxChildren: p.maxChildren,
-		Interval:    xio.RetryPolicyFromContext(ctx).Interval,
+		Interval:    s.Common.Retry.Policy().Interval,
 		Label:       s.Type,
 		Dial:        dial,
 		WrapDial:    wrap,

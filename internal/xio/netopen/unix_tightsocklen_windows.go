@@ -36,7 +36,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		return nil, err
 	}
 	var conn net.Conn
-	err := xio.WithRetry(req.ctx, req.g, req.config.Type, func() error {
+	err := xio.WithRetry(req.ctx, req.g, req.config.Common.Retry.Policy(), req.config.Type, func() error {
 		if err := prepareUnixClientBind(bindPath, config); err != nil {
 			return err
 		}

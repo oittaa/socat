@@ -39,7 +39,7 @@ func openVSOCKConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, g, "vsock connect", func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), "vsock connect", func() error {
 			c, e := dialVSOCK(dialRequest{ctx: dctx, config: s, g: g, timeout: timeout}, remote)
 			if e != nil {
 				return e

@@ -33,7 +33,7 @@ func openSocketConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g 
 	}
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, g, "socket connect", func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), "socket connect", func() error {
 			c, e := dialRawSocket(dctx, call, sa, s)
 			if e != nil {
 				return e

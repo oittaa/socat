@@ -40,9 +40,8 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	if fork {
 		o.Kind = KindDial
 		o.MaxChildren = maxChildren
-		o.Interval = RetryPolicyFromContext(ctx).Interval
-		dial := carryPreparedConfig(ctx, d.Dial)
-		o.Dial = WrapNetNSDial(netNamespaceName(s), g, dial)
+		o.Interval = s.Common.Retry.Policy().Interval
+		o.Dial = WrapNetNSDial(netNamespaceName(s), g, d.Dial)
 		o.WrapDial = wrap
 		return o, nil
 	}
@@ -70,17 +69,4 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	}
 	o.Stream = st
 	return o, nil
-}
-
-func carryPreparedConfig(openCtx context.Context, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
-	if dial == nil {
-		return nil
-	}
-	config, ok := PreparedConfig(openCtx)
-	if !ok {
-		return dial
-	}
-	return func(dialCtx context.Context) (net.Conn, error) {
-		return dial(withPreparedConfig(dialCtx, config))
-	}
 }

@@ -45,7 +45,7 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 	authority := proxyCONNECTTarget(t.connectHost, t.connectPort)
 
 	var conn net.Conn
-	err = xio.WithRetry(ctx, g, "PROXY-CONNECT", func() error {
+	err = xio.WithRetry(ctx, g, s.Common.Retry.Policy(), "PROXY-CONNECT", func() error {
 		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPortTarget(s.Proxy)}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e

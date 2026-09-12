@@ -39,7 +39,7 @@ func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, g, network+" connect", func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), network+" connect", func() error {
 			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: host, Port: port}, s, g, timeout, nil)
 			if e != nil {
 				return e

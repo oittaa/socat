@@ -65,8 +65,8 @@ func TestOpenPreparedChannelDoesNotNeedRawChannel(t *testing.T) {
 	defer func() { _ = opened.Close() }()
 }
 
-func TestPreparedRetryPolicyCarriesIntoForkDialContext(t *testing.T) {
-	raw, err := parse.ParseChannel("TCP:example.invalid:9,retry=1,interval=1ns")
+func TestOpenDialedUsesPreparedRetryInterval(t *testing.T) {
+	raw, err := parse.ParseChannel("TCP:example.invalid:9,fork,retry=1,interval=1ns")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,15 +74,28 @@ func TestPreparedRetryPolicyCarriesIntoForkDialContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	openCtx := withPreparedConfig(context.Background(), prepared.Single.Config)
-	dial := carryPreparedConfig(openCtx, func(ctx context.Context) (net.Conn, error) {
-		got, ok := PreparedConfig(ctx)
-		if !ok || got.Common.Retry.Policy().MaxAttempts != 2 {
-			return nil, errors.New("prepared retry policy missing")
-		}
-		return nil, nil
+	opened, err := OpenDialed(context.Background(), prepared.Single.Config, nil, Dialed{
+		Label: "test",
+		Dial: func(context.Context) (net.Conn, error) {
+			return nil, errors.New("unused")
+		},
 	})
-	if _, err := dial(context.Background()); err != nil {
+	if err != nil {
 		t.Fatal(err)
+	}
+	if opened.Interval != time.Nanosecond {
+		t.Fatalf("fork interval=%v", opened.Interval)
+	}
+}
+
+func TestWithRetryUsesExplicitPolicy(t *testing.T) {
+	policy := addrconfig.RetryPolicy{MaxAttempts: 2, Interval: time.Nanosecond}
+	var n int
+	err := WithRetry(context.Background(), nil, policy, "test", func() error {
+		n++
+		return errors.New("again")
+	})
+	if err == nil || n != 2 {
+		t.Fatalf("attempts=%d err=%v", n, err)
 	}
 }

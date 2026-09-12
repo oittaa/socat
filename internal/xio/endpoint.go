@@ -509,7 +509,6 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	if err != nil {
 		return nil, err
 	}
-	ctx = withPreparedConfig(ctx, prepared.Config)
 	if err := RejectUnsupportedIPAncillary(prepared.Config); err != nil {
 		return nil, err
 	}

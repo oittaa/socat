@@ -26,7 +26,6 @@ import (
 // Phases: prepare command → attach peer (transfer FD ownership) → Start →
 // drop ExtraFiles copies → Wait/reap.
 func runExecNoFork(ctx context.Context, peer relay.Stream, config addrconfig.Address, g *Global, mode Mode) error {
-	ctx = withPreparedConfig(ctx, config)
 	cmd, err := commandForConfiguredExec(ctx, config)
 	if err != nil {
 		return err

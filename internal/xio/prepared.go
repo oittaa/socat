@@ -26,23 +26,6 @@ type PreparedChannel struct {
 	Raw    string
 }
 
-type preparedConfigKey struct{}
-
-func withPreparedConfig(ctx context.Context, config addrconfig.Address) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, preparedConfigKey{}, config)
-}
-
-func PreparedConfig(ctx context.Context) (addrconfig.Address, bool) {
-	if ctx == nil {
-		return addrconfig.Address{}, false
-	}
-	config, ok := ctx.Value(preparedConfigKey{}).(addrconfig.Address)
-	return config, ok
-}
-
 func (c PreparedChannel) IsDual() bool { return c.Dual != nil }
 
 func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
