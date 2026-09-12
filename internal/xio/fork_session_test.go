@@ -22,8 +22,13 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	if g.Options().BlockSize != 9 {
 		t.Fatal("NewSession must not alias the caller's Options value")
 	}
+	snap := g.Options()
+	snap.BlockSize = 0
+	if g.Options().BlockSize != 9 {
+		t.Fatal("Options() snapshot must not write session storage")
+	}
 	other := NewSession(Options{BlockSize: 9}, lg)
-	if other.Options() == g.Options() {
+	if other.sharesOptions(g) {
 		t.Fatal("separate NewSession calls must not share Options")
 	}
 
@@ -37,8 +42,8 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	c.SessionVars["A"] = "x"
 	c.TLSVars["B"] = "y"
 	c.LogMixed = false
-	if c.Options() != g.Options() {
-		t.Fatal("fork must share the Options pointer")
+	if !c.sharesOptions(g) {
+		t.Fatal("fork must share private Options storage")
 	}
 	if c.Options().BlockSize != 9 || !c.ForkChild || c.childSignals != nil || c.statsPrinted != printed {
 		t.Fatal("shared options, ForkChild set, signals reset, stats shared")
@@ -56,10 +61,7 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 
 func TestForkSessionNilOwnsState(t *testing.T) {
 	c := (*Global)(nil).ForkSession()
-	if !c.ForkChild || c.Options() == nil || c.childSignals != nil || c.sessionMu.Load() != nil {
+	if !c.ForkChild || c.options == nil || c.childSignals != nil || c.sessionMu.Load() != nil {
 		t.Fatal("nil ForkSession still creates session-owned sync/signals and options")
-	}
-	if c.Options() == &emptyOptions {
-		t.Fatal("fork of nil must own a heap Options, not the nil-Global fallback")
 	}
 }

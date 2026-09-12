@@ -101,7 +101,7 @@ const (
 )
 
 // Options is parsed process configuration. It is immutable after NewSession.
-// Sessions share one *Options; ForkSession does not copy it.
+// Sessions share one private *Options; Options() returns a value snapshot.
 type Options struct {
 	IPVersion    IPVersion
 	BlockSize    int
@@ -122,9 +122,6 @@ type Options struct {
 	RawRightPath string
 	Progname     string // -lp value; default "socat"
 }
-
-// emptyOptions is the read-only fallback for a nil *Global.
-var emptyOptions Options
 
 // sessionPeer is per-connection identity for SOCAT_* env and sniff paths.
 // ForkSession clones the maps; RememberAddrs overwrites the address strings.
@@ -186,16 +183,21 @@ type Global struct {
 	sessionMu atomic.Pointer[sync.Mutex]
 }
 
-// Options returns the immutable process options this session shares with
-// its forks. Never nil.
-func (g *Global) Options() *Options {
-	if g == nil {
-		return &emptyOptions
+// Options returns a snapshot of this session's process options.
+// A nil or uninitialized session yields the zero Options value. The
+// snapshot is not shared storage: mutating it cannot change the session
+// or its forks.
+func (g *Global) Options() Options {
+	if g == nil || g.options == nil {
+		return Options{}
 	}
-	if g.options == nil {
-		g.options = &Options{}
-	}
-	return g.options
+	return *g.options
+}
+
+// sharesOptions reports whether g and other hold the same private Options
+// pointer. Tests use this instead of comparing Options() snapshots.
+func (g *Global) sharesOptions(other *Global) bool {
+	return g != nil && other != nil && g.options != nil && g.options == other.options
 }
 
 // NewSession creates a root logical session.
@@ -223,16 +225,13 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 	logMixed := false
 	var stats *atomic.Bool
 	if from != nil {
-		unlock := from.lockSession()
-		vars := from.SessionVars
-		unlock()
 		peer = sessionPeer{
 			SockAddr:    from.SockAddr,
 			PeerAddr:    from.PeerAddr,
 			SockPort:    from.SockPort,
 			PeerPort:    from.PeerPort,
 			TLSVars:     cloneStringMap(from.TLSVars),
-			SessionVars: cloneStringMap(vars),
+			SessionVars: from.cloneSessionVars(),
 		}
 		result = from.childResult
 		sniff = from.sniffFiles
@@ -268,12 +267,13 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 // Passing *g without a copy is not safe: RememberAddrs writes peer fields.
 func (g *Global) ForkSession() *Global {
 	if g == nil {
-		return createSession(nil, nil, nil, true)
+		return createSession(&Options{}, nil, nil, true)
 	}
-	if g.options == nil {
-		g.options = &Options{}
+	opts := g.options
+	if opts == nil {
+		opts = &Options{}
 	}
-	return createSession(g.options, g, nil, true)
+	return createSession(opts, g, nil, true)
 }
 
 func cloneStringMap(src map[string]string) map[string]string {

@@ -54,7 +54,7 @@ func setupNetNS(t *testing.T) (ns string, g *xio.Global) {
 }
 
 func separateNetNSGlobal(g *xio.Global) *xio.Global {
-	opts := *g.Options()
+	opts := g.Options()
 	opts.Experimental = true
 	return xio.NewSession(opts, g.Log)
 }
