@@ -413,8 +413,9 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 }
 
 // ConnectNetworkForType picks dial network for a CONNECT address type.
-// TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" (try both,
-// ordered by -4/-6). pf= still forces a family.
+// TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" for names
+// (try both, ordered by -4/-6). IPv4 and IPv4-mapped literals use tcp4.
+// pf= still forces a family.
 func ConnectNetworkForType(g *Global, config addrconfig.Address, host, forced string) string {
 	if config.Network.ProtocolSet {
 		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
@@ -432,7 +433,7 @@ func ConnectNetworkForType(g *Global, config addrconfig.Address, host, forced st
 		ht = addrconfig.HostFromText(host)
 	}
 	if ht.IsLiteral() {
-		if ht.Literal.Is4() {
+		if ht.Literal.Unmap().Is4() {
 			return "tcp4"
 		}
 		return "tcp6"

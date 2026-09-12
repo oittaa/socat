@@ -27,6 +27,47 @@ func openSpec(t *testing.T, spec string) (*xio.Opened, error) {
 	return xio.OpenSpec(context.Background(), s, xio.ModeRDWR, testGlobal())
 }
 
+func TestTCPMappedIPv4LiteralConnectsIPv4Listener(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := ln.Addr().(*net.TCPAddr).Port
+
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, accErr := ln.Accept()
+		if accErr != nil {
+			accepted <- nil
+			return
+		}
+		accepted <- c
+	}()
+
+	o, err := openSpec(t, fmt.Sprintf("TCP:[::ffff:127.0.0.1]:%d,connect-timeout=2", port))
+	if err != nil {
+		t.Fatalf("generic TCP mapped literal: %v", err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+
+	peer := <-accepted
+	if peer == nil {
+		t.Fatal("listener did not accept")
+	}
+	t.Cleanup(func() { _ = peer.Close() })
+	if _, err := o.Stream.Write([]byte("ok")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 2)
+	if _, err := io.ReadFull(peer, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "ok" {
+		t.Fatalf("peer read %q", buf)
+	}
+}
+
 func TestTCP4ClientBindEmptyHostConnectsOnLoopback(t *testing.T) {
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

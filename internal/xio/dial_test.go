@@ -45,6 +45,9 @@ func TestConnectNetworkPreferDualStack(t *testing.T) {
 	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "example.com", "tcp4"); n != "tcp4" {
 		t.Fatalf("TCP4 forced want tcp4 got %s", n)
 	}
+	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "[::ffff:127.0.0.1]", "tcp"); n != "tcp4" {
+		t.Fatalf("generic TCP mapped literal want tcp4 got %s", n)
+	}
 	s.Options = []parse.Option{{Name: "pf", Value: "ip4", Has: true}}
 	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), "example.com", "tcp"); n != "tcp4" {
 		t.Fatalf("pf=ip4 want tcp4 got %s", n)
