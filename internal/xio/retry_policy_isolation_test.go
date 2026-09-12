@@ -2,42 +2,72 @@ package xio
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"io"
 	"net"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/relay"
 )
 
-var errRetryAgain = errors.New("retry again")
-
-func retrySession() *Global {
-	return NewSession(Options{BlockSize: 8192}, logx.New())
+func retrySessionWithLog(w io.Writer) *Global {
+	lg := logx.New()
+	lg.SetOutput(w)
+	lg.SetLevel(logx.Notice)
+	return NewSession(Options{BlockSize: 8192}, lg)
 }
 
-func decodeRetrySpec(t *testing.T, spec string) addrconfig.Address {
+func prepareChannel(t *testing.T, spec string) PreparedChannel {
 	t.Helper()
-	raw, err := parse.ParseSpec(spec)
+	raw, err := parse.ParseChannel(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := addrconfig.Decode(raw, addrconfig.Facts{Type: raw.Type, Caps: CapsTCPConnect})
+	prepared, err := PrepareChannel(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return config
+	return prepared
 }
 
-func fastRetryPolicy(p addrconfig.RetryPolicy) addrconfig.RetryPolicy {
-	p.Interval = 0
-	return p
+func reservedTCP4Addr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ta, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = ln.Close()
+		t.Fatalf("listen addr %T", ln.Addr())
+	}
+	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(ta.Port))
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return addr
+}
+
+func listenTCP4(addr string) (net.Listener, error) {
+	lc := net.ListenConfig{
+		Control: func(_, _ string, c syscall.RawConn) error {
+			var sockErr error
+			if err := c.Control(func(fd uintptr) {
+				sockErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			}); err != nil {
+				return err
+			}
+			return sockErr
+		},
+	}
+	return lc.Listen(context.Background(), "tcp4", addr)
 }
 
 func waitSignal(t *testing.T, ctx context.Context, ch <-chan struct{}, what string) {
@@ -49,261 +79,289 @@ func waitSignal(t *testing.T, ctx context.Context, ch <-chan struct{}, what stri
 	}
 }
 
-func isolatedAttemptsError(left, right, wantLeft, wantRight int64) error {
-	if left != wantLeft || right != wantRight {
-		return fmt.Errorf("attempts left=%d want %d; right=%d want %d", left, wantLeft, right, wantRight)
-	}
-	return nil
-}
-
-func sharedPolicyAttempts(left, right addrconfig.RetryPolicy) (int64, int64) {
-	_ = right
-	var n atomic.Int64
-	_ = WithRetry(context.Background(), nil, left, "shared", func() error {
-		n.Add(1)
-		return errRetryAgain
-	})
-	got := n.Load()
-	return got, got
-}
-
-type retryProbe struct {
-	attempts atomic.Int64
-	live     atomic.Int64
-	doneOnce sync.Once
-	done     chan struct{}
-}
-
-func newRetryProbe() *retryProbe {
-	return &retryProbe{done: make(chan struct{})}
-}
-
-func (p *retryProbe) finish() {
-	p.doneOnce.Do(func() { close(p.done) })
-}
-
-func (p *retryProbe) exhaustOpener(hold <-chan struct{}) Opener {
-	return func(ctx context.Context, s addrconfig.Address, _ Mode, g *Global) (*Opened, error) {
-		p.live.Add(1)
-		defer p.live.Add(-1)
-		err := WithRetry(ctx, g, fastRetryPolicy(s.Common.Retry.Policy()), s.Type, func() error {
-			p.attempts.Add(1)
-			return errRetryAgain
-		})
-		p.finish()
-		if hold != nil {
-			select {
-			case <-hold:
-			case <-ctx.Done():
-			}
-		}
-		return nil, err
-	}
-}
-
-func openRetryConnectFork(t *testing.T, spec string, attempts *atomic.Int64, g *Global) *Opened {
+func waitConn(t *testing.T, ctx context.Context, ch <-chan net.Conn, what string) net.Conn {
 	t.Helper()
-	config := decodeRetrySpec(t, spec)
-	var leftover net.Conn
-	t.Cleanup(func() {
-		if leftover != nil {
-			_ = leftover.Close()
+	select {
+	case c := <-ch:
+		t.Cleanup(func() { _ = c.Close() })
+		return c
+	case <-ctx.Done():
+		t.Fatalf("waiting for %s: %v", what, ctx.Err())
+		return nil
+	}
+}
+
+func waitErr(t *testing.T, ch <-chan error, d time.Duration, what string) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(d):
+		t.Fatalf("%s did not finish", what)
+		return nil
+	}
+}
+
+func writeRead(t *testing.T, w, r net.Conn, msg []byte) {
+	t.Helper()
+	_ = w.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	_ = r.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := w.Write(msg); err != nil {
+		t.Fatal(err)
+	}
+	got := make([]byte, len(msg))
+	if _, err := io.ReadFull(r, got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(msg) {
+		t.Fatalf("handoff %q want %q", got, msg)
+	}
+}
+
+func lineHasAddr(line, addr string) bool {
+	i := strings.Index(line, addr)
+	if i < 0 {
+		return false
+	}
+	after := i + len(addr)
+	if after < len(line) {
+		c := line[after]
+		if c == '.' || c >= '0' && c <= '9' {
+			return false
 		}
-	})
-	opened, err := OpenDialed(context.Background(), config, g, Dialed{
-		Label: "left-retry",
-		Dial: func(ctx context.Context) (net.Conn, error) {
-			var conn net.Conn
-			err := WithRetry(ctx, g, fastRetryPolicy(config.Common.Retry.Policy()), config.Type, func() error {
-				n := attempts.Add(1)
-				policy := config.Common.Retry.Policy()
-				if policy.MaxAttempts != 0 && uint64(n) < policy.MaxAttempts {
-					return errRetryAgain
-				}
-				a, b := net.Pipe()
-				leftover = b
-				conn = a
-				return nil
-			})
-			return conn, err
-		},
-		Wrap: func(c net.Conn) (relay.Stream, error) {
-			return relay.NetStream{Conn: c}, nil
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = opened.Close() })
-	return opened
+	return true
 }
 
-func TestRetryIsolationContractRejectsAliasedCounts(t *testing.T) {
-	if err := isolatedAttemptsError(2, 2, 2, 4); err == nil {
-		t.Fatal("aliased left/right counts must fail isolation")
-	}
-	if err := isolatedAttemptsError(2, 4, 2, 4); err != nil {
-		t.Fatal(err)
+// destGate is a closed TCP4 port that starts listening after startAfter
+// production retry notices for that address. openings counts DialTCPAll
+// "opening connection" lines from the production opener.
+type destGate struct {
+	addr       string
+	startAfter int64
+	openings   atomic.Int64
+	retries    atomic.Int64
+	startOnce  sync.Once
+	mu         sync.Mutex
+	ln         net.Listener
+	accepted   chan net.Conn
+	retried    chan struct{}
+	startErr   error
+	closed     atomic.Bool
+}
+
+func newDestGate(addr string, startAfter uint64) *destGate {
+	return &destGate{
+		addr:       addr,
+		startAfter: int64(startAfter),
+		accepted:   make(chan net.Conn, 1),
+		retried:    make(chan struct{}, 8),
 	}
 }
 
-func TestSharedRetryPolicyAliasesAttemptCounts(t *testing.T) {
-	left := addrconfig.RetryPolicy{MaxAttempts: 2}
-	right := addrconfig.RetryPolicy{MaxAttempts: 4}
-	gotLeft, gotRight := sharedPolicyAttempts(left, right)
-	if err := isolatedAttemptsError(gotLeft, gotRight, int64(left.MaxAttempts), int64(right.MaxAttempts)); err == nil {
-		t.Fatal("shared policy unexpectedly satisfied isolation")
+func (g *destGate) observe(line string) {
+	if !lineHasAddr(line, g.addr) {
+		return
 	}
-	if gotLeft != int64(left.MaxAttempts) || gotRight != int64(left.MaxAttempts) {
-		t.Fatalf("shared policy left=%d right=%d want both %d", gotLeft, gotRight, left.MaxAttempts)
+	if strings.Contains(line, "opening connection to AF=") {
+		g.openings.Add(1)
 	}
+	if !strings.Contains(line, "; retrying in ") {
+		return
+	}
+	n := g.retries.Add(1)
+	select {
+	case g.retried <- struct{}{}:
+	default:
+	}
+	if g.startAfter > 0 && n == g.startAfter {
+		g.startListen()
+	}
+}
+
+func (g *destGate) startListen() {
+	g.startOnce.Do(func() {
+		if g.closed.Load() {
+			return
+		}
+		ln, err := listenTCP4(g.addr)
+		g.mu.Lock()
+		if err != nil {
+			g.startErr = err
+			g.mu.Unlock()
+			return
+		}
+		g.ln = ln
+		g.mu.Unlock()
+		go g.acceptLoop()
+	})
+}
+
+func (g *destGate) acceptLoop() {
+	g.mu.Lock()
+	ln := g.ln
+	g.mu.Unlock()
+	if ln == nil {
+		return
+	}
+	for {
+		c, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		select {
+		case g.accepted <- c:
+		default:
+			_ = c.Close()
+		}
+	}
+}
+
+func (g *destGate) close() {
+	g.closed.Store(true)
+	g.mu.Lock()
+	ln := g.ln
+	g.mu.Unlock()
+	if ln != nil {
+		_ = ln.Close()
+	}
+}
+
+type retryFanout struct {
+	gates []*destGate
+}
+
+func (f *retryFanout) Write(p []byte) (int, error) {
+	line := string(p)
+	for _, g := range f.gates {
+		g.observe(line)
+	}
+	return len(p), nil
 }
 
 func TestLeftRightRetryPoliciesIsolatedThroughForkedDialing(t *testing.T) {
-	const (
-		leftSpec  = "TCP:127.0.0.1:9,fork,retry=1,interval=1h,max-children=1"
-		rightSpec = "TCP:127.0.0.1:9,retry=3,interval=0"
-	)
-	wantLeft := int64(decodeRetrySpec(t, leftSpec).Common.Retry.Policy().MaxAttempts)
-	wantRight := int64(decodeRetrySpec(t, rightSpec).Common.Retry.Policy().MaxAttempts)
-	if wantLeft == wantRight || wantLeft < 2 || wantRight < 2 {
-		t.Fatalf("fixture policies left=%d right=%d", wantLeft, wantRight)
-	}
-
 	t.Run("connectFork", func(t *testing.T) {
-		g := retrySession()
-		var leftAttempts atomic.Int64
-		right := newRetryProbe()
-		hold := make(chan struct{})
-		lo := openRetryConnectFork(t, leftSpec, &leftAttempts, g)
-		rightPrepared := PreparedAddress{Config: decodeRetrySpec(t, rightSpec), opener: right.exhaustOpener(hold)}
+		leftAddr, rightAddr := reservedTCP4Addr(t), reservedTCP4Addr(t)
+		leftGate := newDestGate(leftAddr, 1)
+		rightGate := newDestGate(rightAddr, 2)
+		g := retrySessionWithLog(&retryFanout{gates: []*destGate{leftGate, rightGate}})
+		t.Cleanup(leftGate.close)
+		t.Cleanup(rightGate.close)
+
+		left := prepareChannel(t, fmt.Sprintf("TCP4:%s,fork,retry=1,interval=0,max-children=1,connect-timeout=1", leftAddr))
+		right := prepareChannel(t, fmt.Sprintf("TCP4:%s,retry=3,interval=0,connect-timeout=1", rightAddr))
+		if left.Single.Config.Common.Retry.Policy().MaxAttempts != 2 {
+			t.Fatalf("left policy=%+v", left.Single.Config.Common.Retry.Policy())
+		}
+		if right.Single.Config.Common.Retry.Policy().MaxAttempts != 4 {
+			t.Fatalf("right policy=%+v", right.Single.Config.Common.Retry.Policy())
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		finished := make(chan error, 1)
-		go func() {
-			finished <- RunOpenedPrepared(ctx, lo, PreparedChannel{Single: &rightPrepared}, g)
-		}()
-		waitSignal(t, ctx, right.done, "right retry exhaustion")
-		if err := isolatedAttemptsError(leftAttempts.Load(), right.attempts.Load(), wantLeft, wantRight); err != nil {
+		lo, err := OpenPreparedChannel(ctx, left, ModeRDWR, g)
+		if err != nil {
 			t.Fatal(err)
 		}
+		finished := make(chan error, 1)
+		go func() {
+			finished <- RunOpenedPrepared(ctx, lo, right, g)
+		}()
+
+		leftConn := waitConn(t, ctx, leftGate.accepted, "left production TCP")
+		rightConn := waitConn(t, ctx, rightGate.accepted, "right production TCP")
+		writeRead(t, leftConn, rightConn, []byte("connect-fork-handoff"))
+		if got := leftGate.openings.Load(); got < 2 {
+			t.Fatalf("left DialTCPAll openings=%d want >= 2", got)
+		}
+		if got := rightGate.openings.Load(); got < 3 {
+			t.Fatalf("right DialTCPAll openings=%d want >= 3", got)
+		}
+		if leftGate.startErr != nil {
+			t.Fatal(leftGate.startErr)
+		}
+		if rightGate.startErr != nil {
+			t.Fatal(rightGate.startErr)
+		}
 		cancel()
-		select {
-		case err := <-finished:
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("run did not terminate after cancel")
-		}
-		if live := right.live.Load(); live != 0 {
-			t.Fatalf("orphaned right worker live=%d", live)
-		}
+		_ = waitErr(t, finished, 2*time.Second, "connect-fork run")
 	})
 
 	t.Run("listenFork", func(t *testing.T) {
-		g := retrySession()
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatal(err)
+		rightAddr := reservedTCP4Addr(t)
+		left := prepareChannel(t, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,retry=1,max-children=1")
+		leftPolicy := left.Single.Config.Common.Retry.Policy()
+		if leftPolicy.MaxAttempts < 2 {
+			t.Fatalf("left listen retry policy=%+v", leftPolicy)
 		}
-		t.Cleanup(func() { _ = ln.Close() })
-		lo, err := NewAcceptParent("left-listen", AcceptParent{Listener: ln, MaxChildren: 1})
-		if err != nil {
-			t.Fatal(err)
-		}
-		right := newRetryProbe()
-		hold := make(chan struct{})
-		rightPrepared := PreparedAddress{Config: decodeRetrySpec(t, rightSpec), opener: right.exhaustOpener(hold)}
+		rightGate := newDestGate(rightAddr, leftPolicy.MaxAttempts)
+		right := prepareChannel(t, fmt.Sprintf("TCP4:%s,retry=3,interval=0,connect-timeout=1", rightAddr))
+		g := retrySessionWithLog(&retryFanout{gates: []*destGate{rightGate}})
+		t.Cleanup(rightGate.close)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		lo, err := OpenPreparedChannel(ctx, left, ModeRDWR, g)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lo.Listener() == nil {
+			t.Fatal("production listen opener did not return a listener")
+		}
 		finished := make(chan error, 1)
 		go func() {
-			finished <- RunOpenedPrepared(ctx, lo, PreparedChannel{Single: &rightPrepared}, g)
+			finished <- RunOpenedPrepared(ctx, lo, right, g)
 		}()
-		client, err := net.Dial("tcp", ln.Addr().String())
+
+		client, err := net.Dial("tcp4", lo.Listener().Addr().String())
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = client.Close() })
-		waitSignal(t, ctx, right.done, "deferred right retry exhaustion")
-		if got := right.attempts.Load(); got != wantRight {
-			t.Fatalf("deferred right attempts=%d want %d (left policy %d)", got, wantRight, wantLeft)
+		rightConn := waitConn(t, ctx, rightGate.accepted, "deferred right production TCP")
+		writeRead(t, client, rightConn, []byte("listen-fork-handoff"))
+		wantOpenings := int64(leftPolicy.MaxAttempts) + 1
+		if got := rightGate.openings.Load(); got < wantOpenings {
+			t.Fatalf("right DialTCPAll openings=%d want >= %d (left policy MaxAttempts=%d)", got, wantOpenings, leftPolicy.MaxAttempts)
 		}
-		if right.attempts.Load() == wantLeft {
-			t.Fatal("right used left retry policy")
+		if rightGate.startErr != nil {
+			t.Fatal(rightGate.startErr)
 		}
 		cancel()
-		select {
-		case err := <-finished:
-			if err != nil {
-				t.Fatalf("run: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("run did not terminate after cancel")
-		}
-		if live := right.live.Load(); live != 0 {
-			t.Fatalf("orphaned right worker live=%d", live)
-		}
+		_ = waitErr(t, finished, 2*time.Second, "listen-fork run")
 	})
 }
 
 func TestCancelDuringRetryStopsAttemptsAndWorkers(t *testing.T) {
-	g := retrySession()
-	var leftAttempts atomic.Int64
-	lo := openRetryConnectFork(t, "TCP:127.0.0.1:9,fork,interval=1h,max-children=1", &leftAttempts, g)
-
-	var attempts, live atomic.Int64
-	started := make(chan struct{})
-	right := PreparedAddress{
-		Config: decodeRetrySpec(t, "TCP:127.0.0.1:9,forever,interval=0"),
-		opener: func(ctx context.Context, s addrconfig.Address, _ Mode, g *Global) (*Opened, error) {
-			live.Add(1)
-			defer live.Add(-1)
-			policy := fastRetryPolicy(s.Common.Retry.Policy())
-			return nil, WithRetry(ctx, g, policy, s.Type, func() error {
-				if attempts.Add(1) == 1 {
-					close(started)
-				}
-				var never <-chan struct{}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-never:
-					return errRetryAgain
-				}
-			})
-		},
-	}
+	addr := reservedTCP4Addr(t)
+	gate := newDestGate(addr, 0)
+	g := retrySessionWithLog(&retryFanout{gates: []*destGate{gate}})
+	t.Cleanup(gate.close)
+	ch := prepareChannel(t, fmt.Sprintf("TCP4:%s,forever,interval=1h,connect-timeout=1", addr))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	var live atomic.Int64
 	finished := make(chan error, 1)
 	go func() {
-		finished <- RunOpenedPrepared(ctx, lo, PreparedChannel{Single: &right}, g)
+		live.Add(1)
+		_, err := OpenPreparedChannel(ctx, ch, ModeRDWR, g)
+		live.Add(-1)
+		finished <- err
 	}()
-	waitSignal(t, ctx, started, "first retry attempt")
-	if got := attempts.Load(); got != 1 {
-		t.Fatalf("attempts before cancel=%d", got)
+	waitSignal(t, ctx, gate.retried, "nonzero retry delay")
+	if got := gate.openings.Load(); got != 1 {
+		t.Fatalf("openings before cancel=%d want 1", got)
 	}
 	cancel()
-	select {
-	case err := <-finished:
-		if err != nil {
-			t.Fatalf("run: %v", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("run did not terminate after cancel")
+	err := waitErr(t, finished, 2*time.Second, "canceled TCP open")
+	if err == nil {
+		t.Fatal("canceled open succeeded")
 	}
-	if got := attempts.Load(); got != 1 {
-		t.Fatalf("attempts after cancel=%d want 1", got)
+	if got := gate.openings.Load(); got != 1 {
+		t.Fatalf("openings after cancel=%d want 1", got)
 	}
 	if got := live.Load(); got != 0 {
 		t.Fatalf("orphaned worker live=%d", got)
-	}
-	if got := leftAttempts.Load(); got != 1 {
-		t.Fatalf("left attempts=%d want 1", got)
 	}
 }
