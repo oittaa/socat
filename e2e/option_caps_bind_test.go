@@ -72,24 +72,9 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		}
 	})
 
-	t.Run("append-on-tcp-accepted", func(t *testing.T) {
-		port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-			return exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-		})
-		payload := []byte("append-ok\n")
-		out, err := runWithTimeoutInput(t, 3*time.Second, payload, bin, "stdin!!stdout",
-			fmt.Sprintf("TCP4:127.0.0.1:%d,append", port))
-		if checkErr := acceptedConnectedResult(out, err, payload, srv.stderr.String()); checkErr != nil {
-			t.Fatal(checkErr)
-		}
-	})
 	t.Run("readbytes-on-tcp-accepted", func(t *testing.T) {
-		port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-			return exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-		})
-		out, err := runWithTimeoutInput(t, 3*time.Second, []byte("hello"), bin, "stdin!!stdout",
-			fmt.Sprintf("TCP4:127.0.0.1:%d,readbytes=4", port))
-		if checkErr := acceptedConnectedResult(out, err, []byte("hell"), srv.stderr.String()); checkErr != nil {
+		out, err, stderr := runTCPAcceptedOption(t, "readbytes=4", []byte("hello"))
+		if checkErr := acceptedConnectedResult(out, err, []byte("hell"), stderr); checkErr != nil {
 			t.Fatal(checkErr)
 		}
 	})
@@ -145,6 +130,17 @@ func TestForcedFamilyBindE2E(t *testing.T) {
 			t.Fatal(checkErr)
 		}
 	}
+}
+
+func runTCPAcceptedOption(t *testing.T, option string, stdin []byte) ([]byte, error, string) {
+	t.Helper()
+	bin := socatBin(t)
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
+	})
+	out, err := runWithTimeoutInput(t, 3*time.Second, stdin, bin, "stdin!!stdout",
+		fmt.Sprintf("TCP4:127.0.0.1:%d,%s", port, option))
+	return out, err, srv.stderr.String()
 }
 
 func stallTCPPeer(t *testing.T) int {
