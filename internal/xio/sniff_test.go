@@ -8,15 +8,16 @@ import (
 
 func TestOpenSniffFilesClosesLeftWhenRightFails(t *testing.T) {
 	dir := t.TempDir()
-	left := filepath.Join(dir, "left.log")
-	// A missing parent directory is not a portable -R failure: Windows
-	// creates that path. A regular file as the parent fails on linux,
-	// darwin, and windows.
+	left := filepath.ToSlash(filepath.Join(dir, "left.log"))
+	// expandSniffPath treats \ as an escape, so Windows filepath.Join
+	// separators disappear and -R becomes creatable. Slash separators
+	// survive expansion. Parent is a regular file so the open fails on
+	// linux, darwin, and windows.
 	notDir := filepath.Join(dir, "not-a-dir")
 	if err := os.WriteFile(notDir, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	right := filepath.Join(notDir, "right.log")
+	right := filepath.ToSlash(filepath.Join(notDir, "right.log"))
 	g := NewSession(Options{RawLeftPath: left, RawRightPath: right}, nil)
 	if err := openSniffFiles(g); err == nil {
 		t.Fatal("expected -R open to fail")
