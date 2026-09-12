@@ -267,9 +267,9 @@ func rememberUnixgramPeer(g *xio.Global, addr *net.UnixAddr) {
 		return
 	}
 	if addr.Name != "" {
-		g.PeerAddr = addr.Name
+		g.Peer.PeerAddr = addr.Name
 	} else {
-		g.PeerAddr = addr.String()
+		g.Peer.PeerAddr = addr.String()
 	}
 }
 

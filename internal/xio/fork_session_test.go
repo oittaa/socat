@@ -33,14 +33,14 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	}
 
 	g.LogMixed = true
-	g.SessionVars = map[string]string{"A": "1"}
-	g.TLSVars = map[string]string{"B": "2"}
+	g.Peer.SessionVars = map[string]string{"A": "1"}
+	g.Peer.TLSVars = map[string]string{"B": "2"}
 	g.statsPrinted = printed
 	g.childSignals = new(childSignalSession)
 
 	c := g.ForkSession()
-	c.SessionVars["A"] = "x"
-	c.TLSVars["B"] = "y"
+	c.Peer.SessionVars["A"] = "x"
+	c.Peer.TLSVars["B"] = "y"
 	c.LogMixed = false
 	if !c.sharesOptions(g) {
 		t.Fatal("fork must share private Options storage")
@@ -51,11 +51,37 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	if c.Log == nil || c.Log == lg || !g.LogMixed {
 		t.Fatal("Log cloned, LogMixed copied per session")
 	}
-	if g.SessionVars["A"] != "1" || g.TLSVars["B"] != "2" {
+	if g.Peer.SessionVars["A"] != "1" || g.Peer.TLSVars["B"] != "2" {
 		t.Fatal("peer maps must be cloned")
 	}
 	if c.sessionMu.Load() != nil {
 		t.Fatal("child mutex starts unset")
+	}
+}
+
+func TestForkSessionCopiesPeer(t *testing.T) {
+	g := NewSession(Options{}, nil)
+	g.Peer = Peer{
+		SockAddr:    "10.0.0.1",
+		PeerAddr:    "10.0.0.2",
+		SockPort:    "1",
+		PeerPort:    "2",
+		TLSVars:     map[string]string{"CIPHER": "A"},
+		SessionVars: map[string]string{"TIMESTAMP": "now"},
+	}
+	c := g.ForkSession()
+	if c.Peer.SockAddr != "10.0.0.1" || c.Peer.PeerPort != "2" {
+		t.Fatal("fork copies peer address strings")
+	}
+	c.Peer.SockAddr = "changed"
+	c.Peer.PeerAddr = "changed"
+	c.Peer.SessionVars["TIMESTAMP"] = "later"
+	c.Peer.TLSVars["CIPHER"] = "B"
+	if g.Peer.SockAddr != "10.0.0.1" || g.Peer.PeerAddr != "10.0.0.2" {
+		t.Fatal("peer address strings are per-session")
+	}
+	if g.Peer.SessionVars["TIMESTAMP"] != "now" || g.Peer.TLSVars["CIPHER"] != "A" {
+		t.Fatal("peer maps must be cloned")
 	}
 }
 

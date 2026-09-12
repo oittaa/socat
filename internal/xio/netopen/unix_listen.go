@@ -142,29 +142,29 @@ func rememberUnixListenAddrs(g *xio.Global, path string, conn net.Conn) {
 		return
 	}
 	if !xio.IsAbstract(path) {
-		g.SockAddr = path
-		g.SockPort = ""
-		g.PeerPort = ""
+		g.Peer.SockAddr = path
+		g.Peer.SockPort = ""
+		g.Peer.PeerPort = ""
 		if ra := conn.RemoteAddr(); ra != nil {
 			if ua, ok := ra.(*net.UnixAddr); ok && ua.Name != "" {
-				g.PeerAddr = ua.Name
+				g.Peer.PeerAddr = ua.Name
 				return
 			}
 			if s := ra.String(); s != "" {
-				g.PeerAddr = s
+				g.Peer.PeerAddr = s
 				return
 			}
 		}
-		g.PeerAddr = path
+		g.Peer.PeerAddr = path
 		return
 	}
-	if g.PeerAddr == "" {
+	if g.Peer.PeerAddr == "" {
 		if ra := conn.RemoteAddr(); ra != nil {
 			if s := ra.String(); s != "" {
-				g.PeerAddr = s
+				g.Peer.PeerAddr = s
 				return
 			}
 		}
-		g.PeerAddr = path
+		g.Peer.PeerAddr = path
 	}
 }

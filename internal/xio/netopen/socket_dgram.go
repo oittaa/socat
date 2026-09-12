@@ -459,30 +459,30 @@ func rememberSocketPeer(g *xio.Global, from unix.Sockaddr, local net.Addr) {
 	switch a := packetAddrFromSockaddr(from).(type) {
 	case *net.UDPAddr:
 		if a.IP != nil {
-			g.PeerAddr = xio.FormatSocatAddr(a.IP.String())
-			g.PeerPort = strconv.Itoa(a.Port)
+			g.Peer.PeerAddr = xio.FormatSocatAddr(a.IP.String())
+			g.Peer.PeerPort = strconv.Itoa(a.Port)
 		}
 	case *net.UnixAddr:
 		if a.Name != "" {
-			g.PeerAddr = a.Name
+			g.Peer.PeerAddr = a.Name
 		} else {
-			g.PeerAddr = a.String()
+			g.Peer.PeerAddr = a.String()
 		}
 	default:
 		if s := a.String(); s != "" {
-			g.PeerAddr = s
+			g.Peer.PeerAddr = s
 		}
 	}
 	switch a := local.(type) {
 	case *net.UDPAddr:
 		if a != nil && a.IP != nil {
-			g.SockAddr = xio.FormatSocatAddr(a.IP.String())
-			g.SockPort = strconv.Itoa(a.Port)
+			g.Peer.SockAddr = xio.FormatSocatAddr(a.IP.String())
+			g.Peer.SockPort = strconv.Itoa(a.Port)
 		}
 	case *net.TCPAddr:
 		if a != nil && a.IP != nil {
-			g.SockAddr = xio.FormatSocatAddr(a.IP.String())
-			g.SockPort = strconv.Itoa(a.Port)
+			g.Peer.SockAddr = xio.FormatSocatAddr(a.IP.String())
+			g.Peer.SockPort = strconv.Itoa(a.Port)
 		}
 	}
 }

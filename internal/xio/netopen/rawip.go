@@ -848,18 +848,18 @@ func rememberRawIPPeer(g *xio.Global, peer *net.IPAddr, local net.Addr) {
 		return
 	}
 	if peer != nil && peer.IP != nil {
-		g.PeerAddr = xio.FormatSocatAddr(peer.IP.String())
-		g.PeerPort = ""
+		g.Peer.PeerAddr = xio.FormatSocatAddr(peer.IP.String())
+		g.Peer.PeerPort = ""
 	}
 	if local == nil {
 		return
 	}
 	if ia, ok := local.(*net.IPAddr); ok && ia.IP != nil {
-		g.SockAddr = xio.FormatSocatAddr(ia.IP.String())
+		g.Peer.SockAddr = xio.FormatSocatAddr(ia.IP.String())
 		return
 	}
 	if host, _, err := net.SplitHostPort(local.String()); err == nil {
-		g.SockAddr = xio.FormatSocatAddr(host)
+		g.Peer.SockAddr = xio.FormatSocatAddr(host)
 	}
 }
 

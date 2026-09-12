@@ -22,10 +22,10 @@ func environMap(env []string) map[string]string {
 func TestChildEnvironOverlaysSession(t *testing.T) {
 	t.Setenv("SOCAT_PEERADDR", "stale")
 	g := NewSession(Options{Progname: "socat"}, nil)
-	g.SockAddr = "10.0.0.1"
-	g.SockPort = "1"
-	g.PeerAddr = "10.0.0.2"
-	g.PeerPort = "2"
+	g.Peer.SockAddr = "10.0.0.1"
+	g.Peer.SockPort = "1"
+	g.Peer.PeerAddr = "10.0.0.2"
+	g.Peer.PeerPort = "2"
 	got := environMap(childEnviron(g))
 	if got["SOCAT_PEERADDR"] != "10.0.0.2" {
 		t.Fatalf("SOCAT_PEERADDR=%q", got["SOCAT_PEERADDR"])
@@ -44,7 +44,7 @@ func TestChildEnvironOverlaysSession(t *testing.T) {
 
 func TestSessionEnvironUsesPrognameAndSocatCompatibilityNames(t *testing.T) {
 	g := NewSession(Options{Progname: "relay"}, nil)
-	g.SessionVars = map[string]string{"TIMESTAMP": "now"}
+	g.Peer.SessionVars = map[string]string{"TIMESTAMP": "now"}
 	got := environMap(sessionEnv(g))
 	for _, name := range []string{"SOCAT_TIMESTAMP", "RELAY_TIMESTAMP", "SOCAT_VERSION", "RELAY_VERSION"} {
 		if got[name] == "" {
@@ -54,7 +54,7 @@ func TestSessionEnvironUsesPrognameAndSocatCompatibilityNames(t *testing.T) {
 }
 
 func TestSniffEnvFromSession(t *testing.T) {
-	g := &Global{PeerAddr: "192.0.2.1", PeerPort: "9"}
+	g := &Global{Peer: Peer{PeerAddr: "192.0.2.1", PeerPort: "9"}}
 	v, ok := sniffEnvValue(g, "SOCAT_PEERADDR")
 	if !ok || v != "192.0.2.1" {
 		t.Fatalf("got %q %v", v, ok)
