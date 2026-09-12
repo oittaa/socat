@@ -250,7 +250,7 @@ func (s *session) acknowledgeFlight(f *flight, records []recordNumber, authentic
 }
 
 func (s *session) retransmitExpired(f *flight, now time.Time) error {
-	due, err := expireFlight(f, now)
+	due, err := f.expire(now)
 	if err != nil || !due {
 		return err
 	}
@@ -259,7 +259,7 @@ func (s *session) retransmitExpired(f *flight, now time.Time) error {
 
 func (s *session) expireOutbound(now time.Time) error {
 	f := s.outbound
-	due, err := expireFlight(f, now)
+	due, err := f.expire(now)
 	if err != nil || !due {
 		return err
 	}

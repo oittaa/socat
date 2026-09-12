@@ -248,7 +248,7 @@ func (f *flight) finish() {
 // expire advances a timer supplied by the connection's event loop. Tests can
 // drive the same transitions with a synthetic clock.
 func (f *flight) expire(now time.Time) (bool, error) {
-	if f.complete || f.deadline.IsZero() || now.Before(f.deadline) {
+	if f == nil || f.complete || f.deadline.IsZero() || now.Before(f.deadline) {
 		return false, nil
 	}
 	if !f.pendingSend() {
@@ -264,13 +264,6 @@ func (f *flight) expire(now time.Time) (bool, error) {
 	// Remaining new bytes are the next burst, not a retransmission.
 	f.deadline = now.Add(f.interval)
 	return true, nil
-}
-
-func expireFlight(f *flight, now time.Time) (bool, error) {
-	if f == nil {
-		return false, nil
-	}
-	return f.expire(now)
 }
 
 func flightDeadline(f *flight) time.Time {
