@@ -40,16 +40,6 @@ type TLS struct {
 	WSProtocol             OptionalString
 }
 
-// HTTPVersion selects a CONNECT transport.
-type HTTPVersion uint8
-
-const (
-	HTTPVersion10 HTTPVersion = iota + 1
-	HTTPVersion11
-	HTTPVersion2
-	HTTPVersion3
-)
-
 // TLSUnsupported is the last occurrence of one unsupported TLS option.
 type TLSUnsupported struct {
 	Canonical string
@@ -57,26 +47,6 @@ type TLSUnsupported struct {
 	Reason    string
 	Reject    bool
 	Index     int
-}
-
-// Proxy holds static HTTP CONNECT and SOCKS settings.
-type Proxy struct {
-	Server            HostTarget
-	Target            HostTarget
-	TargetPort        PortTarget
-	EndpointsSet      bool
-	Port              PortTarget
-	PortSet           bool
-	HTTPVersion       HTTPVersion
-	H2C               OptionalBool
-	IgnoreCR          OptionalBool
-	Resolve           OptionalBool
-	Authorization     OptionalString
-	AuthorizationFile OptionalString
-	SOCKSPort         PortTarget
-	SOCKSPortSet      bool
-	SOCKSUser         OptionalString
-	SOCKSPassword     OptionalString
 }
 
 func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error) {
@@ -156,45 +126,6 @@ func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error)
 			a.TLS.DTLSUnfragmentedProbes = value
 		}
 		return true, err
-	case "proxyport":
-		a.Proxy.Port = portTarget(optionText(o))
-		a.Proxy.PortSet = true
-		return true, nil
-	case "http-version":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		version, err := decodeHTTPVersion(value)
-		if err != nil {
-			return true, err
-		}
-		a.Proxy.HTTPVersion = version
-		return true, nil
-	case "h2c":
-		return true, setActive(&a.Proxy.H2C, o)
-	case "ignorecr":
-		return true, setActive(&a.Proxy.IgnoreCR, o)
-	case "proxy-resolve":
-		return true, setActive(&a.Proxy.Resolve, o)
-	case "proxy-authorization":
-		if !o.Has {
-			return true, nil
-		}
-		a.Proxy.Authorization = OptionalString{Set: true, Value: o.Value}
-		return true, nil
-	case "proxy-authorization-file":
-		return true, setOptionText(&a.Proxy.AuthorizationFile, o)
-	case "socksport":
-		a.Proxy.SOCKSPort = portTarget(optionText(o))
-		a.Proxy.SOCKSPortSet = true
-		return true, nil
-	case "socksuser":
-		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
-	case "sockspass":
-		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
 	case "path", "origin":
 		opt := OptionalString{Set: true, Value: optionText(o)}
 		if name == "path" {
@@ -210,7 +141,7 @@ func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error)
 		a.TLS.WSProtocol = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	}
-	return false, nil
+	return decodeProxyOption(a, o, name)
 }
 
 func recordTLSPlaintextName(a *Address, o parse.Option, name string) {
@@ -366,21 +297,6 @@ func decodeDTLSVersion(value string) (int, error) {
 		return 13, nil
 	default:
 		return 0, fmt.Errorf("invalid DTLS protocol version %q", value)
-	}
-}
-
-func decodeHTTPVersion(value string) (HTTPVersion, error) {
-	switch strings.TrimSpace(value) {
-	case "1.0", "":
-		return HTTPVersion10, nil
-	case "1.1":
-		return HTTPVersion11, nil
-	case "2":
-		return HTTPVersion2, nil
-	case "3":
-		return HTTPVersion3, nil
-	default:
-		return 0, fmt.Errorf("http-version: invalid value %q", value)
 	}
 }
 

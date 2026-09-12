@@ -449,28 +449,7 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 			n.SocketProtocol = OptionalInt{Set: true, Value: proto}
 		}
 	case AddressKindVSOCK:
-		if n.Role == AddressRoleListen {
-			if len(a.Params) == 1 && a.Params[0] != "" {
-				port, err := vsockUint32(a.Params[0])
-				if err != nil {
-					return fmt.Errorf("%s: port: %w", a.Type, err)
-				}
-				n.VSOCKListen, n.VSOCKListenSet = port, true
-			}
-		} else if len(a.Params) == 2 {
-			cid, err := vsockUint32(a.Params[0])
-			if err != nil {
-				return fmt.Errorf("%s: cid: %w", a.Type, err)
-			}
-			if a.Params[0] == "" {
-				cid = ^uint32(0)
-			}
-			port, err := vsockUint32(a.Params[1])
-			if err != nil {
-				return fmt.Errorf("%s: port: %w", a.Type, err)
-			}
-			n.VSOCKConnect, n.VSOCKConnectSet = VSOCKEndpoint{CID: cid, Port: port}, true
-		}
+		return decodeVSOCKPositional(n, a.Type, a.Params)
 	case AddressKindSocket:
 		if err := decodeRawSocketCall(a, spec); err != nil {
 			return err
@@ -496,11 +475,7 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 		n.SocketPath = firstParam(a.Params)
 		return nil
 	case AddressKindPOSIXMQ:
-		if len(a.Params) > 1 {
-			return fmt.Errorf("too many parameters (%d instead of 1)", len(a.Params))
-		}
-		n.MQName = firstParam(a.Params)
-		return nil
+		return decodePOSIXMQPositional(n, a.Params)
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
@@ -705,64 +680,6 @@ func decodeINTERFACEPositional(a *Address) error {
 		return fmt.Errorf("INTERFACE requires interface name")
 	}
 	a.Network.InterfaceName = a.Params[0]
-	return nil
-}
-
-func decodePROXYPositional(a *Address) error {
-	p := a.Params
-	var server, host, port string
-	switch {
-	case len(p) >= 3:
-		server, host, port = p[0], p[1], p[2]
-	case len(p) == 2:
-		h, pt, err := net.SplitHostPort(p[1])
-		if err == nil {
-			server, host, port = p[0], h, pt
-		}
-	case len(p) == 1:
-		parts := strings.Split(p[0], ":")
-		if len(parts) >= 3 {
-			server, host, port = parts[0], parts[1], parts[2]
-		}
-	}
-	if server == "" || host == "" || port == "" {
-		return fmt.Errorf("%s requires proxy, host, and port", a.Type)
-	}
-	a.Proxy.Server = targetFromText(server)
-	a.Proxy.Target = targetFromText(host)
-	a.Proxy.TargetPort = portTarget(port)
-	a.Proxy.EndpointsSet = true
-	return nil
-}
-
-func decodeSOCKSPositional(d *decoder) error {
-	a := &d.Address
-	p := a.Params
-	var server, host, port, socksPort string
-	switch {
-	case len(p) >= 4:
-		server, socksPort, host, port = p[0], p[1], p[2], p[3]
-	case len(p) >= 3:
-		server, host, port = p[0], p[1], p[2]
-	case len(p) == 2:
-		h, pt, err := net.SplitHostPort(p[1])
-		if err == nil {
-			server, host, port = p[0], h, pt
-		}
-	}
-	if server == "" || host == "" || port == "" {
-		return fmt.Errorf("%s requires socks-server, host, and port", a.Type)
-	}
-	a.Proxy.Server = targetFromText(server)
-	a.Proxy.Target = targetFromText(host)
-	a.Proxy.TargetPort = portTarget(port)
-	a.Proxy.EndpointsSet = true
-	if socksPort != "" {
-		d.socksPositionalPort = portTarget(socksPort)
-		d.socksPositionalPortSet = true
-		a.Proxy.SOCKSPort = d.socksPositionalPort
-		a.Proxy.SOCKSPortSet = true
-	}
 	return nil
 }
 
@@ -1168,46 +1085,6 @@ func socketEscapeByte(value byte) byte {
 	}
 }
 
-func vsockUint32(value string) (uint32, error) {
-	if strings.TrimSpace(value) == "" {
-		return 0, nil
-	}
-	n, err := ParseSizeT(value)
-	if err != nil {
-		return 0, err
-	}
-	return uint32(n), nil // #nosec G115 -- VSOCK uses the C uint32_t conversion
-}
-
-func decodeVSOCKBind(value string) (VSOCKEndpoint, bool, error) {
-	cidStr, portStr, hasPort := splitVSOCKBind(value)
-	cid := ^uint32(0)
-	if cidStr != "" {
-		var err error
-		cid, err = vsockUint32(cidStr)
-		if err != nil {
-			return VSOCKEndpoint{}, hasPort, fmt.Errorf("bind: cid: %w", err)
-		}
-	}
-	ep := VSOCKEndpoint{CID: cid, Port: ^uint32(0)}
-	if !hasPort {
-		return ep, false, nil
-	}
-	port, err := vsockUint32(portStr)
-	if err != nil {
-		return VSOCKEndpoint{}, true, fmt.Errorf("bind: port: %w", err)
-	}
-	ep.Port = port
-	return ep, true, nil
-}
-
-func splitVSOCKBind(bind string) (cidStr, portStr string, hasPort bool) {
-	if i := strings.IndexByte(bind, ':'); i >= 0 {
-		return bind[:i], bind[i+1:], true
-	}
-	return bind, "", false
-}
-
 func decodePositiveInt(o parse.Option) (int, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
 		return 0, fmt.Errorf("invalid")
@@ -1228,141 +1105,4 @@ func positiveKeepDuration(o parse.Option) (time.Duration, error) {
 		return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
 	}
 	return d, nil
-}
-
-func decodeTUNPositional(a *Address) error {
-	n := 0
-	for _, p := range a.Params {
-		if p != "" {
-			n++
-		}
-	}
-	if n > 1 || len(a.Params) > 1 {
-		return fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(a.Params))
-	}
-	if len(a.Params) == 0 || a.Params[0] == "" {
-		return nil
-	}
-	value := a.Params[0]
-	if !strings.Contains(value, "/") {
-		value += "/24"
-	}
-	prefix, err := netip.ParsePrefix(value)
-	if err != nil || !prefix.Addr().Is4() {
-		return fmt.Errorf("TUN address %q: IPv4 required", a.Params[0])
-	}
-	a.Network.TUNAddress, a.Network.TUNAddressSet = prefix, true
-	return nil
-}
-
-func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
-	switch name {
-	case "tun-device", "tun-name":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		if name == "tun-device" {
-			n.TUNDevice = value
-		} else {
-			n.TUNName = value
-		}
-	case "tun-type":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		switch strings.ToLower(value) {
-		case "tun":
-			n.TUNType = TUNTypeTUN
-		case "tap":
-			n.TUNType = TUNTypeTAP
-		default:
-			return true, fmt.Errorf("unknown tun-type %q", value)
-		}
-	case "iff-no-pi":
-		v, err := optionalBool(o)
-		if err != nil {
-			return true, err
-		}
-		n.TUNNoPacketInfo = v
-	case "if-mtu":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		mtu, err := strconv.ParseUint(value, 0, 32)
-		if err != nil || mtu == 0 {
-			return true, fmt.Errorf("if-mtu: invalid %q", value)
-		}
-		n.TUNMTU = OptionalUint32{Set: true, Value: uint32(mtu)}
-	case "retrieve-vlan":
-		if o.Has {
-			return true, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-		}
-		n.TUNRetrieveVLAN = true
-	default:
-		bit, ok := interfaceFlagBit(name)
-		if !ok {
-			return false, nil
-		}
-		v, err := optionalBool(o)
-		if err != nil {
-			return true, err
-		}
-		if v.Value {
-			n.TUNInterfaceSet |= bit
-			n.TUNInterfaceClr &^= bit
-		} else {
-			n.TUNInterfaceClr |= bit
-			n.TUNInterfaceSet &^= bit
-		}
-	}
-	return true, nil
-}
-
-func interfaceFlagBit(name string) (uint16, bool) {
-	flags := map[string]uint16{
-		"iff-up":          0x1,
-		"iff-broadcast":   0x2,
-		"iff-debug":       0x4,
-		"iff-loopback":    0x8,
-		"iff-pointopoint": 0x10,
-		"iff-notrailers":  0x20,
-		"iff-running":     0x40,
-		"iff-noarp":       0x80,
-		"iff-promisc":     0x100,
-		"iff-allmulti":    0x200,
-		"iff-master":      0x400,
-		"iff-slave":       0x800,
-		"iff-multicast":   0x1000,
-		"iff-portsel":     0x2000,
-		"iff-automedia":   0x4000,
-	}
-	bit, ok := flags[name]
-	return bit, ok
-}
-
-func decodePOSIXMQOption(n *Network, o parse.Option, name string) (bool, error) {
-	switch name {
-	case "mq-prio":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		v, err := strconv.ParseUint(value, 0, 32)
-		if err != nil {
-			return true, fmt.Errorf("invalid mq-prio %q", value)
-		}
-		n.MQPriority = OptionalUint32{Set: true, Value: uint32(v)}
-	case "mq-flush":
-		return true, setActive(&n.MQFlush, o)
-	case "mq-maxmsg":
-		return true, setRequiredInt(&n.MQMaxMessages, o, 0)
-	case "mq-msgsize":
-		return true, setRequiredInt(&n.MQMessageSize, o, 0)
-	default:
-		return false, nil
-	}
-	return true, nil
 }
