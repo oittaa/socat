@@ -65,9 +65,12 @@ func TestTransferCleanEOFIsNil(t *testing.T) {
 
 func TestTransferIgnoresExactCanceled(t *testing.T) {
 	want := errors.New("boom")
-	left := FDStream{R: errorReader{err: context.Canceled}, W: io.Discard, C: nopCloser{}}
+	// Hold Canceled until Transfer cancels. Both sides returning immediately
+	// with Linger 0 lets a first-finishing Canceled cancel and drain boom.
+	canceled := &holdCloser{closed: make(chan struct{}), err: context.Canceled}
+	left := FDStream{R: canceled, W: io.Discard, C: canceled}
 	right := FDStream{R: errorReader{err: want}, W: io.Discard, C: nopCloser{}}
-	err := Transfer(context.Background(), left, right, Config{})
+	err := Transfer(context.Background(), left, right, Config{Linger: 0})
 	if !errors.Is(err, want) {
 		t.Fatalf("Transfer error = %v, want %v", err, want)
 	}
@@ -128,10 +131,14 @@ func (closedPipeWriter) Write([]byte) (int, error) { return 0, io.ErrClosedPipe 
 type holdCloser struct {
 	once   sync.Once
 	closed chan struct{}
+	err    error
 }
 
 func (h *holdCloser) Read([]byte) (int, error) {
 	<-h.closed
+	if h.err != nil {
+		return 0, h.err
+	}
 	return 0, io.EOF
 }
 
