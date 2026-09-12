@@ -833,7 +833,7 @@ func targetFromText(text string) HostTarget {
 
 func bindSplitsHostPort(n *Network) bool {
 	switch n.Kind {
-	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ, AddressKindRawIP:
+	case AddressKindSocket, AddressKindVSOCK, AddressKindTUN, AddressKindINTERFACE, AddressKindFD, AddressKindPOSIXMQ, AddressKindRawIP, AddressKindUNIX, AddressKindABSTRACT:
 		return false
 	}
 	switch n.Role {

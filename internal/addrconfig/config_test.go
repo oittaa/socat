@@ -382,16 +382,41 @@ func TestDecodeBindHostPort(t *testing.T) {
 		t.Fatalf("ipv6 bind port=%+v", got.Network.BindPort)
 	}
 
+	unixFacts := Facts{Type: "UNIX-CONNECT", Kind: AddressKindUNIX, Role: AddressRoleConnect}
 	unix, err := parse.ParseSpec("UNIX-CONNECT:/tmp/x,bind=/tmp/foo:bar")
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err = Decode(unix, Facts{Type: "UNIX-CONNECT"})
+	got, err = Decode(unix, unixFacts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Network.BindPortSet || got.Network.Bind.Original() != "/tmp/foo:bar" {
 		t.Fatalf("unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
+	}
+
+	got, err = Decode(parse.Spec{
+		Type:    "UNIX-CONNECT",
+		Params:  []string{`C:\listen.sock`},
+		Options: []parse.Option{{Name: "bind", Value: `C:\occupied.sock`, Has: true}},
+	}, unixFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.BindPortSet || got.Network.Bind.Original() != `C:\occupied.sock` {
+		t.Fatalf("windows unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
+	}
+
+	got, err = Decode(parse.Spec{
+		Type:    "UNIX-CONNECT",
+		Params:  []string{"listen.sock"},
+		Options: []parse.Option{{Name: "bind", Value: "foo:bar", Has: true}},
+	}, unixFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.BindPortSet || got.Network.Bind.Original() != "foo:bar" {
+		t.Fatalf("unix bind with colon=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
 	}
 
 	got = decodeSpec(t, "TCP:h:9,bind=:12345")
