@@ -60,7 +60,7 @@ func listenTCP4(addr string) (net.Listener, error) {
 		Control: func(_, _ string, c syscall.RawConn) error {
 			var sockErr error
 			if err := c.Control(func(fd uintptr) {
-				sockErr = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+				sockErr = setSockoptInt(int(fd), solSocket, soReuseaddr, 1)
 			}); err != nil {
 				return err
 			}
