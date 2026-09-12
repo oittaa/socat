@@ -3,10 +3,8 @@
 package e2e_test
 
 import (
-	"context"
 	"errors"
 	"net"
-	"strings"
 	"syscall"
 )
 
@@ -20,22 +18,4 @@ func exclusiveListenConfig() net.ListenConfig {
 			return errors.Join(err, opErr)
 		},
 	}
-}
-
-func portOccupied(ctx context.Context, network, addr string) (bool, error) {
-	lc := exclusiveListenConfig()
-	if strings.HasPrefix(network, "udp") {
-		pc, err := lc.ListenPacket(ctx, network, addr)
-		if err != nil {
-			return true, nil
-		}
-		_ = pc.Close()
-		return false, nil
-	}
-	ln, err := lc.Listen(ctx, network, addr)
-	if err != nil {
-		return true, nil
-	}
-	_ = ln.Close()
-	return false, nil
 }

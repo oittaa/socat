@@ -159,6 +159,38 @@ func idleUDP4Port(t *testing.T) (string, int) {
 	return addr, port
 }
 
+func TestPortOccupiedUnexpectedError(t *testing.T) {
+	occupied, err := portOccupied(context.Background(), "tcp4", "not-a-host")
+	if occupied || err == nil {
+		t.Fatalf("occupied=%v err=%v want false and an error", occupied, err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	occupied, err = portOccupied(ctx, "tcp4", "127.0.0.1:0")
+	if occupied {
+		t.Fatal("cancelled probe reported occupied")
+	}
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestPortOccupiedBindBusy(t *testing.T) {
+	ln, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	occupied, err := portOccupied(context.Background(), "tcp4", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !occupied {
+		t.Fatal("exclusive probe missed an existing listener")
+	}
+}
+
 func requirePortIdle(t *testing.T, network, addr string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -47,6 +47,12 @@ func (b *lockedBuffer) String() string {
 	return b.b.String()
 }
 
+func (b *lockedBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]byte(nil), b.b.Bytes()...)
+}
+
 type testProcess struct {
 	cmd     *exec.Cmd
 	stderr  lockedBuffer
@@ -230,10 +236,9 @@ func TestTLSClientHandshakeTimeoutStalledPeer(t *testing.T) {
 	}()
 	port := ln.Addr().(*net.TCPAddr).Port
 	started := time.Now()
-	out, err := runWithTimeout(t, exec.Command(bin, "-u",
+	out, err := runWithTimeout(t, 3*time.Second, bin, "-u",
 		fmt.Sprintf("TLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port),
-		"PIPE",
-	), 3*time.Second)
+		"PIPE")
 	if err == nil {
 		t.Fatalf("expected handshake timeout, got success: %s", out)
 	}
@@ -268,10 +273,9 @@ func TestWSClientHandshakeTimeoutStalledPeer(t *testing.T) {
 	}()
 	port := ln.Addr().(*net.TCPAddr).Port
 	started := time.Now()
-	out, err := runWithTimeout(t, exec.Command(bin, "-u",
+	out, err := runWithTimeout(t, 3*time.Second, bin, "-u",
 		fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port),
-		"PIPE",
-	), 3*time.Second)
+		"PIPE")
 	if err == nil {
 		t.Fatalf("expected handshake timeout, got success: %s", out)
 	}
