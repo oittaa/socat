@@ -311,7 +311,7 @@ func (c *execChild) waitNoFork() error {
 		return waitErr
 	}
 	if c.g != nil {
-		c.g.ChildExitCode = code
+		c.g.Child.ExitCode = code
 	}
 	return nil
 }

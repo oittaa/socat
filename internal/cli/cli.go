@@ -476,8 +476,8 @@ func Run(args []string, signalExit func(int)) int {
 	}
 	if runErr != nil {
 		if ctx.Err() != nil {
-			if g.ChildExitCode != 0 {
-				return g.ChildExitCode
+			if g.Child.ExitCode != 0 {
+				return g.Child.ExitCode
 			}
 			return 0
 		}
@@ -489,8 +489,8 @@ func Run(args []string, signalExit func(int)) int {
 		return 1
 	}
 	// EXEC_RC / SYSTEM_RC: promote child non-zero exit.
-	if g.ChildExitCode != 0 {
-		return g.ChildExitCode
+	if g.Child.ExitCode != 0 {
+		return g.Child.ExitCode
 	}
 	return 0
 }

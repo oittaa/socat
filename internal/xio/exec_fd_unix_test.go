@@ -279,8 +279,8 @@ func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
 	s := parseNoForkSpec(t, "EXEC:true,nofork,fdin=3,fdout=4")
 	g := &Global{Log: logx.New()}
 	runPreparedNoFork(t, peer, s, g, ModeRDWR)
-	if g.ChildExitCode != 0 {
-		t.Fatalf("EXEC:true ChildExitCode=%d want 0 (helper must LookPath the basename)", g.ChildExitCode)
+	if g.Child.ExitCode != 0 {
+		t.Fatalf("EXEC:true Child.ExitCode=%d want 0 (helper must LookPath the basename)", g.Child.ExitCode)
 	}
 }
 
@@ -296,8 +296,8 @@ func TestRunExecNoForkTargetExit127Unix(t *testing.T) {
 	s := parseNoForkSpec(t, "EXEC:"+script+",nofork,fdin=3,fdout=4")
 	g := &Global{Log: logx.New()}
 	runPreparedNoFork(t, peer, s, g, ModeRDWR)
-	if g.ChildExitCode != 127 {
-		t.Fatalf("target exit 127: ChildExitCode=%d want 127", g.ChildExitCode)
+	if g.Child.ExitCode != 127 {
+		t.Fatalf("target exit 127: Child.ExitCode=%d want 127", g.Child.ExitCode)
 	}
 }
 

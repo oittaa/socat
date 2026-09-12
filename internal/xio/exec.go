@@ -769,9 +769,9 @@ func (w *execWaitState) recordExit(g *Global) {
 		if code < 0 || code >= 128 {
 			return
 		}
-		g.ChildExitCode = code
+		g.Child.ExitCode = code
 		if werr != nil {
-			g.ChildErr = werr
+			g.Child.Err = werr
 		}
 	}
 }

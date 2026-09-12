@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"errors"
 	"os"
 	"sync/atomic"
 	"testing"
@@ -107,6 +108,21 @@ func TestForkSessionCopiesLogger(t *testing.T) {
 	c.Log = logx.New()
 	if !g.LogMixed || g.Log != lg {
 		t.Fatal("parent logger is independent")
+	}
+}
+
+func TestForkSessionCopiesChild(t *testing.T) {
+	waitErr := errors.New("child wait")
+	g := NewSession(Options{}, nil)
+	g.Child = Child{ExitCode: 3, Err: waitErr}
+	c := g.ForkSession()
+	if c.Child.ExitCode != 3 || c.Child.Err != waitErr {
+		t.Fatal("fork copies child wait status")
+	}
+	c.Child.ExitCode = 9
+	c.Child.Err = nil
+	if g.Child.ExitCode != 3 || g.Child.Err != waitErr {
+		t.Fatal("child wait status is per-session")
 	}
 }
 
