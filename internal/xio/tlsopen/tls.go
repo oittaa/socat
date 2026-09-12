@@ -33,7 +33,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Dual-stack + pf= like TCP-CONNECT.
-	network = xio.ConnectNetworkForType(g, s, host, network)
+	network = xio.ConnectNetworkForType(g, s, target, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 
 	tlsCfg, err := tlsClientConfigForContext(ctx, s, host)

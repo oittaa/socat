@@ -285,11 +285,11 @@ func listenAIPassive(config addrconfig.Address) bool {
 
 // BindHost is the prepared bind= host, or empty when the option is absent.
 // An embedded bind=host:port is split at decode; this is the host only.
-func BindHost(config addrconfig.Address) string {
+func BindHost(config addrconfig.Address) addrconfig.HostTarget {
 	if !config.Network.BindSet {
-		return ""
+		return addrconfig.HostTarget{}
 	}
-	return config.Network.Bind.Original()
+	return config.Network.Bind
 }
 
 // ClientLocalPort is the local bind port for connect-side packet sockets:
@@ -588,11 +588,11 @@ func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
 	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }
 
-func FirstHost(s addrconfig.Address) string {
+func FirstHost(s addrconfig.Address) addrconfig.HostTarget {
 	if s.Network.TargetSet {
-		return s.Network.Target.String()
+		return s.Network.Target
 	}
-	return ""
+	return addrconfig.HostTarget{}
 }
 
 // RecvTimeout returns the prepared so-rcvtimeo / rcvtimeo duration.

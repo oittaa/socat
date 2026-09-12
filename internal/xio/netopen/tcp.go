@@ -32,7 +32,7 @@ func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Honour pf= even when called from TCP4/TCP6 openers.
-	network = xio.ConnectNetworkForType(g, s, host.String(), network)
+	network = xio.ConnectNetworkForType(g, s, host, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host.String()), port.Text())
 
 	timeout := xio.ConnectTimeout(s)

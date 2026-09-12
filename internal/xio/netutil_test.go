@@ -156,8 +156,8 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := BindHost(config); got != "[::1]" {
-		t.Fatalf("bind=%q", got)
+	if got := BindHost(config); got.Original() != "[::1]" {
+		t.Fatalf("bind=%q", got.Original())
 	}
 	if got := SourcePortText(config); got != "080" {
 		t.Fatalf("sourceport=%q", got)

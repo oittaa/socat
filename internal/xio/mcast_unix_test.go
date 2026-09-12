@@ -67,7 +67,7 @@ func TestDecodeMcastSpecStoresClassicAddressNames(t *testing.T) {
 	if _, err := net.InterfaceByName("localhost"); err == nil {
 		t.Skip("host has an interface literally named localhost")
 	}
-	addr, err := resolveMcastIPv4Address(req.InterfaceName)
+	addr, err := resolveMcastIPv4Address(addrconfig.HostFromText(req.InterfaceName))
 	if err != nil || !addr.Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("localhost=%v err=%v", addr, err)
 	}

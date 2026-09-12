@@ -68,6 +68,12 @@ func (t HostTarget) IsLiteral() bool { return t.Literal.IsValid() }
 
 func (t HostTarget) Empty() bool { return !t.IsLiteral() && strings.TrimSpace(t.Name) == "" }
 
+// IsIPv4Literal is true for IPv4 and IPv4-mapped literals. Selection only;
+// the stored address is not unmapped.
+func (t HostTarget) IsIPv4Literal() bool {
+	return t.IsLiteral() && t.Literal.Unmap().Is4()
+}
+
 // IP is the typed literal, or nil when the host must be resolved.
 func (t HostTarget) IP() net.IP {
 	if !t.IsLiteral() {

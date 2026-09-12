@@ -26,7 +26,7 @@ var testHookH3PacketConn func(net.PacketConn)
 // IP/ancillary options apply after socket() and before bind, instead of
 // http3.Transport creating its own UDP socket and ignoring those options.
 func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, proxyHost addrconfig.HostTarget) (net.PacketConn, string, error) {
-	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost.String(), "tcp"))
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, proxyHost)
 	if err != nil {
 		return nil, "", err

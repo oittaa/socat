@@ -36,15 +36,33 @@ func resolveMcastHost(target addrconfig.HostTarget, ipv6 bool) (net.IP, error) {
 	return addr.IP, nil
 }
 
-func resolveMcastIPv4Address(field string) (net.IP, error) {
-	addr, err := net.ResolveIPAddr("ip4", strings.TrimSpace(field))
+func resolveMcastIPv4Address(target addrconfig.HostTarget) (net.IP, error) {
+	if target.IsLiteral() {
+		ip := target.IP()
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4, nil
+		}
+		return nil, fmt.Errorf("bad IPv4 address %q", target.Original())
+	}
+	field := strings.TrimSpace(target.Name)
+	if field == "" {
+		return nil, fmt.Errorf("bad IPv4 address %q", field)
+	}
+	addr, err := net.ResolveIPAddr("ip4", field)
 	if err != nil || addr == nil || addr.IP.To4() == nil {
 		return nil, fmt.Errorf("bad IPv4 address %q", field)
 	}
 	return addr.IP.To4(), nil
 }
 
-func resolveMcastInterfaceToken(token, optionName string) (uint32, bool, error) {
+func resolveMcastInterfaceToken(target addrconfig.HostTarget, optionName string) (uint32, bool, error) {
+	if target.Empty() {
+		return 0, false, nil
+	}
+	if target.IsLiteral() {
+		return 0, false, fmt.Errorf("%s: expected interface name or index", optionName)
+	}
+	token := strings.TrimSpace(target.Name)
 	if token == "" {
 		return 0, false, nil
 	}
@@ -64,9 +82,9 @@ func resolveMcastInterfaceToken(token, optionName string) (uint32, bool, error) 
 
 func resolveJoinInterface(req addrconfig.MulticastRequest, name string) (ifaceAddr net.IP, idx uint32, idxSet bool, err error) {
 	if req.ThreeField {
-		ifaceAddr, err = resolveMcastIPv4Address(req.InterfaceAddr.String())
+		ifaceAddr, err = resolveMcastIPv4Address(req.InterfaceAddr)
 		if err != nil {
-			return nil, 0, false, fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.String())
+			return nil, 0, false, fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.Original())
 		}
 	}
 	if req.InterfaceIsID {
@@ -84,7 +102,7 @@ func resolveJoinInterface(req addrconfig.MulticastRequest, name string) (ifaceAd
 		return ifaceAddr, idx, true, nil
 	}
 	if req.Kind == addrconfig.MulticastJoinIPv4 && !req.ThreeField {
-		if addr, addrErr := resolveMcastIPv4Address(req.InterfaceName); addrErr == nil {
+		if addr, addrErr := resolveMcastIPv4Address(addrconfig.HostFromText(req.InterfaceName)); addrErr == nil {
 			return addr, 0, false, nil
 		}
 	}
@@ -124,11 +142,10 @@ func applyMembershipRequest(fd int, req addrconfig.MulticastRequest) error {
 func applyMulticastNamedFD(fd int, name string, req addrconfig.MulticastRequest) error {
 	switch req.Kind {
 	case addrconfig.MulticastInterfaceIPv4:
-		host := strings.TrimSpace(req.InterfaceAddr.String())
-		if host == "" {
+		if req.InterfaceAddr.Empty() {
 			return fmt.Errorf("%s: expected IPv4 hostname or address", name)
 		}
-		addr, err := resolveMcastIPv4Address(host)
+		addr, err := resolveMcastIPv4Address(req.InterfaceAddr)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -256,9 +273,9 @@ func applyPreparedSourceMulticast(fd int, req addrconfig.MulticastRequest) error
 		if source.To4() == nil {
 			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 source, got %s", name, source)
 		}
-		iface, err := resolveMcastIPv4Address(req.InterfaceAddr.String())
+		iface, err := resolveMcastIPv4Address(req.InterfaceAddr)
 		if err != nil {
-			return fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.String())
+			return fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.Original())
 		}
 		return setIPv4SourceMembershipFD(fd, group.To4(), iface, source.To4())
 	}
@@ -275,7 +292,7 @@ func applyPreparedSourceMulticast(fd int, req addrconfig.MulticastRequest) error
 	if source.To4() != nil {
 		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 source, got %s", name, source)
 	}
-	idx, idxSet, err := resolveMcastInterfaceToken(req.InterfaceAddr.String(), name)
+	idx, idxSet, err := resolveMcastInterfaceToken(req.InterfaceAddr, name)
 	if err != nil {
 		return err
 	}

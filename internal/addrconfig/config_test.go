@@ -659,3 +659,22 @@ func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
 		t.Fatalf("two-field SSM: %v", err)
 	}
 }
+
+func TestHostTargetIsIPv4Literal(t *testing.T) {
+	if !HostFromText("127.0.0.1").IsIPv4Literal() {
+		t.Fatal("IPv4 literal")
+	}
+	mapped := HostFromText("[::ffff:127.0.0.1]")
+	if !mapped.IsIPv4Literal() {
+		t.Fatal("IPv4-mapped literal")
+	}
+	if !mapped.Literal.Is6() {
+		t.Fatal("stored mapped address must remain IPv6")
+	}
+	if HostFromText("[::1]").IsIPv4Literal() {
+		t.Fatal("IPv6 literal")
+	}
+	if HostFromText("example.com").IsIPv4Literal() {
+		t.Fatal("hostname")
+	}
+}

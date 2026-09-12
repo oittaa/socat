@@ -30,7 +30,7 @@ func resolveUnixBindConfig(config addrconfig.Address) (string, error) {
 		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
 	}
 	if !hasTemp {
-		return xio.BindHost(config), nil
+		return xio.BindHost(config).Original(), nil
 	}
 	pat := config.Network.UnixBindTempname.Value
 	if pat == "" || pat == "1" {
