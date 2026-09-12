@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/testutil"
 )
 
 func TestEXECParentSignalPassThrough(t *testing.T) {
@@ -346,7 +348,7 @@ func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout
 func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error, onWait func()) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	ticker := time.NewTicker(listenProbeInterval)
+	ticker := time.NewTicker(testutil.PollInterval)
 	defer ticker.Stop()
 
 	waitDone := func() error {

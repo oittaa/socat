@@ -20,59 +20,80 @@ import (
 
 var errProcessExitedWhileWaiting = errors.New("process exited while waiting")
 
-const listenProbeInterval = 20 * time.Millisecond
-
 func TestMain(m *testing.M) {
 	switch os.Getenv("SOCAT_E2E_HELPER") {
 	case "delayed-listen":
 		os.Exit(runDelayedListenHelper())
 	case "hold-stdio":
 		os.Exit(runHoldStdioHelper())
+	case "print-and-exit":
+		_, _ = os.Stdout.Write([]byte("helper-ok"))
+		os.Exit(0)
+	case "exit-error":
+		_, _ = os.Stderr.Write([]byte("helper-fail"))
+		os.Exit(2)
+	case "exit-deadline":
+		_, _ = os.Stderr.Write([]byte("context deadline exceeded"))
+		os.Exit(1)
+	case "panic-handshake":
+		handshakeNamedCrash()
+	case "panic-bind":
+		bindNamedCrash()
+	case "panic-after-reject":
+		rejectThenPanic()
+	case "exit-not-supported":
+		_, _ = os.Stderr.Write([]byte("not supported"))
+		os.Exit(1)
+	case "exit-address-family":
+		_, _ = os.Stderr.Write([]byte("address family not supported"))
+		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }
 
+func handshakeNamedCrash() {
+	panic("handshakeNamedCrash")
+}
+
+func bindNamedCrash() {
+	panic("bindNamedCrash")
+}
+
+func rejectThenPanic() {
+	_, _ = os.Stderr.Write([]byte("not supported\n"))
+	panic("after rejection diagnostic")
+}
+
+func portOccupied(ctx context.Context, network, addr string) (bool, error) {
+	return testutil.Occupied(ctx, exclusiveListenConfig(), network, addr)
+}
+
 func waitUntil(ctx context.Context, p *testProcess, probe func() (bool, error)) error {
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	first := true
-	for {
-		if !first {
-			select {
-			case <-ctx.Done():
-				if p != nil {
-					select {
-					case <-p.done:
-						return processExitedWhileWaiting(p)
-					default:
-					}
-				}
-				return ctx.Err()
-			case <-timer.C:
-			}
-		}
-		first = false
+	err := testutil.Until(ctx, func() (bool, error) {
 		ok, err := probe()
 		if err != nil {
-			return err
+			return false, err
 		}
 		if ok {
-			return nil
+			return true, nil
 		}
 		if p != nil {
 			select {
 			case <-p.done:
-				return processExitedWhileWaiting(p)
+				return false, processExitedWhileWaiting(p)
 			default:
 			}
 		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(listenProbeInterval)
+		return false, nil
+	})
+	if err == nil || p == nil || errors.Is(err, errProcessExitedWhileWaiting) {
+		return err
+	}
+	select {
+	case <-p.done:
+		return processExitedWhileWaiting(p)
+	default:
+		return err
 	}
 }
 
@@ -264,37 +285,24 @@ func runDelayedListenHelper() int {
 
 func retryBusyBind(ctx context.Context, bind func() error) error {
 	var last error
-	timer := time.NewTimer(0)
-	defer timer.Stop()
-	first := true
-	for {
-		if !first {
-			select {
-			case <-ctx.Done():
-				if last != nil {
-					return last
-				}
-				return ctx.Err()
-			case <-timer.C:
-			}
-		}
-		first = false
+	err := testutil.Until(ctx, func() (bool, error) {
 		err := bind()
 		if err == nil {
-			return nil
+			return true, nil
 		}
 		last = err
 		if !testutil.BindBusy(err) {
-			return err
+			return false, err
 		}
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
-			}
-		}
-		timer.Reset(listenProbeInterval)
+		return false, nil
+	})
+	if err == nil {
+		return nil
 	}
+	if last != nil && (errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)) {
+		return last
+	}
+	return err
 }
 
 func runHoldStdioHelper() int {
