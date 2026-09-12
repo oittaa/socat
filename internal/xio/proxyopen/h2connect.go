@@ -3,16 +3,13 @@ package proxyopen
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"net/http"
-	"sync"
 	"syscall"
-	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -101,47 +98,25 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 			}
 			tr.Protocols = &protos
 
-			pr, pw := io.Pipe()
-			req, e := http.NewRequestWithContext(hctx, http.MethodConnect, u, pr)
-			if e != nil {
-				_ = pw.Close()
-				return e
-			}
-			req.Host = authority
-			req.ContentLength = -1
-			if auth, e := proxyAuthString(s.Proxy); e != nil {
-				_ = pw.Close()
-				return e
-			} else if auth != "" {
-				req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
-			}
-			resp, e := tr.RoundTrip(req)
-			if e != nil {
-				_ = pw.Close()
-				tr.CloseIdleConnections()
-				return e
-			}
-			if resp.StatusCode < 200 || resp.StatusCode > 299 {
-				_ = pw.Close()
-				_ = resp.Body.Close()
-				tr.CloseIdleConnections()
-				return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
-			}
-			if e := finishCONNECTHandshake(hctx, stopTimer, pw, resp); e != nil {
-				tr.CloseIdleConnections()
-				return e
-			}
-			conn = &pipeConn{
-				r:      resp.Body,
-				w:      pw,
-				local:  staticAddr("h2", u),
-				remote: staticAddr("h2", authority),
-				extra: []io.Closer{closerFunc(func() error {
+			opened, e := openCONNECTTunnel(connectTunnel{
+				roundTrip: tr,
+				handshake: hctx,
+				stopTimer: stopTimer,
+				proxy:     s.Proxy,
+				url:       u,
+				authority: authority,
+				network:   "h2",
+				closers: []io.Closer{closerFunc(func() error {
 					cancelHandshake()
 					tr.CloseIdleConnections()
 					return nil
 				})},
+			})
+			if e != nil {
+				tr.CloseIdleConnections()
+				return e
 			}
+			conn = opened
 			return nil
 		})
 		if e != nil {
@@ -154,74 +129,4 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 		return nil, err
 	}
 	return conn, nil
-}
-
-// handshakeTimerHook, if set, is invoked when a handshake timer is armed.
-// stop marks completion; fire is the AfterFunc body. A non-nil return
-// replaces the success-side stop function (it must still invoke stop).
-// Tests use this to race completion with the timeout callback without
-// depending on wall-clock timing.
-var (
-	handshakeTimerHookMu sync.Mutex
-	handshakeTimerHook   func(stop, fire func()) (wrap func())
-)
-
-func setHandshakeTimerHook(hook func(stop, fire func()) (wrap func())) {
-	handshakeTimerHookMu.Lock()
-	handshakeTimerHook = hook
-	handshakeTimerHookMu.Unlock()
-}
-
-func handshakeTimerHookSnapshot() func(stop, fire func()) (wrap func()) {
-	handshakeTimerHookMu.Lock()
-	defer handshakeTimerHookMu.Unlock()
-	return handshakeTimerHook
-}
-
-// finishCONNECTHandshake stops the handshake timer without cancelling the
-// request context. HTTP/2 and HTTP/3 abort CONNECT if that context is
-// cancelled, so success must not cancel. If the timeout callback already
-// won, close the CONNECT body instead of returning a live tunnel.
-func finishCONNECTHandshake(ctx context.Context, stopTimer func(), pw *io.PipeWriter, resp *http.Response) error {
-	stopTimer()
-	if err := ctx.Err(); err != nil {
-		_ = pw.Close()
-		_ = resp.Body.Close()
-		return err
-	}
-	return nil
-}
-
-// proxyHandshakeContext bounds RoundTrip until CONNECT succeeds. Success
-// stops the timer without cancelling (HTTP/2/3 abort CONNECT if cancelled).
-// completed serializes AfterFunc with stop so a late fire cannot cancel after stop.
-// handshake-timeout has no C equivalent.
-func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx context.Context, stopTimer, cancel context.CancelFunc) {
-	if timeout <= 0 {
-		return parent, func() {}, func() {}
-	}
-	ctx, cancel = context.WithCancel(parent)
-	var mu sync.Mutex
-	var completed bool
-	fire := func() {
-		mu.Lock()
-		defer mu.Unlock()
-		if completed {
-			return
-		}
-		cancel()
-	}
-	timer := time.AfterFunc(timeout, fire)
-	stopTimer = func() {
-		mu.Lock()
-		defer mu.Unlock()
-		completed = true
-		timer.Stop()
-	}
-	if hook := handshakeTimerHookSnapshot(); hook != nil {
-		if wrap := hook(stopTimer, fire); wrap != nil {
-			stopTimer = wrap
-		}
-	}
-	return ctx, stopTimer, cancel
 }
