@@ -500,6 +500,7 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 
 // OpenPreparedSpec opens a prepared address. Resource acquisition and
 // namespace work stay here so preparation never changes their lifetime.
+// Static option and platform checks already ran in PrepareSpec.
 func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, g *Global) (*Opened, error) {
 	if d, ok := registeredAddresses.resolve(prepared.Config.Type); ok {
 		warnAddressMode(g, mode, d.Directions)
@@ -507,24 +508,6 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 	var err error
 	prepared.Config, err = ResolvePreparedPaths(prepared.Config)
 	if err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedIPAncillary(prepared.Config); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedTermios(prepared.Config); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedRecvErr(prepared.Config); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedRemainingIPv4(prepared.Config); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedListenBacklog(prepared.Config); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedUnixTightSocklen(prepared.Config); err != nil {
 		return nil, err
 	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a

@@ -87,6 +87,10 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	return PreparedAddress{Config: config, opener: desc.Opener}, nil
 }
 
+// OpenWithType dispatches to another registered opener at resource time.
+// GOPEN uses this after Stat shows a UNIX socket. Address is passed by
+// value, so the prepared GOPEN config is not rewritten. This is not a
+// second PrepareSpec; static checks already ran for the original address.
 func OpenWithType(ctx context.Context, name string, config addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
 	desc, ok := registeredAddresses.resolve(name)
 	if !ok || desc.Opener == nil {

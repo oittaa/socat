@@ -78,6 +78,13 @@ func TestPrepareSpecRetainsPROXYEndpoints(t *testing.T) {
 	}
 }
 
+func TestPrepareSpecRejectsGetOnlyIPv4(t *testing.T) {
+	_, err := xio.PrepareSpec(mustParseSpec(t, "UDP4:127.0.0.1:1,ip-mtu"))
+	if err == nil || !strings.Contains(err.Error(), "get-only") {
+		t.Fatalf("err=%v want get-only", err)
+	}
+}
+
 func mustParseSpec(t *testing.T, text string) parse.Spec {
 	t.Helper()
 	spec, err := parse.ParseSpec(text)
