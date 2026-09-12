@@ -139,11 +139,11 @@ type Peer struct {
 	SessionVars map[string]string
 }
 
-// childResult is the last EXEC/SYSTEM wait status on this session.
-// Copied into the fork child (listen parents are typically zero).
-type childResult struct {
-	ChildExitCode int
-	ChildErr      error
+// Child is the last EXEC/SYSTEM wait status on this session.
+// ForkSession copies the value (listen parents are typically zero).
+type Child struct {
+	ExitCode int
+	Err      error
 }
 
 // Sniff is this session's -r/-R dump files. ForkSession does not share the
@@ -170,12 +170,12 @@ func (s *Sniff) closeFiles() {
 
 // Global is one logical session. Named dependencies (not anonymous embeds):
 // options (shared), Peer (copied), Log (cloned on fork), Sniff (session-owned
-// files). Remaining groups stay embedded until later migrations.
+// files), Child (copied wait status).
 type Global struct {
 	options *Options
 	Peer    Peer
-	childResult
-	Sniff Sniff
+	Child   Child
+	Sniff   Sniff
 	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
 	// then closes only the per-session duplicate, like a fork child's copy of
 	// the inherited descriptor.
@@ -222,7 +222,7 @@ func NewSession(opts Options, log *logx.Logger) *Global {
 // createSession is the single session constructor.
 //
 // Share: opts (immutable process options).
-// Copy: Peer (maps cloned), child wait status, and LogMixed when from is
+// Copy: Peer (maps cloned), Child wait status, and LogMixed when from is
 // non-nil. log is cloned from from when log is nil.
 // Own: Sniff (empty; child opens its own files), sessionMu (unset),
 // and childSignals (nil).
@@ -231,7 +231,7 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 		opts = &Options{}
 	}
 	peer := Peer{}
-	var result childResult
+	var child Child
 	logMixed := false
 	var stats *atomic.Bool
 	if from != nil {
@@ -244,7 +244,7 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 			TLSVars:     cloneStringMap(from.Peer.TLSVars),
 			SessionVars: from.cloneSessionVars(),
 		}
-		result = from.childResult
+		child = from.Child
 		logMixed = from.LogMixed
 		stats = from.statsPrinted
 		if log == nil {
@@ -257,7 +257,7 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 	return &Global{
 		options:      opts,
 		Peer:         peer,
-		childResult:  result,
+		Child:        child,
 		ForkChild:    forkChild,
 		Log:          log,
 		LogMixed:     logMixed,
