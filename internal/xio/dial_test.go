@@ -37,7 +37,7 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 }
 
 func TestConnectNetworkPreferDualStack(t *testing.T) {
-	g := &Global{IPVersion: IPv6}
+	g := NewSession(Options{IPVersion: IPv6}, nil)
 	s := parse.Spec{Type: "TCP"}
 	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp"); n != "tcp" {
 		t.Fatalf("generic TCP want tcp got %s", n)
@@ -60,7 +60,7 @@ func TestConnectNetworkPreferDualStack(t *testing.T) {
 
 func TestResolveOrderIPv6First(t *testing.T) {
 	ctx := context.Background()
-	g := &Global{IPVersion: IPv6}
+	g := NewSession(Options{IPVersion: IPv6}, nil)
 	s := parse.Spec{}
 	ips, err := resolveConnectIPs(ctx, "tcp", "localhost", mustDecodeAddress(t, s), g)
 	if err != nil {

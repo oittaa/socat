@@ -126,7 +126,7 @@ func NetworkUDP(g *xio.Global, s addrconfig.Address, def string) string {
 	}
 	ver := xio.IPv4Default
 	if g != nil {
-		ver = g.IPVersion
+		ver = g.Options().IPVersion
 	}
 	switch ver {
 	case xio.IPv4:

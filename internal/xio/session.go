@@ -111,7 +111,7 @@ func sessionEnv(g *Global) []string {
 	if g == nil {
 		return nil
 	}
-	prog := g.Progname
+	prog := g.Options().Progname
 	if prog == "" {
 		prog = "socat"
 	}
@@ -178,7 +178,7 @@ func childEnviron(g *Global) []string {
 	}
 	var dropPrefixes []string
 	if g != nil && g.TLSVars != nil {
-		prog := g.Progname
+		prog := g.Options().Progname
 		if prog == "" {
 			prog = "socat"
 		}

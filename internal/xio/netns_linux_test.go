@@ -49,17 +49,14 @@ func setupNetNS(t *testing.T) (ns string, g *xio.Global) {
 	run("netns", "exec", ns, "ip", "link", "set", "lo", "up")
 	log := logx.New()
 	log.SetLevel(logx.Error)
-	g = &xio.Global{Log: log, Experimental: true, BlockSize: 8192, Linger: 200 * time.Millisecond}
+	g = xio.NewSession(xio.Options{Experimental: true, BlockSize: 8192, Linger: 200 * time.Millisecond}, log)
 	return ns, g
 }
 
 func separateNetNSGlobal(g *xio.Global) *xio.Global {
-	return &xio.Global{
-		Log:          g.Log,
-		Experimental: true,
-		BlockSize:    g.BlockSize,
-		Linger:       g.Linger,
-	}
+	opts := *g.Options()
+	opts.Experimental = true
+	return xio.NewSession(opts, g.Log)
 }
 
 func connectNS(t *testing.T, ctx context.Context, g *xio.Global, spec string) *xio.Opened {

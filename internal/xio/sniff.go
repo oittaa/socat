@@ -123,12 +123,13 @@ func openSniffFilesLocked(g *Global) error {
 		g.RawRight = nil
 	}
 	now := time.Now()
-	prog := g.Progname
+	opts := g.Options()
+	prog := opts.Progname
 	if prog == "" {
 		prog = "socat"
 	}
-	if g.RawLeftPath != "" {
-		path, err := expandSniffPath(g.RawLeftPath, prog, now, g)
+	if opts.RawLeftPath != "" {
+		path, err := expandSniffPath(opts.RawLeftPath, prog, now, g)
 		if err != nil {
 			return fmt.Errorf("-r: %w", err)
 		}
@@ -138,8 +139,8 @@ func openSniffFilesLocked(g *Global) error {
 		}
 		g.RawLeft = f
 	}
-	if g.RawRightPath != "" {
-		path, err := expandSniffPath(g.RawRightPath, prog, now, g)
+	if opts.RawRightPath != "" {
+		path, err := expandSniffPath(opts.RawRightPath, prog, now, g)
 		if err != nil {
 			return fmt.Errorf("-R: %w", err)
 		}

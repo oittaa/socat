@@ -21,7 +21,7 @@ import (
 
 func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 	path := unixSocketTestPath(t, "recv.sock")
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	g := xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,readbytes=4")
 	if err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestUnixRecvfromForkWrapAfterLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +264,7 @@ func openUnixRecvfromAfter(t *testing.T, extra string, send func(*net.UnixConn, 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 		if err != nil {
 			errc <- err
 			return
@@ -294,7 +294,7 @@ func openUnixRecvfromFork(t *testing.T, extra string) (*xio.Opened, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUnixRecvfrom(context.Background(), mustAddr(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

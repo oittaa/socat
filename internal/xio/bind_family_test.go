@@ -15,7 +15,7 @@ import (
 )
 
 func testGlobal() *xio.Global {
-	return &xio.Global{BlockSize: 8192, Log: logx.New()}
+	return xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 }
 
 func openSpec(t *testing.T, spec string) (*xio.Opened, error) {

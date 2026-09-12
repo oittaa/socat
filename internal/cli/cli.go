@@ -568,13 +568,27 @@ func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	}, nil
 }
 
-// buildGlobal copies parsed Config onto xio.Global options. Peer maps, child
-// wait status, sniff files, and the per-session signal table start empty.
+// buildGlobal copies parsed Config onto shared session Options. Peer maps,
+// child wait status, sniff files, and the per-session signal table start empty.
 func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
-	g := &xio.Global{
-		Log:          log,
+	progname := cfg.Progname
+	if progname == "" {
+		progname = "socat"
+	}
+	var idle time.Duration
+	if cfg.IdleSet {
+		if cfg.Idle < 0 {
+			idle = 0 // disabled in relay when 0
+		} else {
+			idle = cfg.Idle
+		}
+	}
+	// -r / -R path templates expand at transfer start ($PROGNAME,
+	// $TIMESTAMP, $MICROS, $$, $PEER env after accept).
+	g := xio.NewSession(xio.Options{
 		BlockSize:    cfg.BlockSize,
 		Linger:       cfg.Linger,
+		Idle:         idle,
 		Verbose:      cfg.Verbose,
 		Hex:          cfg.Hex,
 		Dump:         os.Stderr,
@@ -582,28 +596,15 @@ func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 		Experimental: cfg.Experimental,
 		LeftToRight:  cfg.LeftToRight,
 		RightToLeft:  cfg.RightToLeft,
-		LogMixed:     cfg.LogDest == LogDestMixed,
 		LogFacility:  cfg.LogFacility,
 		DumpFDs:      cfg.DumpFDs,
-	}
+		RawLeftPath:  cfg.RawLeft,
+		RawRightPath: cfg.RawRight,
+		Progname:     progname,
+		IPVersion:    ipVersionFromFlags(cfg),
+	}, log)
+	g.LogMixed = cfg.LogDest == LogDestMixed
 	g.EnsureStatsFlag()
-	// -r / -R path templates expand at transfer start ($PROGNAME,
-	// $TIMESTAMP, $MICROS, $$, $PEER env after accept).
-	g.RawLeftPath = cfg.RawLeft
-	g.RawRightPath = cfg.RawRight
-	if cfg.Progname != "" {
-		g.Progname = cfg.Progname
-	} else {
-		g.Progname = "socat"
-	}
-	if cfg.IdleSet {
-		if cfg.Idle < 0 {
-			g.Idle = 0 // disabled in relay when 0
-		} else {
-			g.Idle = cfg.Idle
-		}
-	}
-	g.IPVersion = ipVersionFromFlags(cfg)
 	return g
 }
 

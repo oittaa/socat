@@ -48,7 +48,7 @@ func PrintLiveStats(log *logx.Logger) {
 
 // PrintExitStats prints --statistics after Run if no session already printed.
 func PrintExitStats(g *Global) {
-	if g == nil || !g.Statistics || g.Log == nil {
+	if g == nil || !g.Options().Statistics || g.Log == nil {
 		return
 	}
 	if g.statsAlreadyPrinted() {

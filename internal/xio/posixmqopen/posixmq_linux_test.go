@@ -42,7 +42,7 @@ func testQueue(t *testing.T) string {
 }
 
 func testGlobal() *xio.Global {
-	return &xio.Global{Log: logx.New(), BlockSize: 8192}
+	return xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 }
 
 func sendMsg(t *testing.T, q, msg string, prio uint32) {

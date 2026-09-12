@@ -57,8 +57,8 @@ func parseTCPWrap(policy addrconfig.Network, g *Global) tcpwrapConfig {
 		return cfg
 	}
 	if cfg.daemon == "" {
-		if g != nil && g.Progname != "" {
-			cfg.daemon = g.Progname
+		if g != nil && g.Options().Progname != "" {
+			cfg.daemon = g.Options().Progname
 		} else {
 			cfg.daemon = "socat"
 		}

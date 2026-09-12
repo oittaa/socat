@@ -46,7 +46,7 @@ func TestOpenEXECPtyOptionFailureUnregistersSignals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New(), Linger: time.Second})
+	_, err = OpenSpec(context.Background(), spec, ModeRDWR, NewSession(Options{Linger: time.Second}, logx.New()))
 	if err == nil || !strings.Contains(err.Error(), "ioctl-int") {
 		t.Fatalf("error=%v want ioctl-int PTY master failure after Start", err)
 	}
@@ -63,7 +63,7 @@ func TestOpenEXECFiveSIGHUPOccurrencesRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = OpenSpec(context.Background(), spec, ModeRDWR, &Global{Log: logx.New(), Linger: time.Second})
+	_, err = OpenSpec(context.Background(), spec, ModeRDWR, NewSession(Options{Linger: time.Second}, logx.New()))
 	if err == nil || !strings.Contains(err.Error(), "too many sub processes registered for signal 1") {
 		t.Fatalf("error=%v want too many", err)
 	}

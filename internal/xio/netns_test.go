@@ -40,7 +40,7 @@ func TestWithNetNSExperimentalNoWarn(t *testing.T) {
 	var buf bytes.Buffer
 	log := logx.New()
 	log.SetOutput(&buf)
-	err := WithNetNS("socat-missing-ns", &Global{Log: log, Experimental: true}, func() error {
+	err := WithNetNS("socat-missing-ns", NewSession(Options{Experimental: true}, log), func() error {
 		t.Fatal("fn must not run when ns is missing")
 		return nil
 	})

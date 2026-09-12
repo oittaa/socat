@@ -100,7 +100,7 @@ func openForkUDP4Recvfrom(t *testing.T, spec string) *xio.Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

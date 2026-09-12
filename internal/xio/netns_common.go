@@ -15,7 +15,7 @@ func netNamespaceName(config addrconfig.Address) string {
 }
 
 func warnNetNSExperimental(g *Global) {
-	if g != nil && g.Experimental {
+	if g != nil && g.Options().Experimental {
 		return
 	}
 	if g != nil && g.Log != nil {

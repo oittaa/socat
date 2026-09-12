@@ -31,7 +31,7 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 		if err != nil {
 			errc <- err
 			return
@@ -88,7 +88,7 @@ func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
 	t.Cleanup(restore)
 	opened := make(chan error, 1)
 	go func() {
-		o, err := openUDP4Listen(ctx, mustAddr(t, parsed), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		o, err := openUDP4Listen(ctx, mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 		if o != nil {
 			_ = o.Close()
 		}
@@ -220,7 +220,7 @@ func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) (shutt
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func openUDP4RecvfromAfter(t *testing.T, spec string, send func(*net.UDPConn)) *
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+		o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 		if err != nil {
 			errc <- err
 			return

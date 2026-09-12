@@ -106,6 +106,6 @@ func listenAddrMatches(addr net.Addr, host string, port int) bool {
 func TestStartListenPIPEReturnsBeforeUDPDatagram(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	g := &xio.Global{Log: logx.New(), BlockSize: 8192, Linger: 200 * time.Millisecond}
+	g := xio.NewSession(xio.Options{BlockSize: 8192, Linger: 200 * time.Millisecond}, logx.New())
 	startListenPIPE(t, ctx, g, "UDP4-LISTEN:0,reuseaddr,bind=127.0.0.1")
 }

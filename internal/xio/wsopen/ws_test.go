@@ -79,7 +79,7 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := &xio.Global{Log: logx.New(), Linger: 200 * time.Millisecond}
+	g := xio.NewSession(xio.Options{Linger: 200 * time.Millisecond}, logx.New())
 	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)

@@ -35,7 +35,7 @@ func recverrTestGlobal() (*xio.Global, *bytes.Buffer) {
 	lg := logx.New()
 	lg.SetOutput(&logBuf)
 	lg.SetLevel(logx.Debug)
-	return &xio.Global{BlockSize: 8192, Log: lg}, &logBuf
+	return xio.NewSession(xio.Options{BlockSize: 8192}, lg), &logBuf
 }
 
 func recverrSeen(g *xio.Global, logBuf *bytes.Buffer) bool {

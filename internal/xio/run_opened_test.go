@@ -75,7 +75,7 @@ func TestRunOpenedNilLeftOnPrepareFailure(t *testing.T) {
 }
 
 func TestRunOpenedPreparedDispatchesOnPayload(t *testing.T) {
-	g := &Global{Log: logx.New(), BlockSize: 8192}
+	g := NewSession(Options{BlockSize: 8192}, logx.New())
 	empty := PreparedChannel{}
 
 	t.Run("left accept uses listener", func(t *testing.T) {
@@ -152,7 +152,7 @@ func TestRunOpenedPreparedDispatchesOnPayload(t *testing.T) {
 }
 
 func TestRunOpenedPairDispatchesOnPayload(t *testing.T) {
-	g := &Global{Log: logx.New(), BlockSize: 8192}
+	g := NewSession(Options{BlockSize: 8192}, logx.New())
 	left, err := NewReady("left", relay.FDStream{})
 	if err != nil {
 		t.Fatal(err)

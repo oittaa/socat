@@ -316,8 +316,8 @@ func fileFromFD(fd int, name string) (*os.File, error) {
 
 func dgramBufSize(g *xio.Global) int {
 	n := 65535
-	if g != nil && g.BlockSize > n {
-		n = g.BlockSize
+	if g != nil && g.Options().BlockSize > n {
+		n = g.Options().BlockSize
 	}
 	return n
 }

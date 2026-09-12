@@ -11,7 +11,7 @@ import (
 )
 
 func useGlobal() *xio.Global {
-	return &xio.Global{BlockSize: 8192, Log: logx.New(), Linger: 200 * time.Millisecond}
+	return xio.NewSession(xio.Options{BlockSize: 8192, Linger: 200 * time.Millisecond}, logx.New())
 }
 
 func parseChannel(t *testing.T, spec string) parse.Channel {
