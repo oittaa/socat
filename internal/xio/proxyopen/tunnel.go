@@ -38,10 +38,14 @@ type pipeConn struct {
 	rerr    error
 	reading bool
 
-	wbuf    []byte
-	werr    error
-	writing bool
-	wflight bool
+	wbuf     []byte
+	werr     error
+	writing  bool
+	wflight  bool
+	wbusy    bool
+	wwaiting bool
+	wprog    int
+	wcredit  int
 }
 
 func newPipeConn(r io.ReadCloser, w io.WriteCloser, local, remote net.Addr, extra []io.Closer) *pipeConn {
@@ -160,23 +164,30 @@ func (c *pipeConn) readLoop() {
 	}
 }
 
+func (c *pipeConn) accountTransportWrite(n int) {
+	if c.wwaiting {
+		c.wprog += n
+		return
+	}
+	c.wcredit += n
+}
+
 func (c *pipeConn) writeLoop() {
 	for {
 		c.mu.Lock()
 		for len(c.wbuf) == 0 && !c.closed && !c.wshut && c.werr == nil {
 			c.wcond.Wait()
 		}
-		if (c.closed || c.wshut) && len(c.wbuf) == 0 {
+		if c.closed || c.wshut || c.werr != nil {
+			c.wbuf = nil
 			c.wflight = false
 			c.wcond.Broadcast()
 			c.mu.Unlock()
 			return
 		}
-		if c.werr != nil {
-			c.wflight = false
-			c.wcond.Broadcast()
+		if len(c.wbuf) == 0 {
 			c.mu.Unlock()
-			return
+			continue
 		}
 		chunk := c.wbuf
 		c.wbuf = nil
@@ -188,12 +199,21 @@ func (c *pipeConn) writeLoop() {
 
 		c.mu.Lock()
 		c.wflight = false
-		if n > 0 && n < len(chunk) {
-			c.wbuf = append(chunk[n:], c.wbuf...)
-		} else if n == 0 && err == nil && len(chunk) > 0 {
-			err = io.ErrNoProgress
-		} else if n < 0 || n > len(chunk) {
-			err = io.ErrShortWrite
+		if n < 0 || n > len(chunk) {
+			n = 0
+			if err == nil {
+				err = io.ErrShortWrite
+			}
+		}
+		if n < len(chunk) && err == nil {
+			if n == 0 {
+				err = io.ErrNoProgress
+			} else {
+				err = io.ErrShortWrite
+			}
+		}
+		if n > 0 {
+			c.accountTransportWrite(n)
 		}
 		if err != nil {
 			c.werr = err
@@ -233,61 +253,102 @@ func (c *pipeConn) Read(p []byte) (int, error) {
 	}
 }
 
+// Write reports only transport-confirmed bytes. A deadline or CloseWrite
+// takes back wbuf that the pump has not written so a retry cannot lose or
+// duplicate in-flight payload.
 func (c *pipeConn) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.closed || c.wshut {
-		return 0, net.ErrClosed
+	for c.wbusy {
+		if err := c.writeWaitErr(); err != nil {
+			return 0, err
+		}
+		c.waitDeadline(c.wcond, &c.wdl)
 	}
-	if err := deadlineErr(c.wdl); err != nil {
+	c.wbusy = true
+	defer func() {
+		c.wwaiting = false
+		c.wbusy = false
+		c.wcond.Broadcast()
+	}()
+	if err := c.writeWaitErr(); err != nil {
 		return 0, err
 	}
-	c.ensureWriter()
-	accepted := 0
-	for accepted < len(p) {
-		if c.werr != nil {
-			return accepted, c.werr
-		}
-		if c.closed || c.wshut {
-			return accepted, net.ErrClosed
-		}
-		if err := deadlineErr(c.wdl); err != nil {
-			return accepted, err
-		}
-		space := pipeConnBuffer - len(c.wbuf)
-		if space > 0 {
-			need := len(p) - accepted
-			if need > space {
-				need = space
-			}
-			c.wbuf = append(c.wbuf, p[accepted:accepted+need]...)
-			accepted += need
-			c.wcond.Broadcast()
-			continue
+	for c.wflight {
+		if err := c.writeWaitErr(); err != nil {
+			return 0, err
 		}
 		c.waitDeadline(c.wcond, &c.wdl)
 	}
-	for (len(c.wbuf) > 0 || c.wflight) && c.werr == nil && !c.closed && !c.wshut {
-		if err := deadlineErr(c.wdl); err != nil {
-			return accepted, err
+	n := 0
+	if c.wcredit > 0 {
+		take := c.wcredit
+		if take > len(p) {
+			take = len(p)
 		}
-		c.waitDeadline(c.wcond, &c.wdl)
+		c.wcredit -= take
+		n += take
+		if n == len(p) {
+			return n, nil
+		}
 	}
 	if c.werr != nil {
-		return accepted, c.werr
+		return n, c.werr
 	}
 	if c.closed || c.wshut {
-		return accepted, net.ErrClosed
+		return n, net.ErrClosed
 	}
-	return accepted, nil
+	rest := p[n:]
+	c.wprog = 0
+	c.wbuf = append(c.wbuf[:0], rest...)
+	c.wwaiting = true
+	c.ensureWriter()
+	c.wcond.Broadcast()
+	for {
+		if c.werr != nil {
+			got := c.wprog
+			c.wbuf = nil
+			c.wwaiting = false
+			return n + got, c.werr
+		}
+		if c.wprog >= len(rest) {
+			return n + c.wprog, nil
+		}
+		if c.closed || c.wshut {
+			got := c.wprog
+			c.wbuf = nil
+			c.wwaiting = false
+			if got > 0 {
+				return n + got, net.ErrClosed
+			}
+			return n, net.ErrClosed
+		}
+		if err := deadlineErr(c.wdl); err != nil {
+			c.wbuf = nil
+			c.wwaiting = false
+			return n + c.wprog, err
+		}
+		c.waitDeadline(c.wcond, &c.wdl)
+	}
+}
+
+func (c *pipeConn) writeWaitErr() error {
+	if c.closed || c.wshut {
+		return net.ErrClosed
+	}
+	if err := deadlineErr(c.wdl); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *pipeConn) CloseWrite() error {
 	c.mu.Lock()
 	c.wshut = true
+	c.wbuf = nil
 	c.wcond.Broadcast()
 	c.mu.Unlock()
 	return c.w.Close()
@@ -301,6 +362,7 @@ func (c *pipeConn) Close() error {
 	}
 	c.closed = true
 	c.wshut = true
+	c.wbuf = nil
 	c.rcond.Broadcast()
 	c.wcond.Broadcast()
 	c.mu.Unlock()

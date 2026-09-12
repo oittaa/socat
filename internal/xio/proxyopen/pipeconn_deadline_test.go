@@ -157,9 +157,9 @@ func TestPipeConnSetDeadlineWakesBlockedWrite(t *testing.T) {
 	var once sync.Once
 	pipeConnWaitHook = func() { once.Do(func() { close(entered) }) }
 	t.Cleanup(func() { pipeConnWaitHook = nil })
-	_, err := waitThenDeadline(t, entered, func() (int, error) { return c.Write([]byte("x")) }, c.SetWriteDeadline)
-	if !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("err=%v", err)
+	n, err := waitThenDeadline(t, entered, func() (int, error) { return c.Write([]byte("x")) }, c.SetWriteDeadline)
+	if n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("n=%d err=%v want n=0, deadline exceeded", n, err)
 	}
 	if w.closes.Load() != 0 {
 		t.Fatalf("woke Write by closing the stream (%d)", w.closes.Load())
