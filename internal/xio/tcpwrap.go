@@ -24,7 +24,7 @@ type tcpwrapConfig struct {
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
 // Any of these enables the filter.
-func parseTCPWrap(policy addrconfig.Network, g *Global) tcpwrapConfig {
+func parseTCPWrap(policy addrconfig.Network, opts Options) tcpwrapConfig {
 	cfg := tcpwrapConfig{}
 	if policy.HostsAllow.Set {
 		cfg.enabled = true
@@ -57,8 +57,8 @@ func parseTCPWrap(policy addrconfig.Network, g *Global) tcpwrapConfig {
 		return cfg
 	}
 	if cfg.daemon == "" {
-		if g != nil && g.Options().Progname != "" {
-			cfg.daemon = g.Options().Progname
+		if opts.Progname != "" {
+			cfg.daemon = opts.Progname
 		} else {
 			cfg.daemon = "socat"
 		}

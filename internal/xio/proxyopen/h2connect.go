@@ -19,7 +19,7 @@ func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 	h2c := s.Proxy.H2C.Value
 	connectTimeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
-	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
+	network := xio.ConnectNetworkForType(s, t.proxyHost, "tcp")
 
 	var tlsCfg *tls.Config
 	scheme := "https"

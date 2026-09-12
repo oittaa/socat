@@ -112,7 +112,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 	if err != nil {
 		return nil, err
 	}
-	ips, err := xio.ResolveDialIPs(ctx, dest, s, g)
+	ips, err := xio.ResolveDialIPs(ctx, dest, s, g.Options())
 	if err != nil {
 		return nil, err
 	}

@@ -16,7 +16,7 @@ import (
 // same kernel sockets; we stay on unix.Socket + our listen/connect path.
 
 func openSCTPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openSCTPConnectNetwork(ctx, s, mode, g, sctpNetwork(xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp")))
+	return openSCTPConnectNetwork(ctx, s, mode, g, sctpNetwork(xio.ConnectNetworkForType(s, xio.FirstHost(s), "tcp")))
 }
 
 func openSCTP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -35,7 +35,7 @@ func openSCTPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
-	network = sctpNetwork(xio.ConnectNetworkForType(g, s, host, tcpNetwork(network)))
+	network = sctpNetwork(xio.ConnectNetworkForType(s, host, tcpNetwork(network)))
 	addr := net.JoinHostPort(xio.StripBrackets(host.String()), port.Text())
 	timeout := xio.ConnectTimeout(s)
 
@@ -60,7 +60,7 @@ func openSCTPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 }
 
 func openSCTPListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openSCTPListenNetwork(ctx, s, mode, g, sctpNetwork(xio.ListenNetwork(g, s)))
+	return openSCTPListenNetwork(ctx, s, mode, g, sctpNetwork(xio.ListenNetwork(g.Options(), s)))
 }
 
 func openSCTP4Listen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {

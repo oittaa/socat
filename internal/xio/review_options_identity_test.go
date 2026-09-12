@@ -65,7 +65,7 @@ func TestForkSessionZeroValueDoesNotWriteParentOptions(t *testing.T) {
 		if c == nil || c.options == nil {
 			t.Fatalf("child %d missing options", i)
 		}
-		if c.sharesOptions(g) {
+		if sharesOptions(c, g) {
 			t.Fatal("zero parent must not share options storage")
 		}
 	}

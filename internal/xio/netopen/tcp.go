@@ -12,7 +12,7 @@ import (
 )
 
 func openTCPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
+	return openTCPConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(s, xio.FirstHost(s), "tcp"))
 }
 
 func openTCP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -32,7 +32,7 @@ func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Honour pf= even when called from TCP4/TCP6 openers.
-	network = xio.ConnectNetworkForType(g, s, host, network)
+	network = xio.ConnectNetworkForType(s, host, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host.String()), port.Text())
 
 	timeout := xio.ConnectTimeout(s)
@@ -66,7 +66,7 @@ func openTCPListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 	//   2) explicit -4 / -6 / -0
 	//   3) env SOCAT_DEFAULT_LISTEN_IP
 	//   4) default IPv4
-	netw := xio.ListenNetwork(g, s)
+	netw := xio.ListenNetwork(g.Options(), s)
 	return openTCPListenNetwork(ctx, s, mode, g, netw)
 }
 

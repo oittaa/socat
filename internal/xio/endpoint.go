@@ -204,12 +204,6 @@ func (g *Global) Options() Options {
 	return *g.options
 }
 
-// sharesOptions reports whether g and other hold the same private Options
-// pointer. Tests use this instead of comparing Options() snapshots.
-func (g *Global) sharesOptions(other *Global) bool {
-	return g != nil && other != nil && g.options != nil && g.options == other.options
-}
-
 // NewSession creates a root logical session.
 //
 // Share: later ForkSession results share the heap-copied *Options and

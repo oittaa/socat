@@ -25,7 +25,7 @@ func decodePeerPolicy(t *testing.T, text string) addrconfig.Network {
 
 func TestTCPWrapExplicitMissingTableFailsClosed(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.allow")
-	cfg := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,hosts-allow="+missing), nil)
+	cfg := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,hosts-allow="+missing), Options{})
 	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
 	if err := tcpwrapAllowed(cfg, peer, nil); err == nil {
 		t.Fatal("explicit missing table unexpectedly permitted the peer")
@@ -72,7 +72,7 @@ func TestTCPWrapDaemonNameSelectsHostsTable(t *testing.T) {
 	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
 	tables := ",hosts-allow=" + allow + ",hosts-deny=" + deny
 
-	named := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap=MyDaemon"+tables), nil)
+	named := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap=MyDaemon"+tables), Options{})
 	if named.daemon != "MyDaemon" {
 		t.Fatalf("daemon=%q", named.daemon)
 	}
@@ -80,7 +80,7 @@ func TestTCPWrapDaemonNameSelectsHostsTable(t *testing.T) {
 		t.Fatalf("tcpwrap=MyDaemon: %v", err)
 	}
 
-	bare := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap"+tables), nil)
+	bare := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap"+tables), Options{})
 	if bare.daemon != "socat" {
 		t.Fatalf("default daemon=%q", bare.daemon)
 	}

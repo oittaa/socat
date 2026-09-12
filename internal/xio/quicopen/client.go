@@ -30,7 +30,7 @@ func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 	}
 	target := s.Network.Target
 	targetPort := s.Network.TargetPort
-	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, target, "tcp"))
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(s, target, "tcp"))
 	dest := net.JoinHostPort(target.String(), targetPort.Text())
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, target)
 	if err != nil {

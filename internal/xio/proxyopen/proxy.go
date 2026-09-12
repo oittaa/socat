@@ -61,7 +61,7 @@ func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		})
 	}
 
-	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server, "tcp")
+	network := xio.ConnectNetworkForType(s, s.Proxy.Server, "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 

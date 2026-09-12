@@ -9,9 +9,9 @@ import (
 
 // preferredResolveVersion applies the resolver preference. Explicit
 // -4, -6, and -0 settings in Global take precedence over the environment.
-func preferredResolveVersion(g *Global) IPVersion {
-	if g != nil && g.Options().IPVersion != IPv4Default {
-		return g.Options().IPVersion
+func preferredResolveVersion(opts Options) IPVersion {
+	if opts.IPVersion != IPv4Default {
+		return opts.IPVersion
 	}
 	switch strings.TrimSpace(os.Getenv("SOCAT_PREFERRED_RESOLVE_IP")) {
 	case "0":
