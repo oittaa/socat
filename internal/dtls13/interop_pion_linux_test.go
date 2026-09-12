@@ -94,7 +94,7 @@ func verifyPionPQ(t *testing.T, c *Conn, suite uint16, mtu int) {
 	if state.Version != version13 || state.CipherSuite != suite || state.CurveID != tls.X25519MLKEM768 || len(state.VerifiedChains) == 0 {
 		t.Fatalf("negotiated version=%x suite=%x group=%s chains=%d mtu=%d", state.Version, state.CipherSuite, state.CurveID, len(state.VerifiedChains), mtu)
 	}
-	if c.session.handshake.cidNegotiated || c.session.handshake.rrc {
+	if c.driver.session.handshake.cidNegotiated || c.driver.session.handshake.rrc {
 		t.Fatal("PQ case negotiated CID/RRC")
 	}
 }
