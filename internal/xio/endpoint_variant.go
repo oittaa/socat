@@ -24,9 +24,8 @@ import (
 // WrapDial, HandshakeTimeout.
 //
 // Invalid combinations (ready I/O plus a listener, nofork plus a dialer, …)
-// have no representation. Kind() is derived from the payload so it cannot
-// diverge. Today's Run switch still uses Kind(); a later PR will dispatch
-// on the payload instead.
+// have no representation. Run type-switches on the payload. Kind() is
+// derived from the payload so it cannot diverge.
 
 // openedPayload is the exclusive live state of one Opened.
 type openedPayload interface {

@@ -14,8 +14,8 @@ import (
 )
 
 // ListenSession is the shared accept → peer-filter → wrap path for stream
-// listeners. Fork returns a KindListen parent. Non-fork accepts one permitted
-// peer and returns KindReady.
+// listeners. Fork returns an accept parent. Non-fork accepts one permitted
+// peer and returns a ready endpoint.
 type ListenSession struct {
 	Listener               net.Listener
 	Label                  string

@@ -261,7 +261,7 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// OpenedKind is the Run discriminator. Kind() reports it from the payload.
+// OpenedKind names the payload variant. Kind() reports it from the payload.
 type OpenedKind int
 
 const (
