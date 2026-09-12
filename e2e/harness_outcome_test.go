@@ -32,6 +32,9 @@ func rejectedOptionResult(out []byte, err error, want string) error {
 	if err == nil {
 		return fmt.Errorf("expected error containing %q, got success: %s", want, out)
 	}
+	if ab := abnormalProcessOutcome(out, err); ab != nil {
+		return ab
+	}
 	if !bytes.Contains(out, []byte(want)) {
 		return fmt.Errorf("output=%q want substring %q", out, want)
 	}
@@ -124,6 +127,40 @@ func invalidFamilyBindResult(out []byte, err error) error {
 	if err == nil {
 		return fmt.Errorf("TCP4-LISTEN bind=:: succeeded: %s", out)
 	}
+	if ab := abnormalProcessOutcome(out, err); ab != nil {
+		return ab
+	}
+	if !bytes.Contains(out, []byte("address family")) && !bytes.Contains(out, []byte("bind")) {
+		return fmt.Errorf("want family/bind error, got %s", out)
+	}
+	return nil
+}
+
+// oldRejectedOptionResult is the matcher that accepted any nonzero exit whose
+// output contained the wanted diagnostic, including a panic after that text.
+func oldRejectedOptionResult(out []byte, err error, want string) error {
+	if harnessTimedOut(err) {
+		return fmt.Errorf("option rejection timed out: %w: %s", err, out)
+	}
+	if err == nil {
+		return fmt.Errorf("expected error containing %q, got success: %s", want, out)
+	}
+	if !bytes.Contains(out, []byte(want)) {
+		return fmt.Errorf("output=%q want substring %q", out, want)
+	}
+	return nil
+}
+
+// oldInvalidFamilyBindResult is the matcher that accepted any nonzero exit
+// whose output contained "address family" or "bind", including a panic from a
+// bind-named function.
+func oldInvalidFamilyBindResult(out []byte, err error) error {
+	if harnessTimedOut(err) {
+		return fmt.Errorf("invalid family bind timed out: %w: %s", err, out)
+	}
+	if err == nil {
+		return fmt.Errorf("TCP4-LISTEN bind=:: succeeded: %s", out)
+	}
 	if !bytes.Contains(out, []byte("address family")) && !bytes.Contains(out, []byte("bind")) {
 		return fmt.Errorf("want family/bind error, got %s", out)
 	}
@@ -172,7 +209,7 @@ func TestLegacyValidBindAllowsUnrelatedFailure(t *testing.T) {
 	if checkErr == nil {
 		t.Fatal("new invalid-bind assertion must reject an unrelated crash")
 	}
-	if !strings.Contains(checkErr.Error(), "family/bind") {
+	if !strings.Contains(checkErr.Error(), "abnormal") {
 		t.Fatalf("error=%v", checkErr)
 	}
 }
@@ -219,5 +256,78 @@ func TestAcceptedOptionResultKeepsHarnessDeadlineDistinct(t *testing.T) {
 	}
 	if err := acceptedOptionResult(appOut, appErr, handshakeTimeoutEvidence); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestInvalidFamilyBindResultRejectsBindNamedCrash(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runTestCmd(ctx, e2eHelperCmd(ctx, "panic-bind"))
+	if err == nil {
+		t.Fatal("expected crashing child to fail")
+	}
+	if harnessTimedOut(err) {
+		t.Fatalf("crash looked like a harness timeout: %v %s", err, out)
+	}
+	if !bytes.Contains(out, []byte("bind")) || !bytes.Contains(out, []byte("panic:")) {
+		t.Fatalf("crash output must be a panic that names bind: %s", out)
+	}
+	if oldInvalidFamilyBindResult(out, err) != nil {
+		t.Fatalf("old oracle should have accepted this bind-named crash: %s", out)
+	}
+	if checkErr := invalidFamilyBindResult(out, err); checkErr == nil {
+		t.Fatal("invalidFamilyBindResult must reject a bind-named crash")
+	}
+}
+
+func TestRejectedOptionResultRejectsPanicAfterDiagnostic(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runTestCmd(ctx, e2eHelperCmd(ctx, "panic-after-reject"))
+	if err == nil {
+		t.Fatal("expected crashing child to fail")
+	}
+	if harnessTimedOut(err) {
+		t.Fatalf("crash looked like a harness timeout: %v %s", err, out)
+	}
+	if !bytes.Contains(out, []byte("not supported")) || !bytes.Contains(out, []byte("panic:")) {
+		t.Fatalf("crash output must print the rejection diagnostic then panic: %s", out)
+	}
+	if oldRejectedOptionResult(out, err, "not supported") != nil {
+		t.Fatalf("old oracle should have accepted a panic after the diagnostic: %s", out)
+	}
+	if checkErr := rejectedOptionResult(out, err, "not supported"); checkErr == nil {
+		t.Fatal("rejectedOptionResult must reject a panic after the diagnostic")
+	}
+}
+
+func TestRejectedOptionResultAcceptsCleanRejection(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runTestCmd(ctx, e2eHelperCmd(ctx, "exit-not-supported"))
+	if harnessTimedOut(err) {
+		t.Fatalf("clean rejection looked like a harness deadline: %v %s", err, out)
+	}
+	if checkErr := rejectedOptionResult(out, err, "not supported"); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+}
+
+func TestInvalidFamilyBindResultAcceptsCleanFamilyError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runTestCmd(ctx, e2eHelperCmd(ctx, "exit-address-family"))
+	if harnessTimedOut(err) {
+		t.Fatalf("clean family error looked like a harness deadline: %v %s", err, out)
+	}
+	if checkErr := invalidFamilyBindResult(out, err); checkErr != nil {
+		t.Fatal(checkErr)
+	}
+}
+
+func TestInvalidFamilyBindResultRejectsHarnessDeadline(t *testing.T) {
+	err := invalidFamilyBindResult([]byte("address family"), context.DeadlineExceeded)
+	if err == nil {
+		t.Fatal("invalid-bind assertion must fail on harness timeout")
 	}
 }

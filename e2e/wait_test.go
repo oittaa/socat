@@ -37,12 +37,31 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	case "panic-handshake":
 		handshakeNamedCrash()
+	case "panic-bind":
+		bindNamedCrash()
+	case "panic-after-reject":
+		rejectThenPanic()
+	case "exit-not-supported":
+		_, _ = os.Stderr.Write([]byte("not supported"))
+		os.Exit(1)
+	case "exit-address-family":
+		_, _ = os.Stderr.Write([]byte("address family not supported"))
+		os.Exit(1)
 	}
 	os.Exit(m.Run())
 }
 
 func handshakeNamedCrash() {
 	panic("handshakeNamedCrash")
+}
+
+func bindNamedCrash() {
+	panic("bindNamedCrash")
+}
+
+func rejectThenPanic() {
+	_, _ = os.Stderr.Write([]byte("not supported\n"))
+	panic("after rejection diagnostic")
 }
 
 func portOccupied(ctx context.Context, network, addr string) (bool, error) {
