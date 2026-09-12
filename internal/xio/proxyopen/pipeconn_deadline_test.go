@@ -156,10 +156,13 @@ func TestPipeConnSetDeadlineWakesBlockedRead(t *testing.T) {
 }
 
 func TestPipeConnSetDeadlineWakesBlockedWrite(t *testing.T) {
-	pr, pw := newReqPipe(0)
+	pr, pw := newReqPipe(reviewPipeCap)
 	w := &closeCounter{w: pw}
 	c := newPipeConn(io.NopCloser(bytes.NewReader(nil)), w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
 	t.Cleanup(func() { _ = c.Close(); _ = pr.Close() })
+	if _, err := c.Write(bytes.Repeat([]byte("F"), reviewPipeCap)); err != nil {
+		t.Fatal(err)
+	}
 	entered := make(chan struct{})
 	var once sync.Once
 	pipeConnWaitHook = func() { once.Do(func() { close(entered) }) }

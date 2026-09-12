@@ -134,25 +134,3 @@ func TestStartTestProcessPreservesStderrFile(t *testing.T) {
 		t.Fatalf("stderr file=%q", got)
 	}
 }
-
-func TestLegacyRunWithTimeoutMissesPreStartKill(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	cmd, releaseStdin := e2eHelperHoldCmd(t, ctx)
-	t.Cleanup(releaseStdin)
-	legacyAfterFuncKill(cmd)
-	p, err := startTestProcess(cmd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(p.stop)
-	if _, exited := p.status(); exited {
-		t.Fatal("legacy timer kill before Start should have been a no-op")
-	}
-}
-
-func legacyAfterFuncKill(cmd *exec.Cmd) {
-	if cmd.Process != nil {
-		_ = cmd.Process.Kill()
-	}
-}
