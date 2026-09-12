@@ -101,9 +101,8 @@ type connDriver struct {
 	queuedBeforeTimeout int
 }
 
-// Conn is the concurrent public facade: Read/Write/Close/deadlines,
-// command submission, packet admission, and published snapshots.
-// config is set-once; shared is mutex-protected; driver is run-owned.
+// Conn preserves UDP datagram boundaries. Each Write sends one datagram;
+// a short Read buffer discards the remainder of that datagram.
 type Conn struct {
 	config connConfig
 	shared connShared
@@ -640,6 +639,7 @@ func (d *connDriver) receivePacket(packet incomingPacket) bool {
 func (d *connDriver) teardown() {
 	c := d.conn
 	s := d.session
+	d.pending = nil
 	c.fail(net.ErrClosed)
 	// Close may interrupt a control write before the stop case runs.
 	if c.shared.closeNotify && !d.abort && s.handshake.complete && !d.writeClosed {
