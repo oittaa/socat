@@ -1,6 +1,7 @@
 package proxyopen
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -26,6 +27,12 @@ type closeCounter struct {
 }
 
 func (c *closeCounter) Write(p []byte) (int, error) { return c.w.Write(p) }
+func (c *closeCounter) SetWriteDeadline(t time.Time) error {
+	if d, ok := c.w.(writeDeadliner); ok {
+		return d.SetWriteDeadline(t)
+	}
+	return nil
+}
 func (c *closeCounter) Close() error {
 	c.closes.Add(1)
 	if c.ReadCloser != nil {
@@ -70,9 +77,9 @@ func TestPipeConnReadDeadlineUnblocks(t *testing.T) {
 }
 
 func TestPipeConnWriteDeadlineUnblocks(t *testing.T) {
-	pr, pw := io.Pipe()
+	pr, pw := newReqPipe(pipeConnBuffer)
 	t.Cleanup(func() { _ = pw.Close(); _ = pr.Close() })
-	c := newPipeConn(pr, pw, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
+	c := newPipeConn(io.NopCloser(bytes.NewReader(nil)), pw, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
 	if err := c.SetWriteDeadline(time.Now().Add(-time.Millisecond)); err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +91,7 @@ func TestPipeConnWriteDeadlineUnblocks(t *testing.T) {
 
 func TestPipeConnDeadlineDoesNotCloseStream(t *testing.T) {
 	readR, readW := io.Pipe()
-	writeR, writeW := io.Pipe()
+	writeR, writeW := newReqPipe(pipeConnBuffer)
 	r := &closeCounter{ReadCloser: readR}
 	w := &closeCounter{w: writeW}
 	c := newPipeConn(r, w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
@@ -149,9 +156,9 @@ func TestPipeConnSetDeadlineWakesBlockedRead(t *testing.T) {
 }
 
 func TestPipeConnSetDeadlineWakesBlockedWrite(t *testing.T) {
-	pr, pw := io.Pipe()
+	pr, pw := newReqPipe(0)
 	w := &closeCounter{w: pw}
-	c := newPipeConn(pr, w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
+	c := newPipeConn(io.NopCloser(bytes.NewReader(nil)), w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
 	t.Cleanup(func() { _ = c.Close(); _ = pr.Close() })
 	entered := make(chan struct{})
 	var once sync.Once

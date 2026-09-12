@@ -17,8 +17,9 @@ import (
 const pipeConnBuffer = 32 << 10
 
 // pipeConn is a net.Conn over a CONNECT stream: write to the request body,
-// read from the response body. One read pump and one write pump let
-// deadlines unblock I/O without closing the tunnel (rcvtimeo retries).
+// read from the response body. A read pump honors read deadlines without
+// closing the tunnel (rcvtimeo retries). Writes use a deadline-aware
+// request-body pipe so each Write keeps its own payload.
 type pipeConn struct {
 	r      io.ReadCloser
 	w      io.WriteCloser
@@ -28,30 +29,21 @@ type pipeConn struct {
 
 	mu     sync.Mutex
 	rcond  *sync.Cond
-	wcond  *sync.Cond
 	rdl    time.Time
-	wdl    time.Time
 	closed bool
-	wshut  bool
 
 	rbuf    []byte
 	rerr    error
 	reading bool
+}
 
-	wbuf     []byte
-	werr     error
-	writing  bool
-	wflight  bool
-	wbusy    bool
-	wwaiting bool
-	wprog    int
-	wcredit  int
+type writeDeadliner interface {
+	SetWriteDeadline(time.Time) error
 }
 
 func newPipeConn(r io.ReadCloser, w io.WriteCloser, local, remote net.Addr, extra []io.Closer) *pipeConn {
 	c := &pipeConn{r: r, w: w, local: local, remote: remote, extra: extra}
 	c.rcond = sync.NewCond(&c.mu)
-	c.wcond = sync.NewCond(&c.mu)
 	return c
 }
 
@@ -59,13 +51,10 @@ func (c *pipeConn) LocalAddr() net.Addr  { return c.local }
 func (c *pipeConn) RemoteAddr() net.Addr { return c.remote }
 
 func (c *pipeConn) SetDeadline(t time.Time) error {
-	c.mu.Lock()
-	c.rdl = t
-	c.wdl = t
-	c.rcond.Broadcast()
-	c.wcond.Broadcast()
-	c.mu.Unlock()
-	return nil
+	if err := c.SetReadDeadline(t); err != nil {
+		return err
+	}
+	return c.SetWriteDeadline(t)
 }
 
 func (c *pipeConn) SetReadDeadline(t time.Time) error {
@@ -77,10 +66,9 @@ func (c *pipeConn) SetReadDeadline(t time.Time) error {
 }
 
 func (c *pipeConn) SetWriteDeadline(t time.Time) error {
-	c.mu.Lock()
-	c.wdl = t
-	c.wcond.Broadcast()
-	c.mu.Unlock()
+	if d, ok := c.w.(writeDeadliner); ok {
+		return d.SetWriteDeadline(t)
+	}
 	return nil
 }
 
@@ -126,14 +114,6 @@ func (c *pipeConn) ensureReader() {
 	go c.readLoop()
 }
 
-func (c *pipeConn) ensureWriter() {
-	if c.writing {
-		return
-	}
-	c.writing = true
-	go c.writeLoop()
-}
-
 func (c *pipeConn) readLoop() {
 	buf := make([]byte, pipeConnBuffer)
 	for {
@@ -160,68 +140,6 @@ func (c *pipeConn) readLoop() {
 			c.mu.Unlock()
 			return
 		}
-		c.mu.Unlock()
-	}
-}
-
-func (c *pipeConn) accountTransportWrite(n int) {
-	if c.wwaiting {
-		c.wprog += n
-		return
-	}
-	c.wcredit += n
-}
-
-func (c *pipeConn) writeLoop() {
-	for {
-		c.mu.Lock()
-		for len(c.wbuf) == 0 && !c.closed && !c.wshut && c.werr == nil {
-			c.wcond.Wait()
-		}
-		if c.closed || c.wshut || c.werr != nil {
-			c.wbuf = nil
-			c.wflight = false
-			c.wcond.Broadcast()
-			c.mu.Unlock()
-			return
-		}
-		if len(c.wbuf) == 0 {
-			c.mu.Unlock()
-			continue
-		}
-		chunk := c.wbuf
-		c.wbuf = nil
-		c.wflight = true
-		c.wcond.Broadcast()
-		c.mu.Unlock()
-
-		n, err := c.w.Write(chunk)
-
-		c.mu.Lock()
-		c.wflight = false
-		if n < 0 || n > len(chunk) {
-			n = 0
-			if err == nil {
-				err = io.ErrShortWrite
-			}
-		}
-		if n < len(chunk) && err == nil {
-			if n == 0 {
-				err = io.ErrNoProgress
-			} else {
-				err = io.ErrShortWrite
-			}
-		}
-		if n > 0 {
-			c.accountTransportWrite(n)
-		}
-		if err != nil {
-			c.werr = err
-			c.wcond.Broadcast()
-			c.mu.Unlock()
-			return
-		}
-		c.wcond.Broadcast()
 		c.mu.Unlock()
 	}
 }
@@ -253,104 +171,11 @@ func (c *pipeConn) Read(p []byte) (int, error) {
 	}
 }
 
-// Write reports only transport-confirmed bytes. A deadline or CloseWrite
-// takes back wbuf that the pump has not written so a retry cannot lose or
-// duplicate in-flight payload.
 func (c *pipeConn) Write(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	for c.wbusy {
-		if err := c.writeWaitErr(); err != nil {
-			return 0, err
-		}
-		c.waitDeadline(c.wcond, &c.wdl)
-	}
-	c.wbusy = true
-	defer func() {
-		c.wwaiting = false
-		c.wbusy = false
-		c.wcond.Broadcast()
-	}()
-	if err := c.writeWaitErr(); err != nil {
-		return 0, err
-	}
-	for c.wflight {
-		if err := c.writeWaitErr(); err != nil {
-			return 0, err
-		}
-		c.waitDeadline(c.wcond, &c.wdl)
-	}
-	n := 0
-	if c.wcredit > 0 {
-		take := c.wcredit
-		if take > len(p) {
-			take = len(p)
-		}
-		c.wcredit -= take
-		n += take
-		if n == len(p) {
-			return n, nil
-		}
-	}
-	if c.werr != nil {
-		return n, c.werr
-	}
-	if c.closed || c.wshut {
-		return n, net.ErrClosed
-	}
-	rest := p[n:]
-	c.wprog = 0
-	c.wbuf = append(c.wbuf[:0], rest...)
-	c.wwaiting = true
-	c.ensureWriter()
-	c.wcond.Broadcast()
-	for {
-		if c.werr != nil {
-			got := c.wprog
-			c.wbuf = nil
-			c.wwaiting = false
-			return n + got, c.werr
-		}
-		if c.wprog >= len(rest) {
-			return n + c.wprog, nil
-		}
-		if c.closed || c.wshut {
-			got := c.wprog
-			c.wbuf = nil
-			c.wwaiting = false
-			if got > 0 {
-				return n + got, net.ErrClosed
-			}
-			return n, net.ErrClosed
-		}
-		if err := deadlineErr(c.wdl); err != nil {
-			c.wbuf = nil
-			c.wwaiting = false
-			return n + c.wprog, err
-		}
-		c.waitDeadline(c.wcond, &c.wdl)
-	}
-}
-
-func (c *pipeConn) writeWaitErr() error {
-	if c.closed || c.wshut {
-		return net.ErrClosed
-	}
-	if err := deadlineErr(c.wdl); err != nil {
-		return err
-	}
-	return nil
+	return c.w.Write(p)
 }
 
 func (c *pipeConn) CloseWrite() error {
-	c.mu.Lock()
-	c.wshut = true
-	c.wbuf = nil
-	c.wcond.Broadcast()
-	c.mu.Unlock()
 	return c.w.Close()
 }
 
@@ -361,10 +186,7 @@ func (c *pipeConn) Close() error {
 		return nil
 	}
 	c.closed = true
-	c.wshut = true
-	c.wbuf = nil
 	c.rcond.Broadcast()
-	c.wcond.Broadcast()
 	c.mu.Unlock()
 	_ = c.w.Close()
 	_ = c.r.Close()
@@ -402,7 +224,7 @@ func openCONNECTTunnel(t connectTunnel) (net.Conn, error) {
 	if t.stopTimer == nil {
 		t.stopTimer = func() {}
 	}
-	pr, pw := io.Pipe()
+	pr, pw := newReqPipe(pipeConnBuffer)
 	req, err := http.NewRequestWithContext(t.handshake, http.MethodConnect, t.url, pr)
 	if err != nil {
 		_ = pw.Close()
@@ -460,7 +282,7 @@ func handshakeTimerHookSnapshot() func(stop, fire func()) (wrap func()) {
 // request context. HTTP/2 and HTTP/3 abort CONNECT if that context is
 // cancelled, so success must not cancel. If the timeout callback already
 // won, close the CONNECT body instead of returning a live tunnel.
-func finishCONNECTHandshake(ctx context.Context, stopTimer func(), pw *io.PipeWriter, resp *http.Response) error {
+func finishCONNECTHandshake(ctx context.Context, stopTimer func(), pw io.Closer, resp *http.Response) error {
 	stopTimer()
 	if err := ctx.Err(); err != nil {
 		_ = pw.Close()
