@@ -22,4 +22,7 @@ func TestKindOfUsesPreparedRole(t *testing.T) {
 	if kindOf(addrconfig.Address{Facts: addrconfig.Facts{Role: addrconfig.AddressRoleDatagram}}) != mqBidir {
 		t.Fatal("BIDIRECTIONAL")
 	}
+	if kindOf(addrconfig.Address{Type: "POSIXMQ-READ", Facts: addrconfig.Facts{Group: "POSIX message queues (Linux)"}}) != mqBidir {
+		t.Fatal("help group must not select POSIXMQ-READ")
+	}
 }

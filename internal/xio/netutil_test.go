@@ -215,18 +215,21 @@ func TestListenBindHostEmptyHostFollowsPassive(t *testing.T) {
 	}
 }
 
-func TestUDPListenAddressUsesGroupAndRole(t *testing.T) {
-	listen := addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleListen}}
+func TestUDPListenAddressUsesKindAndRole(t *testing.T) {
+	listen := addrconfig.Address{Facts: addrconfig.Facts{Kind: addrconfig.AddressKindUDP, Role: addrconfig.AddressRoleListen}}
 	if !udpListenAddress(listen) {
 		t.Fatal("UDP listen")
 	}
 	if udpListenAddress(addrconfig.Address{Type: "UDP-LISTEN"}) {
-		t.Fatal("Type string without group/role must not match")
+		t.Fatal("Type string without kind/role must not match")
+	}
+	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleListen}}) {
+		t.Fatal("help GroupUDP must not select UDP-LISTEN")
 	}
 	if udpListenAddress(addrconfig.Address{Type: "QUIC-LISTEN", Facts: addrconfig.Facts{Group: GroupQUIC, Role: addrconfig.AddressRoleListen}}) {
 		t.Fatal("QUIC-LISTEN is not UDP-LISTEN")
 	}
-	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleReceiveFrom}}) {
+	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Kind: addrconfig.AddressKindUDP, Role: addrconfig.AddressRoleReceiveFrom}}) {
 		t.Fatal("UDP-RECVFROM is not UDP-LISTEN")
 	}
 }

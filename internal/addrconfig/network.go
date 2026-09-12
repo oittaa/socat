@@ -19,6 +19,7 @@ type AddressKind uint8
 const (
 	AddressKindOther AddressKind = iota
 	AddressKindRawIP
+	AddressKindUDP
 	AddressKindSocket
 	AddressKindVSOCK
 	AddressKindTUN

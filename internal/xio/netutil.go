@@ -83,9 +83,9 @@ func reuseaddrListenDefault(s addrconfig.Address, network string) bool {
 }
 
 // udpListenAddress reports whether this is a UDP listen address
-// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not GROUP_UDP.
+// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not AddressKindUDP.
 func udpListenAddress(s addrconfig.Address) bool {
-	return s.Facts.Group == GroupUDP && s.Facts.Role == addrconfig.AddressRoleListen
+	return s.Facts.Kind == addrconfig.AddressKindUDP && s.Facts.Role == addrconfig.AddressRoleListen
 }
 
 // UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the

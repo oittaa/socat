@@ -8,6 +8,7 @@ import (
 func init() {
 	const (
 		kindRaw   = addrconfig.AddressKindRawIP
+		kindUDP   = addrconfig.AddressKindUDP
 		kindSock  = addrconfig.AddressKindSocket
 		kindVSOCK = addrconfig.AddressKindVSOCK
 		kindUnix  = addrconfig.AddressKindUNIX
@@ -38,33 +39,33 @@ func init() {
 	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupTCP, Name: "TCP6-L", Syntax: "TCP6-L:<port>", Desc: "same as TCP6-LISTEN", Opener: openTCP6Listen, OptionCaps: xio.CapsTCP6Listen, Role: listen, Family: v6})
 
 	// UDP
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP", Syntax: "UDP:<host>:<port>", Desc: "UDP client", Opener: openUDPConnect, OptionCaps: xio.CapsUDPConnect, Role: connect, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-CONNECT", Syntax: "UDP-CONNECT:<host>:<port>", Desc: "same as UDP", Opener: openUDPConnect, OptionCaps: xio.CapsUDPConnect, Role: connect, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4", Syntax: "UDP4:<host>:<port>", Desc: "IPv4 UDP client", Opener: openUDP4Connect, OptionCaps: xio.CapsUDP4Connect, Role: connect, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-CONNECT", Syntax: "UDP4-CONNECT:<host>:<port>", Desc: "same as UDP4", Opener: openUDP4Connect, OptionCaps: xio.CapsUDP4Connect, Role: connect, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6", Syntax: "UDP6:<host>:<port>", Desc: "IPv6 UDP client", Opener: openUDP6Connect, OptionCaps: xio.CapsUDP6Connect, Role: connect, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-CONNECT", Syntax: "UDP6-CONNECT:<host>:<port>", Desc: "same as UDP6", Opener: openUDP6Connect, OptionCaps: xio.CapsUDP6Connect, Role: connect, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-LISTEN", Syntax: "UDP-LISTEN:<port>", Desc: "UDP server", Opener: openUDPListen, OptionCaps: xio.CapsUDPListen, Role: listen, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-L", Syntax: "UDP-L:<port>", Desc: "same as UDP-LISTEN", Opener: openUDPListen, OptionCaps: xio.CapsUDPListen, Role: listen, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-LISTEN", Syntax: "UDP4-LISTEN:<port>", Desc: "IPv4 UDP server", Opener: openUDP4Listen, OptionCaps: xio.CapsUDP4Listen, Role: listen, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-L", Syntax: "UDP4-L:<port>", Desc: "same as UDP4-LISTEN", Opener: openUDP4Listen, OptionCaps: xio.CapsUDP4Listen, Role: listen, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-LISTEN", Syntax: "UDP6-LISTEN:<port>", Desc: "IPv6 UDP server", Opener: openUDP6Listen, OptionCaps: xio.CapsUDP6Listen, Role: listen, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-L", Syntax: "UDP6-L:<port>", Desc: "same as UDP6-LISTEN", Opener: openUDP6Listen, OptionCaps: xio.CapsUDP6Listen, Role: listen, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-SENDTO", Syntax: "UDP-SENDTO:<host>:<port>", Desc: "UDP send to one peer", Opener: openUDPSendto, OptionCaps: xio.CapsUDPConnect, Role: sendTo, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-SEND", Syntax: "UDP-SEND:<host>:<port>", Desc: "same as UDP-SENDTO", Opener: openUDPSendto, OptionCaps: xio.CapsUDPConnect, Role: sendTo, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-SENDTO", Syntax: "UDP4-SENDTO:<host>:<port>", Desc: "IPv4 UDP send to one peer", Opener: openUDP4Sendto, OptionCaps: xio.CapsUDP4Connect, Role: sendTo, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-SEND", Syntax: "UDP4-SEND:<host>:<port>", Desc: "same as UDP4-SENDTO", Opener: openUDP4Sendto, OptionCaps: xio.CapsUDP4Connect, Role: sendTo, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-SENDTO", Syntax: "UDP6-SENDTO:<host>:<port>", Desc: "IPv6 UDP send to one peer", Opener: openUDP6Sendto, OptionCaps: xio.CapsUDP6Connect, Role: sendTo, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-SEND", Syntax: "UDP6-SEND:<host>:<port>", Desc: "same as UDP6-SENDTO", Opener: openUDP6Sendto, OptionCaps: xio.CapsUDP6Connect, Role: sendTo, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-DATAGRAM", Syntax: "UDP-DATAGRAM:<host>:<port>", Desc: "unconnected UDP datagram", Opener: openUDPDatagram, OptionCaps: xio.CapsUDPDatagram, Aliases: []string{"UDP-DGRAM"}, Role: dgram, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-DATAGRAM", Syntax: "UDP4-DATAGRAM:<host>:<port>", Desc: "IPv4 UDP datagram", Opener: openUDP4Datagram, OptionCaps: xio.CapsUDP4Datagram, Aliases: []string{"UDP4-DGRAM"}, Role: dgram, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-DATAGRAM", Syntax: "UDP6-DATAGRAM:<host>:<port>", Desc: "IPv6 UDP datagram", Opener: openUDP6Datagram, OptionCaps: xio.CapsUDP6Datagram, Aliases: []string{"UDP6-DGRAM"}, Role: dgram, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-RECV", Syntax: "UDP-RECV:<port>", Desc: "receive UDP; ignore source", Opener: openUDPRecv, OptionCaps: xio.CapsUDPDatagram, Role: recv, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-RECV", Syntax: "UDP4-RECV:<port>", Desc: "IPv4 UDP receive", Opener: openUDP4Recv, OptionCaps: xio.CapsUDP4Datagram, Role: recv, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-RECV", Syntax: "UDP6-RECV:<port>", Desc: "IPv6 UDP receive", Opener: openUDP6Recv, OptionCaps: xio.CapsUDP6Datagram, Role: recv, Family: v6})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-RECVFROM", Syntax: "UDP-RECVFROM:<port>", Desc: "receive one UDP datagram, reply to sender", Opener: openUDPRecvfrom, OptionCaps: xio.CapsUDPRecvfrom, Role: recvFrom, Family: anyIP})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-RECVFROM", Syntax: "UDP4-RECVFROM:<port>", Desc: "IPv4 UDP recvfrom", Opener: openUDP4Recvfrom, OptionCaps: xio.CapsUDP4Recvfrom, Role: recvFrom, Family: v4})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-RECVFROM", Syntax: "UDP6-RECVFROM:<port>", Desc: "IPv6 UDP recvfrom", Opener: openUDP6Recvfrom, OptionCaps: xio.CapsUDP6Recvfrom, Role: recvFrom, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP", Syntax: "UDP:<host>:<port>", Desc: "UDP client", Opener: openUDPConnect, OptionCaps: xio.CapsUDPConnect, Kind: kindUDP, Role: connect, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-CONNECT", Syntax: "UDP-CONNECT:<host>:<port>", Desc: "same as UDP", Opener: openUDPConnect, OptionCaps: xio.CapsUDPConnect, Kind: kindUDP, Role: connect, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4", Syntax: "UDP4:<host>:<port>", Desc: "IPv4 UDP client", Opener: openUDP4Connect, OptionCaps: xio.CapsUDP4Connect, Kind: kindUDP, Role: connect, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-CONNECT", Syntax: "UDP4-CONNECT:<host>:<port>", Desc: "same as UDP4", Opener: openUDP4Connect, OptionCaps: xio.CapsUDP4Connect, Kind: kindUDP, Role: connect, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6", Syntax: "UDP6:<host>:<port>", Desc: "IPv6 UDP client", Opener: openUDP6Connect, OptionCaps: xio.CapsUDP6Connect, Kind: kindUDP, Role: connect, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-CONNECT", Syntax: "UDP6-CONNECT:<host>:<port>", Desc: "same as UDP6", Opener: openUDP6Connect, OptionCaps: xio.CapsUDP6Connect, Kind: kindUDP, Role: connect, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-LISTEN", Syntax: "UDP-LISTEN:<port>", Desc: "UDP server", Opener: openUDPListen, OptionCaps: xio.CapsUDPListen, Kind: kindUDP, Role: listen, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-L", Syntax: "UDP-L:<port>", Desc: "same as UDP-LISTEN", Opener: openUDPListen, OptionCaps: xio.CapsUDPListen, Kind: kindUDP, Role: listen, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-LISTEN", Syntax: "UDP4-LISTEN:<port>", Desc: "IPv4 UDP server", Opener: openUDP4Listen, OptionCaps: xio.CapsUDP4Listen, Kind: kindUDP, Role: listen, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-L", Syntax: "UDP4-L:<port>", Desc: "same as UDP4-LISTEN", Opener: openUDP4Listen, OptionCaps: xio.CapsUDP4Listen, Kind: kindUDP, Role: listen, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-LISTEN", Syntax: "UDP6-LISTEN:<port>", Desc: "IPv6 UDP server", Opener: openUDP6Listen, OptionCaps: xio.CapsUDP6Listen, Kind: kindUDP, Role: listen, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-L", Syntax: "UDP6-L:<port>", Desc: "same as UDP6-LISTEN", Opener: openUDP6Listen, OptionCaps: xio.CapsUDP6Listen, Kind: kindUDP, Role: listen, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-SENDTO", Syntax: "UDP-SENDTO:<host>:<port>", Desc: "UDP send to one peer", Opener: openUDPSendto, OptionCaps: xio.CapsUDPConnect, Kind: kindUDP, Role: sendTo, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-SEND", Syntax: "UDP-SEND:<host>:<port>", Desc: "same as UDP-SENDTO", Opener: openUDPSendto, OptionCaps: xio.CapsUDPConnect, Kind: kindUDP, Role: sendTo, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-SENDTO", Syntax: "UDP4-SENDTO:<host>:<port>", Desc: "IPv4 UDP send to one peer", Opener: openUDP4Sendto, OptionCaps: xio.CapsUDP4Connect, Kind: kindUDP, Role: sendTo, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-SEND", Syntax: "UDP4-SEND:<host>:<port>", Desc: "same as UDP4-SENDTO", Opener: openUDP4Sendto, OptionCaps: xio.CapsUDP4Connect, Kind: kindUDP, Role: sendTo, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-SENDTO", Syntax: "UDP6-SENDTO:<host>:<port>", Desc: "IPv6 UDP send to one peer", Opener: openUDP6Sendto, OptionCaps: xio.CapsUDP6Connect, Kind: kindUDP, Role: sendTo, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-SEND", Syntax: "UDP6-SEND:<host>:<port>", Desc: "same as UDP6-SENDTO", Opener: openUDP6Sendto, OptionCaps: xio.CapsUDP6Connect, Kind: kindUDP, Role: sendTo, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-DATAGRAM", Syntax: "UDP-DATAGRAM:<host>:<port>", Desc: "unconnected UDP datagram", Opener: openUDPDatagram, OptionCaps: xio.CapsUDPDatagram, Aliases: []string{"UDP-DGRAM"}, Kind: kindUDP, Role: dgram, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-DATAGRAM", Syntax: "UDP4-DATAGRAM:<host>:<port>", Desc: "IPv4 UDP datagram", Opener: openUDP4Datagram, OptionCaps: xio.CapsUDP4Datagram, Aliases: []string{"UDP4-DGRAM"}, Kind: kindUDP, Role: dgram, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-DATAGRAM", Syntax: "UDP6-DATAGRAM:<host>:<port>", Desc: "IPv6 UDP datagram", Opener: openUDP6Datagram, OptionCaps: xio.CapsUDP6Datagram, Aliases: []string{"UDP6-DGRAM"}, Kind: kindUDP, Role: dgram, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-RECV", Syntax: "UDP-RECV:<port>", Desc: "receive UDP; ignore source", Opener: openUDPRecv, OptionCaps: xio.CapsUDPDatagram, Kind: kindUDP, Role: recv, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-RECV", Syntax: "UDP4-RECV:<port>", Desc: "IPv4 UDP receive", Opener: openUDP4Recv, OptionCaps: xio.CapsUDP4Datagram, Kind: kindUDP, Role: recv, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-RECV", Syntax: "UDP6-RECV:<port>", Desc: "IPv6 UDP receive", Opener: openUDP6Recv, OptionCaps: xio.CapsUDP6Datagram, Kind: kindUDP, Role: recv, Family: v6})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP-RECVFROM", Syntax: "UDP-RECVFROM:<port>", Desc: "receive one UDP datagram, reply to sender", Opener: openUDPRecvfrom, OptionCaps: xio.CapsUDPRecvfrom, Kind: kindUDP, Role: recvFrom, Family: anyIP})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP4-RECVFROM", Syntax: "UDP4-RECVFROM:<port>", Desc: "IPv4 UDP recvfrom", Opener: openUDP4Recvfrom, OptionCaps: xio.CapsUDP4Recvfrom, Kind: kindUDP, Role: recvFrom, Family: v4})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUDP, Name: "UDP6-RECVFROM", Syntax: "UDP6-RECVFROM:<port>", Desc: "IPv6 UDP recvfrom", Opener: openUDP6Recvfrom, OptionCaps: xio.CapsUDP6Recvfrom, Kind: kindUDP, Role: recvFrom, Family: v6})
 
 	// Raw IP
 	rawIPEnabled := func() bool { return xio.FeatureRAWIP }

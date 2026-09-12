@@ -75,6 +75,24 @@ func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
 	if got.Network.MQName != "/queue" {
 		t.Fatalf("mq name=%q", got.Network.MQName)
 	}
+	if got.Network.ListenSet || !got.Network.ListenPort.Empty() || got.Network.TargetSet {
+		t.Fatalf("POSIXMQ used host/port: listen=%v %+v target=%v", got.Network.ListenSet, got.Network.ListenPort, got.Network.TargetSet)
+	}
+
+	read, err := parse.ParseSpec("POSIXMQ-READ:/q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(read, Facts{Type: "POSIXMQ-READ", Kind: AddressKindPOSIXMQ, Role: AddressRoleReceive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.MQName != "/q" {
+		t.Fatalf("read mq=%q", got.Network.MQName)
+	}
+	if got.Network.ListenSet || !got.Network.ListenPort.Empty() {
+		t.Fatalf("POSIXMQ-READ listen port %+v", got.Network.ListenPort)
+	}
 
 	_, err = Decode(parse.Spec{Type: "POSIXMQ", Params: []string{"a", "b"}}, Facts{Type: "POSIXMQ", Kind: AddressKindPOSIXMQ})
 	if err == nil || !strings.Contains(err.Error(), "too many parameters") {
