@@ -8,9 +8,8 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func decodeIoctl(o parse.Option) (FileAction, error) {
+func decodeIoctl(o parse.Option, name string) (FileAction, error) {
 	action := FileAction{Kind: FileActionIoctl, Name: o.OriginalSpelling()}
-	name := optionIdentity(o)
 	switch name {
 	case "ioctl-void":
 		action.Ioctl = IoctlVoid

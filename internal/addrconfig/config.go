@@ -233,16 +233,16 @@ func decodeOption(d *decoder, o parse.Option) error {
 		}
 		return fmt.Errorf("option %q is not supported (%s)", spelling, optionmeta.IsolationUnsupportedReason)
 	}
-	if handled, err := decodeFileProcess(a, o); handled {
+	if handled, err := decodeFileProcess(a, o, name); handled {
 		return err
 	}
-	if handled, err := decodeTerminal(a, o); handled {
+	if handled, err := decodeTerminal(a, o, name); handled {
 		return err
 	}
-	if handled, err := decodeNetworkOption(a, o); handled {
+	if handled, err := decodeNetworkOption(a, o, name); handled {
 		return err
 	}
-	if handled, err := decodeProtocolOption(d, o); handled {
+	if handled, err := decodeProtocolOption(d, o, name); handled {
 		return err
 	}
 	switch name {
@@ -373,6 +373,8 @@ func decodeOption(d *decoder, o parse.Option) error {
 		}
 		return err
 	}
+	// Catalogued in-scope options with no family decoder are a documented
+	// no-op. PrepareSpec already rejected unknown and out-of-scope names.
 	return nil
 }
 

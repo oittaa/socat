@@ -8,6 +8,13 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
+func TestDecodeOptionIdentityUsesCanonicalAlias(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,intervall=25ms")
+	if got.Common.Retry.Policy().Interval != 25*time.Millisecond {
+		t.Fatalf("interval=%v", got.Common.Retry.Policy().Interval)
+	}
+}
+
 func decodeSpec(t *testing.T, text string) Address {
 	t.Helper()
 	spec, err := parse.ParseSpec(text)

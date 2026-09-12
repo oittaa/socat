@@ -214,8 +214,7 @@ type TerminalAction struct {
 	Row     uint16
 }
 
-func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
-	name := optionIdentity(o)
+func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 	appendAction := func(action FileAction) {
 		action.Name = o.OriginalSpelling()
 		a.File.Actions = append(a.File.Actions, action)
@@ -362,7 +361,7 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		appendAction(FileAction{Kind: FileActionFSFlag, Enabled: enabled.Value, FS: fsFlagID(name), Name: name})
 		return true, nil
 	case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
-		action, err := decodeIoctl(o)
+		action, err := decodeIoctl(o, name)
 		if err != nil {
 			return true, err
 		}
@@ -519,8 +518,7 @@ func processFD(o parse.Option) (int, bool, error) {
 	return int(n), true, nil
 }
 
-func decodeTerminal(a *Address, o parse.Option) (bool, error) {
-	name := optionIdentity(o)
+func decodeTerminal(a *Address, o parse.Option, name string) (bool, error) {
 	appendAction := func(action TerminalAction) {
 		action.Name = name
 		a.Terminal.Actions = append(a.Terminal.Actions, action)

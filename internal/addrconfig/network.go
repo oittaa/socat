@@ -496,9 +496,8 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	return nil
 }
 
-func decodeNetworkOption(a *Address, o parse.Option) (bool, error) {
+func decodeNetworkOption(a *Address, o parse.Option, name string) (bool, error) {
 	n := &a.Network
-	name := optionIdentity(o)
 	switch name {
 	case "bind":
 		text := optionText(o)

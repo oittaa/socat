@@ -79,9 +79,8 @@ type Proxy struct {
 	SOCKSPassword     OptionalString
 }
 
-func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
+func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error) {
 	a := &d.Address
-	name := optionIdentity(o)
 	recordTLSPlaintextName(a, o, name)
 	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
 		if err := decodeUnsupportedTLSValue(name, o); err != nil {
@@ -132,9 +131,9 @@ func decodeProtocolOption(d *decoder, o parse.Option) (bool, error) {
 		a.TLS.CipherSuites = suites
 		return true, nil
 	case "openssl-min-proto-version":
-		return true, decodeProtocolVersion(a, o, true)
+		return true, decodeProtocolVersion(a, o, name, true)
 	case "openssl-max-proto-version":
-		return true, decodeProtocolVersion(a, o, false)
+		return true, decodeProtocolVersion(a, o, name, false)
 	case "alpn":
 		value := optionText(o)
 		if len(value) > 255 {
@@ -272,7 +271,7 @@ func setOptionText(dst *OptionalString, o parse.Option) error {
 	return nil
 }
 
-func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
+func decodeProtocolVersion(a *Address, o parse.Option, name string, minimum bool) error {
 	value, err := requiredString(o)
 	if err != nil {
 		return err
@@ -280,10 +279,10 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	if a.Facts.Kind == AddressKindDTLS {
 		version, err := decodeDTLSVersion(value)
 		if err != nil {
-			return fmt.Errorf("%s: %w", optionIdentity(o), err)
+			return fmt.Errorf("%s: %w", name, err)
 		}
 		if !minimum && version < 13 {
-			return fmt.Errorf("%s: only DTLS 1.3 is supported", optionIdentity(o))
+			return fmt.Errorf("%s: only DTLS 1.3 is supported", name)
 		}
 		if minimum {
 			a.TLS.DTLSMinVersion = OptionalInt{Set: true, Value: version}
@@ -294,7 +293,7 @@ func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	}
 	version, err := decodeTLSVersion(value)
 	if err != nil {
-		return fmt.Errorf("%s: %w", optionIdentity(o), err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	if minimum {
 		a.TLS.MinVersion = version
