@@ -82,16 +82,30 @@ func TestRetryingPeerThenNoForkUsesPreparedPolicy(t *testing.T) {
 	select {
 	case peer := <-peerCh:
 		t.Cleanup(func() { _ = peer.Close() })
-		if err := peer.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
-			t.Fatal(err)
-		}
-		buf := make([]byte, 64)
-		n, err := peer.Read(buf)
-		if err != nil {
-			t.Fatalf("handoff read: %v", err)
-		}
-		if got := string(buf[:n]); got != marker {
-			t.Fatalf("handoff %q want %q", got, marker)
+		readCtx, readCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer readCancel()
+		got := make(chan struct {
+			b   []byte
+			err error
+		}, 1)
+		go func() {
+			buf := make([]byte, 64)
+			n, err := peer.Read(buf)
+			got <- struct {
+				b   []byte
+				err error
+			}{buf[:n], err}
+		}()
+		select {
+		case result := <-got:
+			if result.err != nil {
+				t.Fatalf("handoff read: %v", result.err)
+			}
+			if string(result.b) != marker {
+				t.Fatalf("handoff %q want %q", result.b, marker)
+			}
+		case <-readCtx.Done():
+			t.Fatal("handoff read timed out")
 		}
 	default:
 		t.Fatal("retrying peer did not hand off a stream")
