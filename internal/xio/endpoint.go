@@ -227,9 +227,15 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 	logMixed := false
 	var stats *atomic.Bool
 	if from != nil {
-		peer = from.Peer
-		peer.TLSVars = cloneStringMap(from.Peer.TLSVars)
-		peer.SessionVars = from.cloneSessionVars()
+		// Field-by-field so SessionVars is only read under cloneSessionVars.
+		peer = Peer{
+			SockAddr:    from.Peer.SockAddr,
+			PeerAddr:    from.Peer.PeerAddr,
+			SockPort:    from.Peer.SockPort,
+			PeerPort:    from.Peer.PeerPort,
+			TLSVars:     cloneStringMap(from.Peer.TLSVars),
+			SessionVars: from.cloneSessionVars(),
+		}
 		result = from.childResult
 		sniff = from.sniffFiles
 		logMixed = from.LogMixed
