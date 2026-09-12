@@ -604,7 +604,6 @@ func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 		IPVersion:    ipVersionFromFlags(cfg),
 	}, log)
 	g.LogMixed = cfg.LogDest == LogDestMixed
-	g.EnsureStatsFlag()
 	return g
 }
 

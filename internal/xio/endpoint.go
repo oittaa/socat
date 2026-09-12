@@ -212,7 +212,8 @@ func (g *Global) sharesOptions(other *Global) bool {
 
 // NewSession creates a root logical session.
 //
-// Share: later ForkSession results share the heap-copied *Options.
+// Share: later ForkSession results share the heap-copied *Options and
+// the statistics once-flag.
 // Copy: none (this is the root).
 // Own: sessionMu and an empty childSignals table. log is stored as-is
 // (forks clone it). Peer maps start empty. Sniff starts empty.
@@ -311,24 +312,10 @@ func (g *Global) statsAlreadyPrinted() bool {
 }
 
 func (g *Global) markStatsPrinted() {
-	if g == nil {
+	if g == nil || g.statsPrinted == nil {
 		return
 	}
-	g.ensureStatsFlag()
 	g.statsPrinted.Store(true)
-}
-
-// EnsureStatsFlag allocates the shared --statistics once-flag on the parent.
-func (g *Global) EnsureStatsFlag() {
-	if g != nil {
-		g.ensureStatsFlag()
-	}
-}
-
-func (g *Global) ensureStatsFlag() {
-	if g.statsPrinted == nil {
-		g.statsPrinted = new(atomic.Bool)
-	}
 }
 
 // OpenedKind names the payload variant. Kind() reports it from the payload.

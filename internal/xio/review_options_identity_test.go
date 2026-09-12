@@ -7,7 +7,7 @@ import (
 
 // TestOptionsZeroValueDoesNotWrite fails if Options() lazily writes
 // g.options. Concurrent read-only calls on a zero Global then race and
-// can return distinct backing objects (reproduced on 9fb7c15).
+// can return distinct backing objects.
 func TestOptionsZeroValueDoesNotWrite(t *testing.T) {
 	g := &Global{}
 	const n = 16
@@ -58,8 +58,8 @@ func TestForkSessionZeroValueDoesNotWriteParentOptions(t *testing.T) {
 	ready.Wait()
 	close(start)
 	done.Wait()
-	if g.options != nil {
-		t.Fatal("ForkSession must not write options on a zero parent")
+	if g.options != nil || g.statsPrinted != nil {
+		t.Fatal("ForkSession must not write options or stats on a zero parent")
 	}
 	for i, c := range children {
 		if c == nil || c.options == nil {
