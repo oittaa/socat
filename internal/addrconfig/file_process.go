@@ -133,6 +133,21 @@ type FileAction struct {
 	Ioctl   IoctlForm
 	Request uint32
 	Bytes   []byte
+	Owner   OwnerRef
+}
+
+// OwnerRef is a numeric uid/gid or an account name resolved at apply time.
+type OwnerRef struct {
+	ID      int
+	Numeric bool
+	Name    string
+}
+
+func parseOwnerRef(value string) OwnerRef {
+	if n, err := strconv.Atoi(value); err == nil {
+		return OwnerRef{ID: n, Numeric: true, Name: value}
+	}
+	return OwnerRef{Name: value}
 }
 
 // Process holds EXEC/SYSTEM/SHELL choices. Commands stay positional.
@@ -271,7 +286,7 @@ func decodeFileProcess(a *Address, o parse.Option) (bool, error) {
 		case "group-early":
 			kind = FileActionGroupEarly
 		}
-		appendAction(FileAction{Kind: kind, Text: value})
+		appendAction(FileAction{Kind: kind, Owner: parseOwnerRef(value)})
 		return true, nil
 	case "ftruncate":
 		n, err := nonnegativeInt64(o)

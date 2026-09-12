@@ -6,19 +6,22 @@ import (
 	"os/user"
 	"strconv"
 	"sync"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// resolveUID parses user=/user-early= as a numeric uid or login name.
-func resolveUID(name string) (int, bool, error) {
-	if name == "" {
+// resolveUID uses a prepared user= / user-early= / user-late= reference.
+// Numeric IDs are used as-is; only names hit the account database.
+func resolveUID(owner addrconfig.OwnerRef) (int, bool, error) {
+	if owner.Numeric {
+		return owner.ID, true, nil
+	}
+	if owner.Name == "" {
 		return -1, false, nil
 	}
-	if n, err := strconv.Atoi(name); err == nil {
-		return n, true, nil
-	}
-	u, err := user.Lookup(name)
+	u, err := user.Lookup(owner.Name)
 	if err != nil {
-		return -1, false, fmt.Errorf("user %q: %w", name, err)
+		return -1, false, fmt.Errorf("user %q: %w", owner.Name, err)
 	}
 	n, err := strconv.Atoi(u.Uid)
 	if err != nil {
@@ -27,17 +30,18 @@ func resolveUID(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// resolveGID parses group=/group-early= as a numeric gid or group name.
-func resolveGID(name string) (int, bool, error) {
-	if name == "" {
+// resolveGID uses a prepared group= / group-early= / group-late= reference.
+// Numeric IDs are used as-is; only names hit the account database.
+func resolveGID(owner addrconfig.OwnerRef) (int, bool, error) {
+	if owner.Numeric {
+		return owner.ID, true, nil
+	}
+	if owner.Name == "" {
 		return -1, false, nil
 	}
-	if n, err := strconv.Atoi(name); err == nil {
-		return n, true, nil
-	}
-	g, err := user.LookupGroup(name)
+	g, err := user.LookupGroup(owner.Name)
 	if err != nil {
-		return -1, false, fmt.Errorf("group %q: %w", name, err)
+		return -1, false, fmt.Errorf("group %q: %w", owner.Name, err)
 	}
 	n, err := strconv.Atoi(g.Gid)
 	if err != nil {

@@ -252,7 +252,7 @@ func applyConfiguredPerm(fd int, action addrconfig.FileAction) error {
 }
 
 func applyConfiguredUser(fd int, action addrconfig.FileAction) error {
-	uid, hasUID, err := resolveUID(action.Text)
+	uid, hasUID, err := resolveUID(action.Owner)
 	if err != nil {
 		return err
 	}
@@ -267,7 +267,7 @@ func applyConfiguredUser(fd int, action addrconfig.FileAction) error {
 }
 
 func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
-	gid, hasGID, err := resolveGID(action.Text)
+	gid, hasGID, err := resolveGID(action.Owner)
 	if err != nil {
 		return err
 	}

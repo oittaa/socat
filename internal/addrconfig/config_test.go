@@ -678,3 +678,43 @@ func TestHostTargetIsIPv4Literal(t *testing.T) {
 		t.Fatal("hostname")
 	}
 }
+
+func TestDecodeUserGroupOwnerRefs(t *testing.T) {
+	spec, err := parse.ParseSpec("OPEN:f,user=1000,group=1001,user-early=0,group-late=daemon")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := Decode(spec, Facts{Type: "OPEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var user, group, early, late FileAction
+	for _, action := range config.File.Actions {
+		switch action.Kind {
+		case FileActionUser:
+			user = action
+		case FileActionGroup:
+			group = action
+		case FileActionUserEarly:
+			early = action
+		case FileActionGroupLate:
+			late = action
+		}
+	}
+	if !user.Owner.Numeric || user.Owner.ID != 1000 || user.Text != "" {
+		t.Fatalf("user=%+v", user)
+	}
+	if !group.Owner.Numeric || group.Owner.ID != 1001 {
+		t.Fatalf("group=%+v", group)
+	}
+	if !early.Owner.Numeric || early.Owner.ID != 0 {
+		t.Fatalf("user-early=%+v", early)
+	}
+	if late.Owner.Numeric || late.Owner.Name != "daemon" {
+		t.Fatalf("group-late=%+v", late)
+	}
+
+	if _, err := Decode(mustParseSpec(t, "OPEN:f,user="), Facts{Type: "OPEN"}); err == nil {
+		t.Fatal("empty user= must be rejected")
+	}
+}

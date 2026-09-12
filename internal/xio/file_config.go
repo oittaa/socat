@@ -38,11 +38,11 @@ func applyConfiguredNamed(path string, f *os.File, config addrconfig.File, owner
 				}
 			}
 		case addrconfig.FileActionUser:
-			if err := applyConfiguredNamedOwner(path, f, action.Text, true); err != nil {
+			if err := applyConfiguredNamedOwner(path, f, action.Owner, true); err != nil {
 				return err
 			}
 		case addrconfig.FileActionGroup:
-			if err := applyConfiguredNamedOwner(path, f, action.Text, false); err != nil {
+			if err := applyConfiguredNamedOwner(path, f, action.Owner, false); err != nil {
 				return err
 			}
 		}
@@ -59,11 +59,11 @@ func ApplyConfiguredNamedPreopen(path string, config addrconfig.File) error {
 				return fmt.Errorf("chmod %s: %w", path, err)
 			}
 		case addrconfig.FileActionUserEarly:
-			if err := applyNamedPathOwner(path, action.Text, true); err != nil {
+			if err := applyNamedPathOwner(path, action.Owner, true); err != nil {
 				return err
 			}
 		case addrconfig.FileActionGroupEarly:
-			if err := applyNamedPathOwner(path, action.Text, false); err != nil {
+			if err := applyNamedPathOwner(path, action.Owner, false); err != nil {
 				return err
 			}
 		case addrconfig.FileActionUnlink:
@@ -88,8 +88,8 @@ func applyConfiguredNamedPerm(path string, f *os.File, mode uint32) error {
 	return nil
 }
 
-func applyConfiguredNamedOwner(path string, f *os.File, value string, user bool) error {
-	id, has, err := lookupOwnerID(value, user)
+func applyConfiguredNamedOwner(path string, f *os.File, owner addrconfig.OwnerRef, user bool) error {
+	id, has, err := lookupOwnerID(owner, user)
 	if err != nil || !has {
 		return err
 	}
@@ -100,15 +100,15 @@ func applyConfiguredNamedOwner(path string, f *os.File, value string, user bool)
 	return namedChown(path, f, -1, id)
 }
 
-func applyNamedPathOwner(path, value string, user bool) error {
-	return applyConfiguredNamedOwner(path, nil, value, user)
+func applyNamedPathOwner(path string, owner addrconfig.OwnerRef, user bool) error {
+	return applyConfiguredNamedOwner(path, nil, owner, user)
 }
 
-func lookupOwnerID(value string, user bool) (int, bool, error) {
+func lookupOwnerID(owner addrconfig.OwnerRef, user bool) (int, bool, error) {
 	if user {
-		return resolveUID(value)
+		return resolveUID(owner)
 	}
-	return resolveGID(value)
+	return resolveGID(owner)
 }
 
 func WithConfiguredUmask(config addrconfig.File, fn func() error) error {

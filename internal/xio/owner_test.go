@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func TestUnlinkRegistryDoesNotRemoveReplacement(t *testing.T) {
@@ -86,5 +88,25 @@ func TestUnlinkIfSameFileRemovesOriginal(t *testing.T) {
 	UnlinkIfSameFile(path, info)
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("original survived: %v", err)
+	}
+}
+
+func TestResolveUIDNumericSkipsLookup(t *testing.T) {
+	uid, has, err := resolveUID(addrconfig.OwnerRef{ID: 65534, Numeric: true, Name: "1000foo"})
+	if err != nil || !has || uid != 65534 {
+		t.Fatalf("numeric uid: %d has=%v err=%v", uid, has, err)
+	}
+	gid, has, err := resolveGID(addrconfig.OwnerRef{ID: 65534, Numeric: true, Name: "1000foo"})
+	if err != nil || !has || gid != 65534 {
+		t.Fatalf("numeric gid: %d has=%v err=%v", gid, has, err)
+	}
+}
+
+func TestResolveUIDEmptyNameIsAbsent(t *testing.T) {
+	if uid, has, err := resolveUID(addrconfig.OwnerRef{}); err != nil || has || uid != -1 {
+		t.Fatalf("empty uid: %d has=%v err=%v", uid, has, err)
+	}
+	if gid, has, err := resolveGID(addrconfig.OwnerRef{}); err != nil || has || gid != -1 {
+		t.Fatalf("empty gid: %d has=%v err=%v", gid, has, err)
 	}
 }
