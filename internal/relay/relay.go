@@ -63,7 +63,156 @@ type Stats struct {
 	Duration time.Duration
 }
 
-// Transfer copies data bidirectionally between left and right until both directions finish.
+// direction is one copy of a bidirectional transfer.
+type direction uint8
+
+const (
+	dirLeftToRight direction = iota + 1 // ">"
+	dirRightToLeft                      // "<"
+)
+
+func (d direction) String() string {
+	switch d {
+	case dirLeftToRight:
+		return ">"
+	case dirRightToLeft:
+		return "<"
+	default:
+		return "?"
+	}
+}
+
+// sock is the classic MULTIPLE_EOF socket number: 1=left, 2=right.
+func (d direction) sock() int {
+	switch d {
+	case dirLeftToRight:
+		return 1
+	case dirRightToLeft:
+		return 2
+	default:
+		return 0
+	}
+}
+
+// dirClass is decided once when a direction worker returns.
+type dirClass uint8
+
+const (
+	classEOF      dirClass = iota + 1 // clean source EOF or benign source close
+	classClosed                       // benign destination close
+	classCanceled                     // exact context.Canceled
+	classFailed                       // any other error, including wrapped Canceled
+)
+
+// dirOutcome is the classified result of one direction. Live byte and
+// block counters stay on Tracker, not here.
+type dirOutcome struct {
+	dir   direction
+	class dirClass
+	err   error
+}
+
+func dirEOF(d direction) dirOutcome {
+	return dirOutcome{dir: d, class: classEOF}
+}
+
+func dirClosed(d direction) dirOutcome {
+	return dirOutcome{dir: d, class: classClosed}
+}
+
+func classifyDirError(dir direction, err error) dirOutcome {
+	switch err {
+	case context.Canceled:
+		return dirOutcome{dir: dir, class: classCanceled, err: err}
+	default:
+		return dirOutcome{dir: dir, class: classFailed, err: err}
+	}
+}
+
+// transferOutcomes is owned by Transfer: one stored return per direction
+// and the completion order of returns that may be selected.
+type transferOutcomes struct {
+	leftToRight dirOutcome
+	rightToLeft dirOutcome
+	inspect     []direction
+}
+
+func (o *transferOutcomes) accept(r dirOutcome, live bool) {
+	switch r.dir {
+	case dirLeftToRight:
+		o.leftToRight = r
+	case dirRightToLeft:
+		o.rightToLeft = r
+	default:
+		return
+	}
+	if live {
+		o.inspect = append(o.inspect, r.dir)
+	}
+}
+
+func (o transferOutcomes) outcome(d direction) dirOutcome {
+	switch d {
+	case dirLeftToRight:
+		return o.leftToRight
+	case dirRightToLeft:
+		return o.rightToLeft
+	default:
+		return dirOutcome{}
+	}
+}
+
+// Transfer error-selection rules (preserve these; do not "improve"):
+//
+// Direction result (copyDir / its workers):
+//   - Clean source EOF and benign source close are classEOF. Those paths
+//     also call OnEOF and ShutdownWrite when the transfer context is
+//     still active.
+//   - Benign destination close (zero-copy, poll, or write) is
+//     classClosed: not source EOF, so no OnEOF.
+//   - context.Err() at the start of a read loop is classified as-is
+//     (typically classCanceled after linger, idle, or parent cancel).
+//   - Dump/write/read failures and non-benign poll errors are
+//     classFailed, except verbose/raw dump errors which keep a fixed
+//     prefix.
+//
+// Combining the two directions (Transfer):
+//   - Each worker returns one classified outcome after its cleanup.
+//     Transfer owns both returns, cancel, linger, stats, and write-side
+//     shutdown, and selects the transfer error once from those returns
+//     after Wait, cancel, close, and OnStats.
+//   - Only returns received on the live select path are inspected.
+//     Returns drained after linger expiry or parent ctx.Done() are
+//     stored and must not change the selected error.
+//   - classEOF and classClosed are not transfer errors.
+//   - classCanceled (exact context.Canceled, identity, not errors.Is)
+//     is ignored. Wrapped Canceled and context.DeadlineExceeded are
+//     classFailed and are transfer errors.
+//   - The first remaining classFailed wins; later errors are discarded.
+//   - The selected error is wrapped as "<dir>: <err>" where dir is ">"
+//     (left→right) or "<" (right→left).
+//   - Linger expiry and idle timeout only cancel the context. They do
+//     not invent an error. If every live return is classEOF,
+//     classClosed, or classCanceled, Transfer returns nil.
+func selectTransferError(first error, o dirOutcome) error {
+	if first != nil || o.class != classFailed {
+		return first
+	}
+	return fmt.Errorf("%s: %w", o.dir.String(), o.err)
+}
+
+func selectedTransferError(o transferOutcomes) error {
+	var first error
+	for _, d := range o.inspect {
+		first = selectTransferError(first, o.outcome(d))
+	}
+	return first
+}
+
+// Transfer copies data bidirectionally between left and right until both
+// directions finish. Each worker returns one classified outcome after its
+// cleanup. Transfer owns those returns, cancel, linger, stats, and
+// write-side shutdown. It does not use io.Copy.
 func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 8192
@@ -93,11 +242,11 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	touch, stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
 	defer stopIdle()
 
-	results := make(chan dirResult, 2)
+	results := make(chan dirOutcome, 2)
 	var wg sync.WaitGroup
+	var outcomes transferOutcomes
 
-	// Session wrappers: when NoClose*, cancel closes only the wrapper so a
-	// shared end-close stream is not destroyed (EXECENDCLOSE).
+	// NoClose*: cancel closes the session wrapper, not the shared stream.
 	if cfg.NoCloseLeft {
 		left = newSessionWrap(left)
 	}
@@ -105,16 +254,11 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		right = newSessionWrap(right)
 	}
 
-	// Resolve poll descriptors before cancellation can close either stream.
-	// os.File permits concurrent I/O and Close, but Fd itself must not race
-	// with Close. Keep the integer values for the lifetime of this transfer.
+	// Capture poll FDs before cancel can Close.
 	lrDstFD, lrSrcFD := -1, -1
 	rlDstFD, rlSrcFD := -1, -1
 	var lrZeroCopy, rlZeroCopy zeroCopyPlan
-	// Ordinary net.Conn and regular-file I/O already gets blocking readiness
-	// from Go and the kernel. Polling before every block only adds a syscall.
-	// Keep explicit poll backpressure for non-regular descriptors (pipes,
-	// terminals) and custom raw-FD streams such as TUN and generic SOCKET.
+	// Poll pipes, terminals, and raw-FD streams only.
 	useExplicitPoll := canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right))
 	if useExplicitPoll {
 		if cfg.LeftToRight {
@@ -126,25 +270,16 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			rlSrcFD = streamReadFD(right)
 		}
 	}
-	// Prepare kernel-copy descriptors while the original streams are known to
-	// be open. Unsupported platforms and endpoint pairs return nil and retain
-	// the ordinary configured-buffer path.
-	if cfg.LeftToRight && zeroCopyAllowed(cfg, ">", useExplicitPoll) {
+	if cfg.LeftToRight && zeroCopyAllowed(cfg, dirLeftToRight, useExplicitPoll) {
 		lrZeroCopy = prepareZeroCopy(left, right)
 	}
-	if cfg.RightToLeft && zeroCopyAllowed(cfg, "<", useExplicitPoll) {
+	if cfg.RightToLeft && zeroCopyAllowed(cfg, dirRightToLeft, useExplicitPoll) {
 		rlZeroCopy = prepareZeroCopy(right, left)
 	}
 
-	// Close and ShutdownWrite may both be triggered during cancellation. They
-	// must not operate on the same descriptor concurrently, while Read/Write
-	// remain unlocked so Close can still interrupt blocked I/O.
 	left = newCloseSerialStream(left)
 	right = newCloseSerialStream(right)
 
-	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
-	// Also poke read deadlines so stdin (FD 0) and other FDs unblock even when
-	// Close is a no-op (STDIO).
 	closeDone := make(chan struct{})
 	go func() {
 		defer close(closeDone)
@@ -158,17 +293,14 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	nDirs := 0
 	if cfg.LeftToRight {
 		nDirs++
-		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
+		startDir(ctx, dirTask{dir: dirLeftToRight, dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
-		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
+		startDir(ctx, dirTask{dir: dirRightToLeft, dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
-	var firstErr error
 	finished := 0
 	var lingerTimer *time.Timer
 	var lingerC <-chan time.Time
@@ -177,9 +309,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		select {
 		case r := <-results:
 			finished++
-			if r.err != nil && r.err != context.Canceled && firstErr == nil {
-				firstErr = fmt.Errorf("%s: %w", r.dir, r.err)
-			}
+			outcomes.accept(r, true)
 			if finished == 1 && nDirs == 2 && cfg.Linger > 0 {
 				// After one side EOFs, -t owns the rest of the session.
 				// -T is inactivity while both directions still run.
@@ -191,14 +321,14 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			}
 		case <-lingerC:
 			cancel()
-			// drain remaining
+			// Drain remaining: store the return, do not inspect it.
 			for finished < nDirs {
-				<-results
+				outcomes.accept(<-results, false)
 				finished++
 			}
 		case <-ctx.Done():
 			for finished < nDirs {
-				<-results
+				outcomes.accept(<-results, false)
 				finished++
 			}
 		}
@@ -215,12 +345,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.OnStats != nil {
 		cfg.OnStats(st)
 	}
-	return firstErr
-}
-
-type dirResult struct {
-	err error
-	dir string
+	return selectedTransferError(outcomes)
 }
 
 func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
@@ -268,11 +393,9 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	return touch, stop
 }
 
-// dirTask bundles one transfer direction: source and destination streams, the
-// descriptors captured for poll backpressure, an optional zero-copy plan, and
-// the direction's live counters.
+// dirTask is one direction's streams, poll FDs, optional plan, and counters.
 type dirTask struct {
-	dir      string // ">" left→right | "<" right→left
+	dir      direction
 	dst, src Stream
 	dstFD    int
 	srcFD    int
@@ -281,49 +404,68 @@ type dirTask struct {
 	blocks   *atomic.Uint64
 }
 
-func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
-	defer wg.Done()
+func reportEOF(cfg Config, d direction, fd int) {
+	if cfg.OnEOF != nil {
+		cfg.OnEOF(d.sock(), fd)
+	}
+}
+
+func finishSourceEOF(ctx context.Context, t dirTask, cfg Config) dirOutcome {
+	reportEOF(cfg, t.dir, t.srcFD)
+	if ctx.Err() == nil {
+		_ = t.dst.ShutdownWrite()
+	}
+	return dirEOF(t.dir)
+}
+
+func startDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirOutcome, wg *sync.WaitGroup) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		results <- copyDir(ctx, t, cfg, touch)
+	}()
+}
+
+// copyDir returns after the chosen worker's cleanup. It does not send.
+func copyDir(ctx context.Context, t dirTask, cfg Config, touch func()) dirOutcome {
 	if t.plan != nil {
-		defer func() { _ = t.plan.Close() }()
-		onRead := func(n int64) {
-			if n <= 0 {
-				return
-			}
-			touch()
-			t.blocks.Add(configuredBlockCount(n, cfg.BufferSize))
-		}
-		onWrite := func(n int64) {
-			if n > 0 {
-				t.bytes.Add(uint64(n))
-			}
-		}
-		err := t.plan.Copy(ctx, onRead, onWrite)
-		if !errors.Is(err, errZeroCopyUnsupported) {
-			if err == nil {
-				if cfg.OnEOF != nil {
-					sock := 1
-					if t.dir == "<" {
-						sock = 2
-					}
-					cfg.OnEOF(sock, t.srcFD)
-				}
-				if ctx.Err() == nil {
-					_ = t.dst.ShutdownWrite()
-				}
-				results <- dirResult{err: nil, dir: t.dir}
-				return
-			}
-			// A benign destination close is a clean transfer termination, but
-			// it is not evidence that the source reached EOF.
-			if isBenignClose(err) {
-				results <- dirResult{err: nil, dir: t.dir}
-				return
-			}
-			results <- dirResult{err: err, dir: t.dir}
-			return
+		if o, ok := copyZeroCopy(ctx, t, cfg, touch); ok {
+			return o
 		}
 	}
+	return copyBuffered(ctx, t, cfg, touch)
+}
 
+func copyZeroCopy(ctx context.Context, t dirTask, cfg Config, touch func()) (dirOutcome, bool) {
+	defer func() { _ = t.plan.Close() }()
+	onRead := func(n int64) {
+		if n <= 0 {
+			return
+		}
+		touch()
+		t.blocks.Add(configuredBlockCount(n, cfg.BufferSize))
+	}
+	onWrite := func(n int64) {
+		if n > 0 {
+			t.bytes.Add(uint64(n))
+		}
+	}
+	err := t.plan.Copy(ctx, onRead, onWrite)
+	if errors.Is(err, errZeroCopyUnsupported) {
+		return dirOutcome{}, false
+	}
+	if err == nil {
+		return finishSourceEOF(ctx, t, cfg), true
+	}
+	// A benign destination close is a clean transfer termination, but
+	// it is not evidence that the source reached EOF.
+	if isBenignClose(err) {
+		return dirClosed(t.dir), true
+	}
+	return classifyDirError(t.dir, err), true
+}
+
+func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirOutcome {
 	var bp *[]byte
 	if shouldPoolBuffer(cfg.BufferSize) {
 		bp = getBuf(cfg.BufferSize)
@@ -342,9 +484,8 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 	usePoll := t.dstFD >= 0 && t.srcFD >= 0
 
 	for {
-		if ctx.Err() != nil {
-			results <- dirResult{err: ctx.Err(), dir: t.dir}
-			return
+		if err := ctx.Err(); err != nil {
+			return classifyDirError(t.dir, err)
 		}
 		if usePoll {
 			if err := waitReadableAndWritable(ctx, t.srcFD, t.dstFD); err != nil {
@@ -352,11 +493,9 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 				// poll returns ErrClosedPipe before Read. That is the same
 				// peer-gone case isBenignClose already accepts on Write.
 				if isBenignClose(err) {
-					results <- dirResult{err: nil, dir: t.dir}
-					return
+					return dirClosed(t.dir)
 				}
-				results <- dirResult{err: err, dir: t.dir}
-				return
+				return classifyDirError(t.dir, err)
 			}
 		}
 		nr, er := t.src.Read(buf)
@@ -364,21 +503,18 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
-				if err := dump(cfg, t.dir, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("verbose dump: %w", err), dir: t.dir}
-					return
+				if err := dump(cfg, t.dir.String(), data); err != nil {
+					return classifyDirError(t.dir, fmt.Errorf("verbose dump: %w", err))
 				}
 			}
-			if t.dir == ">" && cfg.RawLeft != nil {
+			if t.dir == dirLeftToRight && cfg.RawLeft != nil {
 				if err := writeDump(cfg.RawLeft, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw left dump: %w", err), dir: t.dir}
-					return
+					return classifyDirError(t.dir, fmt.Errorf("raw left dump: %w", err))
 				}
 			}
-			if t.dir == "<" && cfg.RawRight != nil {
+			if t.dir == dirRightToLeft && cfg.RawRight != nil {
 				if err := writeDump(cfg.RawRight, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw right dump: %w", err), dir: t.dir}
-					return
+					return classifyDirError(t.dir, fmt.Errorf("raw right dump: %w", err))
 				}
 			}
 			wroteBlock, ew := writeBlock(ctx, t.dst, t.dstFD, data, t.bytes)
@@ -387,11 +523,9 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			}
 			if ew != nil {
 				if isBenignClose(ew) {
-					results <- dirResult{err: nil, dir: t.dir}
-					return
+					return dirClosed(t.dir)
 				}
-				results <- dirResult{err: ew, dir: t.dir}
-				return
+				return classifyDirError(t.dir, ew)
 			}
 		}
 		if er != nil {
@@ -399,21 +533,9 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 				continue
 			}
 			if er == io.EOF || isBenignClose(er) {
-				if cfg.OnEOF != nil {
-					sock := 1
-					if t.dir == "<" {
-						sock = 2
-					}
-					cfg.OnEOF(sock, t.srcFD)
-				}
-				if ctx.Err() == nil {
-					_ = t.dst.ShutdownWrite()
-				}
-				results <- dirResult{err: nil, dir: t.dir}
-				return
+				return finishSourceEOF(ctx, t, cfg)
 			}
-			results <- dirResult{err: er, dir: t.dir}
-			return
+			return classifyDirError(t.dir, er)
 		}
 	}
 }

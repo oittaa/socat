@@ -25,14 +25,14 @@ var errZeroCopyUnsupported = errors.New("zero-copy transfer unsupported")
 // zero-copy for one direction. This is policy only: runtime capability is
 // discovered when a plan reports errZeroCopyUnsupported and the relay falls
 // back to the configured-buffer path.
-func zeroCopyAllowed(cfg Config, dir string, usePoll bool) bool {
+func zeroCopyAllowed(cfg Config, dir direction, usePoll bool) bool {
 	if cfg.Verbose || cfg.Hex || usePoll {
 		return false
 	}
-	if dir == ">" && cfg.RawLeft != nil {
+	if dir == dirLeftToRight && cfg.RawLeft != nil {
 		return false
 	}
-	if dir == "<" && cfg.RawRight != nil {
+	if dir == dirRightToLeft && cfg.RawRight != nil {
 		return false
 	}
 	return true
