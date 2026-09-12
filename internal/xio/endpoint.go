@@ -112,9 +112,9 @@ type globalOptions struct {
 	Verbose      bool
 	Hex          bool
 	Dump         io.Writer
-	DumpFDs      bool      // -D: filan-style dump of channel descriptors
-	DumpFDOut    io.Writer // defaults to stderr; independent of -l* destinations
-	LogFacility  string    // syslog facility for -ly/-lm
+	DumpFDs      bool          // -D: filan-style dump of channel descriptors
+	DumpFDOut    io.Writer     // defaults to stderr; independent of -l* destinations
+	LogFacility  logx.Facility // syslog facility for -ly/-lm
 	Statistics   bool
 	Experimental bool // --experimental (netns= warning)
 	// -r / -R path templates. Files live on sniffFiles, opened after peer is known.

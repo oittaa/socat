@@ -14,21 +14,17 @@ type SyslogWriter interface {
 var syslogDial = defaultSyslogDial
 
 // DialSyslog opens a syslog destination using tag as the syslog identity.
-func DialSyslog(tag, facility string) (SyslogWriter, error) {
-	name, err := CanonicalFacility(facility)
-	if err != nil {
-		return nil, err
-	}
+func DialSyslog(tag string, facility Facility) (SyslogWriter, error) {
 	if tag == "" {
 		tag = "socat"
 	}
-	return syslogDial(tag, name)
+	return syslogDial(tag, facility)
 }
 
 // SetSyslogDial replaces the syslog constructor. Tests use this to capture
 // messages without talking to a system logger. The returned function restores
 // the previous constructor.
-func SetSyslogDial(fn func(tag, facility string) (SyslogWriter, error)) func() {
+func SetSyslogDial(fn func(tag string, facility Facility) (SyslogWriter, error)) func() {
 	prev := syslogDial
 	if fn == nil {
 		syslogDial = defaultSyslogDial

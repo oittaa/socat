@@ -43,7 +43,7 @@ type Config struct {
 	LogLevel      logx.Level
 	LogDest       LogDest
 	LogFile       string
-	LogFacility   string
+	LogFacility   logx.Facility
 	DumpFDs       bool
 	Progname      string
 	Micros        bool
@@ -242,7 +242,7 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 func setLogStderr(cfg *Config) {
 	cfg.LogDest = LogDestStderr
 	cfg.LogFile = ""
-	cfg.LogFacility = ""
+	cfg.LogFacility = logx.FacilityDaemon
 }
 
 func setLogFileFlag(cfg *Config, v string) error {
@@ -251,7 +251,7 @@ func setLogFileFlag(cfg *Config, v string) error {
 	}
 	cfg.LogDest = LogDestFile
 	cfg.LogFile = v
-	cfg.LogFacility = ""
+	cfg.LogFacility = logx.FacilityDaemon
 	return nil
 }
 
@@ -263,7 +263,7 @@ func parseSyslogOption(a string, mixed bool, cfg *Config) error {
 	if !syslogOptionSupported() {
 		return fmt.Errorf("option %q is not implemented", flag)
 	}
-	fac, err := logx.CanonicalFacility(a[len(flag):])
+	fac, err := logx.ParseFacility(a[len(flag):])
 	if err != nil {
 		return err
 	}

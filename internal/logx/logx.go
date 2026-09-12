@@ -103,7 +103,7 @@ func (l *Logger) CloseOwnedSyslog() {
 }
 
 // UseSyslog opens a syslog destination and switches this logger to it.
-func (l *Logger) UseSyslog(tag, facility string) error {
+func (l *Logger) UseSyslog(tag string, facility Facility) error {
 	w, err := DialSyslog(tag, facility)
 	if err != nil {
 		return err
