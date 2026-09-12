@@ -28,7 +28,7 @@ func TestApplyDashArgv0RewritesBasename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
+	if err := applyConfiguredExecChildOptions(prepared.Config, cmd); err != nil {
 		t.Fatal(err)
 	}
 	if cmd.Path != "/bin/echo" {
@@ -50,7 +50,7 @@ func TestApplySetpgidOmittedZeroOneNewGroup(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
+		if err := applyConfiguredExecChildOptions(prepared.Config, cmd); err != nil {
 			t.Fatal(err)
 		}
 		if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 0 {
@@ -69,7 +69,7 @@ func TestApplySetpgidOtherValueKeepsPgid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := applyConfiguredExecChildOptions(prepared.Config.Process, spec.Type, cmd); err != nil {
+	if err := applyConfiguredExecChildOptions(prepared.Config, cmd); err != nil {
 		t.Fatal(err)
 	}
 	if cmd.SysProcAttr == nil || !cmd.SysProcAttr.Setpgid || cmd.SysProcAttr.Pgid != 4242 {

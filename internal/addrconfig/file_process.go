@@ -152,6 +152,9 @@ func parseOwnerRef(value string) OwnerRef {
 
 // Process holds EXEC/SYSTEM/SHELL choices. Commands stay positional.
 type Process struct {
+	Argv          []string
+	Command       string
+	HasCommand    bool
 	Pipes         OptionalBool
 	PTY           OptionalBool
 	Stderr        OptionalBool

@@ -29,6 +29,9 @@ const (
 	AddressKindWebSocket
 	AddressKindPROXY
 	AddressKindSOCKS
+	AddressKindEXEC
+	AddressKindSYSTEM
+	AddressKindSHELL
 )
 
 // IPFamily is the registry- or pf=-selected internet protocol family.
@@ -461,6 +464,8 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 		return decodePROXYPositional(a)
 	case AddressKindSOCKS:
 		return decodeSOCKSPositional(d)
+	case AddressKindEXEC, AddressKindSYSTEM, AddressKindSHELL:
+		return nil
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:

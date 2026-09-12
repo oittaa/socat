@@ -21,30 +21,24 @@ import (
 )
 
 func openEXEC(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
-	if len(s.Params) < 1 {
-		return nil, fmt.Errorf("EXEC requires command")
+	if len(s.Process.Argv) == 0 {
+		return nil, fmt.Errorf("empty EXEC command")
 	}
-	// Spaces separate argv; the address parser may have split on ':' so rejoin.
-	// Quoted commands land as a single param (e.g. EXEC:"ls -l").
-	cmdStr := strings.Join(s.Params, ":")
-	return startProcess(ctx, s, mode, g, cmdStr, false)
+	return startProcess(ctx, s, mode, g, false)
 }
 
 func openSYSTEM(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
-	if len(s.Params) < 1 {
+	if !s.Process.HasCommand {
 		return nil, fmt.Errorf("SYSTEM requires command")
 	}
-	cmdStr := strings.Join(s.Params, ":")
-	return startProcess(ctx, s, mode, g, cmdStr, true)
+	return startProcess(ctx, s, mode, g, true)
 }
 
 func openSHELL(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
-	cmdStr := strings.Join(s.Params, ":")
-	hasCommand := len(s.Params) > 0 && s.Params[0] != ""
-	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, s.Process, cmdStr, hasCommand))
+	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, s.Process))
 }
 
-func configuredShellCommand(ctx context.Context, config addrconfig.Process, cmdStr string, hasCommand bool) *exec.Cmd {
+func configuredShellCommand(ctx context.Context, config addrconfig.Process) *exec.Cmd {
 	shell := config.Shell.Value
 	if !config.Shell.Set || shell == "" {
 		shell = os.Getenv("SHELL")
@@ -53,43 +47,39 @@ func configuredShellCommand(ctx context.Context, config addrconfig.Process, cmdS
 		shell = "/bin/sh"
 	}
 	argv0 := filepath.Base(shell)
-	if !hasCommand {
+	if !config.HasCommand {
 		cmd := exec.CommandContext(ctx, shell) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
 		cmd.Args = []string{argv0}
 		return cmd
 	}
-	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	cmd := exec.CommandContext(ctx, shell, "-c", config.Command) // #nosec G204 G702 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	cmd.Args[0] = argv0
 	return cmd
 }
 
-func startProcess(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, cmdStr string, useShell bool) (*Opened, error) {
+func startProcess(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, useShell bool) (*Opened, error) {
 	var cmd *exec.Cmd
 	if useShell {
-		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", cmdStr) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+		cmd = exec.CommandContext(ctx, "/bin/sh", "-c", s.Process.Command) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	} else {
-		// Split on whitespace for argv.
-		parts := splitExecArgs(cmdStr)
-		if len(parts) == 0 {
-			return nil, fmt.Errorf("empty EXEC command")
-		}
+		parts := s.Process.Argv
 		cmd = exec.CommandContext(ctx, parts[0], parts[1:]...) // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
 	}
 	return startCmd(ctx, s, mode, g, cmd)
 }
 
-func applyConfiguredExecChildOptions(config addrconfig.Process, addressType string, cmd *exec.Cmd) error {
-	if err := applyConfiguredDashArgv0(config.Dash.Value, addressType, cmd); err != nil {
+func applyConfiguredExecChildOptions(config addrconfig.Address, cmd *exec.Cmd) error {
+	if err := applyConfiguredDashArgv0(config.Process.Dash.Value, config.Facts.Kind, config.Type, cmd); err != nil {
 		return err
 	}
-	return applyConfiguredSetpgid(config.SetPGID, cmd)
+	return applyConfiguredSetpgid(config.Process.SetPGID, cmd)
 }
 
-func applyConfiguredDashArgv0(enabled bool, addressType string, cmd *exec.Cmd) error {
+func applyConfiguredDashArgv0(enabled bool, kind addrconfig.AddressKind, addressType string, cmd *exec.Cmd) error {
 	if !enabled {
 		return nil
 	}
-	if !strings.EqualFold(addressType, "EXEC") {
+	if kind != addrconfig.AddressKindEXEC {
 		return fmt.Errorf("dash: unused on %s", addressType)
 	}
 	if cmd == nil || len(cmd.Args) == 0 {
@@ -119,53 +109,6 @@ func applyConfiguredSetpgid(value addrconfig.OptionalInt, cmd *exec.Cmd) error {
 	cmd.SysProcAttr.Setpgid = true
 	cmd.SysProcAttr.Pgid = pgid
 	return nil
-}
-
-// splitExecArgs splits an EXEC command line: unquoted runs of spaces
-// separate args (no empty args from bare spaces); double-quoted segments
-// keep spaces and may be empty ("" → empty arg); \" inside quotes is a
-// literal quote (so -c 'echo "$1"' works).
-func splitExecArgs(s string) []string {
-	var args []string
-	var cur strings.Builder
-	inDouble := false
-	escape := false
-	// sawQuote marks a quoted segment so "" becomes an empty argument.
-	sawQuote := false
-
-	flush := func() {
-		if sawQuote || cur.Len() > 0 {
-			args = append(args, cur.String())
-		}
-		cur.Reset()
-		sawQuote = false
-	}
-
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if escape {
-			cur.WriteByte(c)
-			escape = false
-			continue
-		}
-		if c == '\\' && inDouble {
-			escape = true
-			continue
-		}
-		if c == '"' {
-			inDouble = !inDouble
-			sawQuote = true
-			continue // drop delimiter
-		}
-		if !inDouble && (c == ' ' || c == '\t') {
-			flush()
-			// collapse consecutive unquoted whitespace
-			continue
-		}
-		cur.WriteByte(c)
-	}
-	flush()
-	return args
 }
 
 // childWaitExitCode maps cmd.Wait to a process exit status. Go's
@@ -311,7 +254,7 @@ func applyExecProcessAttrs(config addrconfig.Address, cmd *exec.Cmd, g *Global, 
 		if err := applyConfiguredSetpgid(config.Process.SetPGID, cmd); err != nil {
 			return err
 		}
-	} else if err := applyConfiguredExecChildOptions(config.Process, config.Type, cmd); err != nil {
+	} else if err := applyConfiguredExecChildOptions(config, cmd); err != nil {
 		return err
 	}
 	if g != nil {
@@ -331,7 +274,7 @@ func (c *execChild) wrapForkedFDHelper(ctx context.Context) error {
 	// place fdi/fdo. Apply it before wrapping. Every custom fdin/fdout
 	// uses the child dup2 helper so bare SHELL and dash stay on the
 	// target instead of a /bin/sh reconstruction.
-	if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.config.Type, c.cmd); err != nil {
+	if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.config.Facts.Kind, c.config.Type, c.cmd); err != nil {
 		return err
 	}
 	var err error

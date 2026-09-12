@@ -200,6 +200,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 func finishDecode(d *decoder) error {
 	resolveLineEnding(d)
 	resolveUnsupportedTLS(d)
+	decodeProcessCommand(&d.Address)
 	if d.TLS.WSPath.Set && d.TLS.WSPath.Value == "" && d.wsPositionalPath != "" {
 		d.TLS.WSPath.Value = d.wsPositionalPath
 	}
