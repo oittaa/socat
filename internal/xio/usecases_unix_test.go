@@ -44,6 +44,18 @@ func assertBindInChdirDir(t *testing.T, work, chdirDir, bindName string) {
 	}
 }
 
+func TestGOPENUnixBindFollowsChdir(t *testing.T) {
+	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
+		t.Skip("UNIX sockets not enabled")
+	}
+	work, chdirDir, listen := unixChdirWorkDirs(t)
+	ctx, g := testCtx(t), testGlobal()
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+listen+",unlink-early,fork")
+	cli := openClient(t, ctx, g, "GOPEN:server.sock,bind=client.sock,unlink-close=0,chdir="+chdirDir)
+	assertBindInChdirDir(t, work, chdirDir, "client.sock")
+	echoLive(t, streamOf(t, cli), []byte("gopen-chdir-bind"))
+}
+
 func TestUNIXConnectIPLiteralBindFollowsChdir(t *testing.T) {
 	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
 		t.Skip("UNIX sockets not enabled")

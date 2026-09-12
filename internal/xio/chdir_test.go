@@ -112,3 +112,44 @@ func TestResolveChdirUNIXIPLiteralBind(t *testing.T) {
 		t.Fatalf("bind=%q want %q", got.Network.Bind.Original(), want)
 	}
 }
+
+func TestResolveChdirGOPENBind(t *testing.T) {
+	dir := t.TempDir()
+	got := decodeAndResolveChdir(t, "GOPEN:server.sock,bind=client.sock,chdir="+dir, addrconfig.Facts{
+		Type: "GOPEN",
+		Kind: addrconfig.AddressKindGOPEN,
+	})
+	if got.Facts.Kind != addrconfig.AddressKindGOPEN {
+		t.Fatalf("kind=%v want GOPEN", got.Facts.Kind)
+	}
+	if want := filepath.Join(dir, "client.sock"); got.Network.Bind.Original() != want {
+		t.Fatalf("GOPEN bind=%q want %q", got.Network.Bind.Original(), want)
+	}
+	if got.File.Path != filepath.Join(dir, "server.sock") {
+		t.Fatalf("GOPEN path=%q", got.File.Path)
+	}
+}
+
+func TestResolveChdirUNIXAbstractBindUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	got := decodeAndResolveChdir(t, "UNIX-CONNECT:server.sock,bind=@abs,chdir="+dir, addrconfig.Facts{
+		Type: "UNIX-CONNECT",
+		Kind: addrconfig.AddressKindUNIX,
+		Role: addrconfig.AddressRoleConnect,
+	})
+	if got.Network.Bind.Original() != "@abs" {
+		t.Fatalf("abstract bind=%q", got.Network.Bind.Original())
+	}
+}
+
+func TestResolveChdirInternetBindUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	got := decodeAndResolveChdir(t, "TCP4:127.0.0.1:9,bind=127.0.0.1,chdir="+dir, addrconfig.Facts{
+		Type:   "TCP4",
+		Role:   addrconfig.AddressRoleConnect,
+		Family: addrconfig.IPFamilyIPv4,
+	})
+	if !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "127.0.0.1" {
+		t.Fatalf("internet bind=%+v", got.Network.Bind)
+	}
+}

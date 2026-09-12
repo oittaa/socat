@@ -60,8 +60,8 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 	if config.File.LockSet {
 		config.File.LockPath = resolveRelativePath(abs, config.File.LockPath)
 	}
-	if unixAddressType(config) && config.Network.BindSet {
-		config.Network.Bind = resolveHostPath(abs, config.Network.Bind)
+	if filesystemBindAddress(config) && config.Network.BindSet {
+		config.Network.Bind = resolveFilesystemBind(abs, config.Network.Bind)
 	}
 	return config, nil
 }
@@ -72,12 +72,12 @@ func resolveOptionalPath(value *addrconfig.OptionalString, dir string) {
 	}
 }
 
-func resolveHostPath(dir string, target addrconfig.HostTarget) addrconfig.HostTarget {
-	if target.IsLiteral() {
+func resolveFilesystemBind(dir string, target addrconfig.HostTarget) addrconfig.HostTarget {
+	name := target.Original()
+	if name == "" || IsAbstract(name) {
 		return target
 	}
-	target.Name = resolveRelativePath(dir, target.Name)
-	return target
+	return addrconfig.HostTarget{Name: resolveRelativePath(dir, name)}
 }
 
 func resolveRelativePath(dir, path string) string {
@@ -98,4 +98,13 @@ func filesystemAddressParam(config addrconfig.Address) bool {
 
 func unixAddressType(config addrconfig.Address) bool {
 	return config.Facts.Kind == addrconfig.AddressKindUNIX
+}
+
+func filesystemBindAddress(config addrconfig.Address) bool {
+	switch config.Facts.Kind {
+	case addrconfig.AddressKindUNIX, addrconfig.AddressKindGOPEN:
+		return true
+	default:
+		return false
+	}
 }
