@@ -194,6 +194,19 @@ jobs:
           fail_ci_if_error: true
           disable_search: true
 
+  e2e-harness-race:
+    name: race (e2e harness, linux-amd64)
+    # Ordinary race jobs omit -tags=e2e. Full e2e jobs omit -race.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: E2E harness race tests
+        run: make e2e-harness-race
+
   privileged-unit:
     name: privileged unit (${{ matrix.name }})
     strategy:

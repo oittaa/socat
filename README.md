@@ -331,6 +331,7 @@ as `SOCAT_TLS_*`, with `SOCAT_OPENSSL_*` aliases for compatible scripts.
 make check              # platform policy, lint, security, unit, and e2e tests
 make test               # formatting and unit tests
 make e2e                # local end-to-end tests
+make e2e-harness-race   # race detector on e2e process/outcome/wait helpers
 make test-netns-docker  # privileged Linux namespace and raw-IP tests
 make classic-parity     # native Go vs official release and reviewed master
 make update-scorecard   # Linux: refresh committed privileged-Docker results

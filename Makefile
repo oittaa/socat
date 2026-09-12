@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test test-classic-parity e2e e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-classic-parity e2e e2e-harness-race e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -62,6 +62,44 @@ test-classic-parity:
 
 e2e: build
 	go test $(GOFLAGS) -tags=e2e ./e2e/...
+
+# Race detector on e2e process/outcome/wait helpers. Ordinary race jobs omit
+# -tags=e2e; full e2e jobs omit -race. Not part of make check.
+# A rename that drops a required helper from the -run set fails this target.
+E2E_HARNESS_RACE_RUN ?= ^(TestRunTestCmd|TestStartTestProcessPreservesStderrFile|TestAcceptedOptionResult|TestRejectedOptionResult|TestInvalidFamilyBindResult|TestWaitTCPListen|TestWaitUDPListen|TestPortOccupied)
+E2E_HARNESS_RACE_REQUIRED ?= \
+	TestRunTestCmdSuccess \
+	TestRunTestCmdStartupFailure \
+	TestRunTestCmdCancelBeforeStartup \
+	TestRunTestCmdCancelAfterStartupCleansUp \
+	TestStartTestProcessPreservesStderrFile \
+	TestAcceptedOptionResultRejectsCrashAndTimeout \
+	TestAcceptedOptionResultRejectsHandshakeNamedCrash \
+	TestAcceptedOptionResultKeepsHarnessDeadlineDistinct \
+	TestRejectedOptionResultRejectsTimeout \
+	TestRejectedOptionResultRejectsPanicAfterDiagnostic \
+	TestRejectedOptionResultAcceptsCleanRejection \
+	TestInvalidFamilyBindResultRejectsUnrelatedCrash \
+	TestInvalidFamilyBindResultRejectsBindNamedCrash \
+	TestInvalidFamilyBindResultAcceptsCleanFamilyError \
+	TestInvalidFamilyBindResultRejectsHarnessDeadline \
+	TestWaitTCPListenDelayedBind \
+	TestWaitTCPListenDetectsEarlyExit \
+	TestWaitTCPListenTimesOutAndCleansUp \
+	TestWaitTCPListenUnrelatedPortOccupation \
+	TestWaitUDPListenDelayedBind \
+	TestPortOccupiedUnexpectedError \
+	TestPortOccupiedBindBusy
+e2e-harness-race: build
+	@listed=$$(go test $(GOFLAGS) -tags=e2e -list '$(E2E_HARNESS_RACE_RUN)' ./e2e/) || exit 1; \
+	for test in $(E2E_HARNESS_RACE_REQUIRED); do \
+		echo "$$listed" | grep -Fx "$$test" >/dev/null || { \
+			echo "e2e harness race selection missing $$test" >&2; \
+			echo "$$listed" >&2; \
+			exit 1; \
+		}; \
+	done
+	go test $(GOFLAGS) -race -count=1 -tags=e2e ./e2e/ -run '$(E2E_HARNESS_RACE_RUN)'
 
 # Unit coverage (not part of make check). CI uploads the profile and HTML.
 # -coverpkg=./... credits integration tests (for example xio usecases) to the
