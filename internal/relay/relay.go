@@ -99,9 +99,9 @@ func (d direction) sock() int {
 type dirClass uint8
 
 const (
-	classOK dirClass = iota // clean EOF or benign close
-	classCanceled           // exact context.Canceled
-	classFailed             // any other error, including wrapped Canceled
+	classOK       dirClass = iota // clean EOF or benign close
+	classCanceled                 // exact context.Canceled
+	classFailed                   // any other error, including wrapped Canceled
 )
 
 // dirOutcome is the classified result of one direction.
