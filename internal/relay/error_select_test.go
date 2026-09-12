@@ -79,7 +79,7 @@ func TestTransferOutcomesDrainIsNotSelected(t *testing.T) {
 	var o transferOutcomes
 	o.accept(dirEOF(dirLeftToRight), true)
 	o.accept(classifyDirError(dirRightToLeft, errors.New("late")), false)
-	if err := publishTransfer(o); err != nil {
+	if err := selectedTransferError(o); err != nil {
 		t.Fatalf("drained error selected: %v", err)
 	}
 	if o.rightToLeft.err == nil || o.rightToLeft.class != classFailed {
@@ -90,14 +90,14 @@ func TestTransferOutcomesDrainIsNotSelected(t *testing.T) {
 	}
 }
 
-func TestTransferOutcomesPublishWalksLiveOnly(t *testing.T) {
+func TestTransferOutcomesSelectsLiveOnly(t *testing.T) {
 	boom := errors.New("boom")
 	later := errors.New("later")
 
 	var firstWins transferOutcomes
 	firstWins.accept(classifyDirError(dirLeftToRight, boom), true)
 	firstWins.accept(classifyDirError(dirRightToLeft, later), false)
-	err := publishTransfer(firstWins)
+	err := selectedTransferError(firstWins)
 	if !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), ">: ") {
 		t.Fatalf("live boom = %v", err)
 	}
@@ -105,7 +105,7 @@ func TestTransferOutcomesPublishWalksLiveOnly(t *testing.T) {
 	var canceledThenDrained transferOutcomes
 	canceledThenDrained.accept(classifyDirError(dirLeftToRight, context.Canceled), true)
 	canceledThenDrained.accept(classifyDirError(dirRightToLeft, boom), false)
-	if err := publishTransfer(canceledThenDrained); err != nil {
+	if err := selectedTransferError(canceledThenDrained); err != nil {
 		t.Fatalf("live Canceled plus drained boom = %v", err)
 	}
 	if canceledThenDrained.rightToLeft.err != boom {

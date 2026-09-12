@@ -94,8 +94,7 @@ func (d direction) sock() int {
 	}
 }
 
-// dirClass is decided once when a direction worker returns. Transfer does
-// not reclassify from the raw error.
+// dirClass is decided once when a direction worker returns.
 type dirClass uint8
 
 const (
@@ -105,7 +104,8 @@ const (
 	classFailed                       // any other error, including wrapped Canceled
 )
 
-// dirOutcome is the classified result of one direction.
+// dirOutcome is the classified result of one direction. Live byte and
+// block counters stay on Tracker, not here.
 type dirOutcome struct {
 	dir   direction
 	class dirClass
@@ -179,8 +179,8 @@ func (o transferOutcomes) outcome(d direction) dirOutcome {
 // Combining the two directions (Transfer):
 //   - Each worker returns one classified outcome after its cleanup.
 //     Transfer owns both returns, cancel, linger, stats, and write-side
-//     shutdown, and publishes once from those returns after Wait,
-//     cancel, close, and OnStats.
+//     shutdown, and selects the transfer error once from those returns
+//     after Wait, cancel, close, and OnStats.
 //   - Only returns received on the live select path are inspected.
 //     Returns drained after linger expiry or parent ctx.Done() are
 //     stored and must not change the selected error.
@@ -201,7 +201,7 @@ func selectTransferError(first error, o dirOutcome) error {
 	return fmt.Errorf("%s: %w", o.dir.String(), o.err)
 }
 
-func publishTransfer(o transferOutcomes) error {
+func selectedTransferError(o transferOutcomes) error {
 	var first error
 	for _, d := range o.inspect {
 		first = selectTransferError(first, o.outcome(d))
@@ -210,10 +210,9 @@ func publishTransfer(o transferOutcomes) error {
 }
 
 // Transfer copies data bidirectionally between left and right until both
-// directions finish. Each direction worker returns one classified outcome
-// after its own cleanup. Transfer owns those returns, cancel, linger,
-// stats, and write-side shutdown, and publishes the transfer error once
-// from the live returns after that cleanup. It does not use io.Copy.
+// directions finish. Each worker returns one classified outcome after its
+// cleanup. Transfer owns those returns, cancel, linger, stats, and
+// write-side shutdown. It does not use io.Copy.
 func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 8192
@@ -247,8 +246,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	var wg sync.WaitGroup
 	var outcomes transferOutcomes
 
-	// Session wrappers: when NoClose*, cancel closes only the wrapper so a
-	// shared end-close stream is not destroyed (EXECENDCLOSE).
+	// NoClose*: cancel closes the session wrapper, not the shared stream.
 	if cfg.NoCloseLeft {
 		left = newSessionWrap(left)
 	}
@@ -256,16 +254,11 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		right = newSessionWrap(right)
 	}
 
-	// Resolve poll descriptors before cancellation can close either stream.
-	// os.File permits concurrent I/O and Close, but Fd itself must not race
-	// with Close. Keep the integer values for the lifetime of this transfer.
+	// Capture poll FDs before cancel can Close.
 	lrDstFD, lrSrcFD := -1, -1
 	rlDstFD, rlSrcFD := -1, -1
 	var lrZeroCopy, rlZeroCopy zeroCopyPlan
-	// Ordinary net.Conn and regular-file I/O already gets blocking readiness
-	// from Go and the kernel. Polling before every block only adds a syscall.
-	// Keep explicit poll backpressure for non-regular descriptors (pipes,
-	// terminals) and custom raw-FD streams such as TUN and generic SOCKET.
+	// Poll pipes, terminals, and raw-FD streams only.
 	useExplicitPoll := canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right))
 	if useExplicitPoll {
 		if cfg.LeftToRight {
@@ -277,9 +270,6 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			rlSrcFD = streamReadFD(right)
 		}
 	}
-	// Prepare kernel-copy descriptors while the original streams are known to
-	// be open. Unsupported platforms and endpoint pairs return nil and retain
-	// the ordinary configured-buffer path.
 	if cfg.LeftToRight && zeroCopyAllowed(cfg, dirLeftToRight, useExplicitPoll) {
 		lrZeroCopy = prepareZeroCopy(left, right)
 	}
@@ -287,15 +277,9 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		rlZeroCopy = prepareZeroCopy(right, left)
 	}
 
-	// Close and ShutdownWrite may both be triggered during cancellation. They
-	// must not operate on the same descriptor concurrently, while Read/Write
-	// remain unlocked so Close can still interrupt blocked I/O.
 	left = newCloseSerialStream(left)
 	right = newCloseSerialStream(right)
 
-	// Unblock blocked Reads/Writes when the transfer is cancelled (UDP has no EOF).
-	// Also poke read deadlines so stdin (FD 0) and other FDs unblock even when
-	// Close is a no-op (STDIO).
 	closeDone := make(chan struct{})
 	go func() {
 		defer close(closeDone)
@@ -361,7 +345,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.OnStats != nil {
 		cfg.OnStats(st)
 	}
-	return publishTransfer(outcomes)
+	return selectedTransferError(outcomes)
 }
 
 func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
@@ -409,9 +393,7 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 	return touch, stop
 }
 
-// dirTask bundles one transfer direction: source and destination streams, the
-// descriptors captured for poll backpressure, an optional zero-copy plan, and
-// the direction's live counters.
+// dirTask is one direction's streams, poll FDs, optional plan, and counters.
 type dirTask struct {
 	dir      direction
 	dst, src Stream
@@ -444,8 +426,7 @@ func startDir(ctx context.Context, t dirTask, cfg Config, touch func(), results 
 	}()
 }
 
-// copyDir runs one direction and returns its classified outcome after the
-// chosen worker's cleanup. Transfer is the only publisher.
+// copyDir returns after the chosen worker's cleanup. It does not send.
 func copyDir(ctx context.Context, t dirTask, cfg Config, touch func()) dirOutcome {
 	if t.plan != nil {
 		if o, ok := copyZeroCopy(ctx, t, cfg, touch); ok {
