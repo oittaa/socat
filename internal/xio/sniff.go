@@ -113,8 +113,15 @@ func openSniffFilesLocked(g *Global) error {
 		return nil
 	}
 	// Close this session's files, then open replacements. ForkSession does
-	// not share the parent's *os.File pointers.
+	// not share the parent's *os.File pointers. If a later open fails,
+	// close any files already acquired on this session.
 	g.Sniff.closeFiles()
+	ok := false
+	defer func() {
+		if !ok {
+			g.Sniff.closeFiles()
+		}
+	}()
 	now := time.Now()
 	opts := g.Options()
 	prog := opts.Progname
@@ -143,5 +150,6 @@ func openSniffFilesLocked(g *Global) error {
 		}
 		g.Sniff.RawRight = f
 	}
+	ok = true
 	return nil
 }
