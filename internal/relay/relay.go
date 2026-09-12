@@ -94,50 +94,68 @@ func (d direction) sock() int {
 	}
 }
 
-// dirOutcome is the typed result of one direction. Err is nil for clean
-// source EOF and for benign peer/stream close. copyDir reports
-// context.Canceled with identity (not wrapping) when the transfer context
-// is already done at the top of the read loop.
+// dirClass is decided once when a direction finishes. Transfer does not
+// reclassify from the raw error.
+type dirClass uint8
+
+const (
+	classOK dirClass = iota // clean EOF or benign close
+	classCanceled           // exact context.Canceled
+	classFailed             // any other error, including wrapped Canceled
+)
+
+// dirOutcome is the classified result of one direction.
 type dirOutcome struct {
-	dir direction
-	err error
+	dir   direction
+	class dirClass
+	err   error
 }
 
-// transferOutcomes is owned by Transfer: one slot per direction, plus the
-// completion order of results that may affect the selected error.
+func classifyDirError(dir direction, err error) dirOutcome {
+	o := dirOutcome{dir: dir, err: err}
+	switch {
+	case err == nil:
+		o.class = classOK
+	case err == context.Canceled:
+		o.class = classCanceled
+	default:
+		o.class = classFailed
+	}
+	return o
+}
+
+// transferOutcomes is owned by Transfer: both direction slots, plus the
+// live results that publish() may select after cleanup.
 type transferOutcomes struct {
 	leftToRight dirOutcome
 	rightToLeft dirOutcome
-	seen        []direction
+	live        []dirOutcome
 }
 
-func (o *transferOutcomes) record(r dirOutcome, inspect bool) {
+func (o *transferOutcomes) store(r dirOutcome) {
 	switch r.dir {
 	case dirLeftToRight:
 		o.leftToRight = r
 	case dirRightToLeft:
 		o.rightToLeft = r
 	}
-	if inspect && (r.dir == dirLeftToRight || r.dir == dirRightToLeft) {
-		o.seen = append(o.seen, r.dir)
+}
+
+func (o *transferOutcomes) keep(r dirOutcome) {
+	o.store(r)
+	if r.dir == dirLeftToRight || r.dir == dirRightToLeft {
+		o.live = append(o.live, r)
 	}
 }
 
-func (o transferOutcomes) outcome(d direction) dirOutcome {
-	switch d {
-	case dirLeftToRight:
-		return o.leftToRight
-	case dirRightToLeft:
-		return o.rightToLeft
-	default:
-		return dirOutcome{}
-	}
+func (o *transferOutcomes) drain(r dirOutcome) {
+	o.store(r)
 }
 
-func (o transferOutcomes) selectedError() error {
+func (o transferOutcomes) publish() error {
 	var first error
-	for _, d := range o.seen {
-		first = selectTransferError(first, o.outcome(d))
+	for _, r := range o.live {
+		first = selectTransferError(first, r)
 	}
 	return first
 }
@@ -157,29 +175,34 @@ func (o transferOutcomes) selectedError() error {
 //     fixed prefix.
 //
 // Combining the two directions (Transfer):
-//   - Transfer owns both dirOutcome values. Only results received on the
-//     live select path are inspected. Results drained after linger expiry
-//     or parent ctx.Done() are stored but must not change the selected error.
-//   - A nil result is not a transfer error.
-//   - A result whose error is exactly context.Canceled (identity, not
-//     errors.Is) is ignored. Wrapped Canceled and context.DeadlineExceeded
-//     are transfer errors.
-//   - The first remaining error wins; later errors are discarded.
+//   - Transfer owns both classified dirOutcome values, cancel, linger,
+//     stats, and write-side shutdown.
+//   - The wait loop only stores results and marks them live or drained.
+//     Results drained after linger expiry or parent ctx.Done() are stored
+//     and must not change the selected error.
+//   - publish() runs after Wait, cancel, close, and OnStats. It walks
+//     live classified outcomes only.
+//   - classOK (nil) is not a transfer error.
+//   - classCanceled (exact context.Canceled, identity, not errors.Is)
+//     is ignored. Wrapped Canceled and context.DeadlineExceeded are
+//     classFailed and are transfer errors.
+//   - The first remaining classFailed wins; later errors are discarded.
 //   - The selected error is wrapped as "<dir>: <err>" where dir is ">"
 //     (left→right) or "<" (right→left).
 //   - Linger expiry and idle timeout only cancel the context. They do
-//     not invent an error. If every inspected result is nil or exact
-//     Canceled, Transfer returns nil.
+//     not invent an error. If every live result is classOK or
+//     classCanceled, Transfer returns nil.
 func selectTransferError(first error, o dirOutcome) error {
-	if first != nil || o.err == nil || o.err == context.Canceled {
+	if first != nil || o.class != classFailed {
 		return first
 	}
 	return fmt.Errorf("%s: %w", o.dir.String(), o.err)
 }
 
 // Transfer copies data bidirectionally between left and right until both
-// directions finish. It owns both direction outcomes, cancel, linger, stats,
-// and write-side shutdown. It does not use io.Copy.
+// directions finish. It owns both classified outcomes, cancel, linger,
+// stats, and write-side shutdown. The transfer result is published after
+// that cleanup. It does not use io.Copy.
 func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 8192
@@ -293,7 +316,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		select {
 		case r := <-results:
 			finished++
-			outcomes.record(r, true)
+			outcomes.keep(r)
 			if finished == 1 && nDirs == 2 && cfg.Linger > 0 {
 				// After one side EOFs, -t owns the rest of the session.
 				// -T is inactivity while both directions still run.
@@ -307,12 +330,12 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			cancel()
 			// Drain remaining: store the outcome, do not inspect it.
 			for finished < nDirs {
-				outcomes.record(<-results, false)
+				outcomes.drain(<-results)
 				finished++
 			}
 		case <-ctx.Done():
 			for finished < nDirs {
-				outcomes.record(<-results, false)
+				outcomes.drain(<-results)
 				finished++
 			}
 		}
@@ -329,7 +352,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.OnStats != nil {
 		cfg.OnStats(st)
 	}
-	return outcomes.selectedError()
+	return outcomes.publish()
 }
 
 func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
@@ -391,7 +414,7 @@ type dirTask struct {
 }
 
 func (t dirTask) send(results chan<- dirOutcome, err error) {
-	results <- dirOutcome{dir: t.dir, err: err}
+	results <- classifyDirError(t.dir, err)
 }
 
 func reportEOF(cfg Config, d direction, fd int) {

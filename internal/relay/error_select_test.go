@@ -10,48 +10,96 @@ import (
 	"testing"
 )
 
+func TestClassifyDirError(t *testing.T) {
+	if got := classifyDirError(dirLeftToRight, nil); got.class != classOK || got.err != nil {
+		t.Fatalf("nil = %+v, want classOK", got)
+	}
+	if got := classifyDirError(dirLeftToRight, context.Canceled); got.class != classCanceled || got.err != context.Canceled {
+		t.Fatalf("exact Canceled = %+v, want classCanceled", got)
+	}
+	wrapped := fmt.Errorf("wrap: %w", context.Canceled)
+	if got := classifyDirError(dirRightToLeft, wrapped); got.class != classFailed || got.err != wrapped {
+		t.Fatalf("wrapped Canceled = %+v, want classFailed", got)
+	}
+	if got := classifyDirError(dirLeftToRight, context.DeadlineExceeded); got.class != classFailed {
+		t.Fatalf("DeadlineExceeded = %+v, want classFailed", got)
+	}
+}
+
 func TestSelectTransferErrorRules(t *testing.T) {
 	boom := errors.New("boom")
 	later := errors.New("later")
 	wrappedCanceled := fmt.Errorf("wrap: %w", context.Canceled)
 
-	first := selectTransferError(nil, dirOutcome{dir: dirLeftToRight, err: boom})
+	first := selectTransferError(nil, classifyDirError(dirLeftToRight, boom))
 	if !errors.Is(first, boom) || !strings.HasPrefix(first.Error(), ">: ") {
 		t.Fatalf("first left→right error = %v", first)
 	}
 
-	kept := selectTransferError(first, dirOutcome{dir: dirRightToLeft, err: later})
+	kept := selectTransferError(first, classifyDirError(dirRightToLeft, later))
 	if kept != first {
 		t.Fatalf("later error replaced first: %v", kept)
 	}
 
-	if err := selectTransferError(nil, dirOutcome{dir: dirLeftToRight}); err != nil {
+	if err := selectTransferError(nil, classifyDirError(dirLeftToRight, nil)); err != nil {
 		t.Fatalf("nil outcome selected: %v", err)
 	}
-	if err := selectTransferError(nil, dirOutcome{dir: dirLeftToRight, err: context.Canceled}); err != nil {
+	if err := selectTransferError(nil, classifyDirError(dirLeftToRight, context.Canceled)); err != nil {
 		t.Fatalf("exact Canceled selected: %v", err)
 	}
 
-	got := selectTransferError(nil, dirOutcome{dir: dirRightToLeft, err: wrappedCanceled})
+	got := selectTransferError(nil, classifyDirError(dirRightToLeft, wrappedCanceled))
 	if !errors.Is(got, context.Canceled) || !strings.HasPrefix(got.Error(), "<: ") {
 		t.Fatalf("wrapped Canceled not selected: %v", got)
 	}
 
-	deadline := selectTransferError(nil, dirOutcome{dir: dirLeftToRight, err: context.DeadlineExceeded})
+	deadline := selectTransferError(nil, classifyDirError(dirLeftToRight, context.DeadlineExceeded))
 	if !errors.Is(deadline, context.DeadlineExceeded) {
 		t.Fatalf("DeadlineExceeded not selected: %v", deadline)
+	}
+
+	// Classification is authoritative. Selection does not re-inspect err.
+	ignored := dirOutcome{dir: dirLeftToRight, class: classCanceled, err: boom}
+	if err := selectTransferError(nil, ignored); err != nil {
+		t.Fatalf("non-failed class selected: %v", err)
 	}
 }
 
 func TestTransferOutcomesDrainIsNotSelected(t *testing.T) {
 	var o transferOutcomes
-	o.record(dirOutcome{dir: dirLeftToRight}, true)
-	o.record(dirOutcome{dir: dirRightToLeft, err: errors.New("late")}, false)
-	if err := o.selectedError(); err != nil {
+	o.keep(classifyDirError(dirLeftToRight, nil))
+	o.drain(classifyDirError(dirRightToLeft, errors.New("late")))
+	if err := o.publish(); err != nil {
 		t.Fatalf("drained error selected: %v", err)
 	}
-	if o.rightToLeft.err == nil {
+	if o.rightToLeft.err == nil || o.rightToLeft.class != classFailed {
 		t.Fatal("drained outcome was not stored")
+	}
+	if len(o.live) != 1 || o.live[0].dir != dirLeftToRight {
+		t.Fatalf("live = %v, want only left→right", o.live)
+	}
+}
+
+func TestTransferOutcomesPublishWalksLiveOnly(t *testing.T) {
+	boom := errors.New("boom")
+	later := errors.New("later")
+
+	var firstWins transferOutcomes
+	firstWins.keep(classifyDirError(dirLeftToRight, boom))
+	firstWins.drain(classifyDirError(dirRightToLeft, later))
+	err := firstWins.publish()
+	if !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), ">: ") {
+		t.Fatalf("live boom = %v", err)
+	}
+
+	var canceledThenDrained transferOutcomes
+	canceledThenDrained.keep(classifyDirError(dirLeftToRight, context.Canceled))
+	canceledThenDrained.drain(classifyDirError(dirRightToLeft, boom))
+	if err := canceledThenDrained.publish(); err != nil {
+		t.Fatalf("live Canceled plus drained boom = %v", err)
+	}
+	if canceledThenDrained.rightToLeft.err != boom {
+		t.Fatal("drained boom was not stored")
 	}
 }
 
