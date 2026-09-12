@@ -400,14 +400,11 @@ func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Glo
 	peerIP := ipAddrFromNet(raddr)
 	rememberRawIPPeer(g, peerIP, pc.LocalAddr())
 	st := relay.Stream(&rawIPRecvFrom{
-		c:        pc,
-		peer:     peerIP,
-		first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
-		closeEOF: true,
-		wantCtrl: wantCtrl,
-		recvErr:  recvErr,
-		v4:       stripV4,
-		g:        g,
+		c:       pc,
+		peer:    peerIP,
+		first:   newFirstPacket(append([]byte(nil), buf[:n]...)),
+		recvErr: recvErr,
+		g:       g,
 	})
 	st, err = xio.WrapOpened(s, st)
 	if err != nil {
@@ -720,46 +717,21 @@ func (r *rawIPConn) Write(p []byte) (int, error) {
 
 func (r *rawIPConn) ShutdownWrite() error { return nil }
 
-// rawIPRecvFrom: first datagram buffered; further reads EOF when one-shot.
+// rawIPRecvFrom is non-fork IP*-RECVFROM: the opener is already received.
+// Further reads are EOF. The socket stays open for replies.
 type rawIPRecvFrom struct {
-	c        *net.IPConn
-	peer     *net.IPAddr
-	first    firstPacket
-	closeEOF bool
-	wantCtrl bool
-	recvErr  bool
-	v4       bool
-	g        *xio.Global
-	oob      []byte
+	c       *net.IPConn
+	peer    *net.IPAddr
+	first   firstPacket
+	recvErr bool
+	g       *xio.Global
 }
 
 func (r *rawIPRecvFrom) Read(p []byte) (int, error) {
 	if first, ok := r.first.take(); ok {
 		return copyOneshotFirst(p, first)
 	}
-	if r.closeEOF {
-		return 0, io.EOF
-	}
-	for {
-		n, oob, addr, err := readIPKernel(r.c, p, r.wantCtrl, ancillaryBuffer(&r.oob, r.wantCtrl))
-		if err != nil {
-			xio.DrainRecvErrOnError(err, r.recvErr, r.c, r.g)
-			return n, err
-		}
-		if r.peer != nil {
-			if ia, ok := addr.(*net.IPAddr); ok && !ia.IP.Equal(r.peer.IP) {
-				continue
-			}
-		}
-		kernelN := n
-		if r.v4 {
-			n = skipIPv4HeaderIfPresent(p, n)
-		}
-		if r.wantCtrl {
-			xio.ProcessAncillary(oob, r.g)
-		}
-		return afterRawIPRecv(n, kernelN, len(p))
-	}
+	return 0, io.EOF
 }
 
 func (r *rawIPRecvFrom) Write(p []byte) (int, error) {

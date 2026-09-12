@@ -204,7 +204,7 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 			life.drop(c)
 			return nil, err
 		}
-		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: first, firstEOF: true})
+		st := relay.Stream(&unixRecvStream{c: c, from: true, peer: peer, first: newFirstPacket(first)})
 		wrapped, err := xio.WrapOpened(s, st)
 		if err != nil {
 			life.drop(c)
@@ -216,7 +216,7 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		return o, nil
 	}
 
-	st := &unixRecvStream{c: c, from: from}
+	st := &unixRecvStream{c: c}
 	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		life.drop(c)
@@ -243,46 +243,49 @@ func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global,
 		if xio.IgnoreEmptyDatagram(n, err, nullEOF) {
 			continue
 		}
-		if g != nil && addr != nil {
-			if addr.Name != "" {
-				g.PeerAddr = addr.Name
-			} else {
-				g.PeerAddr = addr.String()
-			}
-		}
+		rememberUnixgramPeer(g, addr)
 		return append([]byte(nil), buf[:n]...), addr, nil
 	}
 }
 
-// unixRecvStream: first Recvfrom captures peer when from=true; Write replies to peer.
-// Non-fork RECVFROM: after the first datagram is delivered, further
-// Read returns EOF so one-shot echo servers (RECVFROM PIPE) exit.
+func rememberUnixgramPeer(g *xio.Global, addr *net.UnixAddr) {
+	if g == nil || addr == nil {
+		return
+	}
+	if addr.Name != "" {
+		g.PeerAddr = addr.Name
+	} else {
+		g.PeerAddr = addr.String()
+	}
+}
+
+func cloneUnixAddr(a *net.UnixAddr) *net.UnixAddr {
+	if a == nil {
+		return nil
+	}
+	c := *a
+	return &c
+}
+
+// unixRecvStream is UNIX-RECV (from=false: merge packets, read-only) or
+// non-fork UNIX-RECVFROM (from=true: opener already received, then EOF;
+// Write replies to that peer).
 type unixRecvStream struct {
-	c        *net.UnixConn
-	from     bool
-	peer     *net.UnixAddr
-	first    []byte
-	firstEOF bool
+	c     *net.UnixConn
+	from  bool
+	peer  *net.UnixAddr
+	first firstPacket
 }
 
 func (u *unixRecvStream) Read(p []byte) (int, error) {
-	if len(u.first) > 0 {
-		n := copy(p, u.first)
-		u.first = nil
-		return n, nil
+	if first, ok := u.first.take(); ok {
+		return copyOneshotFirst(p, first)
 	}
-	if u.from && u.firstEOF {
+	if u.from {
 		return 0, io.EOF
 	}
-	n, addr, err := u.c.ReadFromUnix(p)
-	if err != nil {
-		return n, err
-	}
-	if u.from && addr != nil {
-		u.peer = addr
-		u.firstEOF = true
-	}
-	return n, nil
+	n, _, err := u.c.ReadFromUnix(p)
+	return n, err
 }
 func (u *unixRecvStream) Write(p []byte) (int, error) {
 	if !u.from || u.peer == nil {
@@ -343,74 +346,35 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
 			continue
 		}
-		return &unixPacketConn{
-			c:       l.c,
-			peer:    addr,
-			first:   append([]byte(nil), buf[:n]...),
-			shared:  true,
-			writeMu: &l.writeMu,
-		}, nil
+		return l.newUnixOneshotChild(buf[:n], addr), nil
 	}
+}
+
+func (l *unixgramListener) newUnixOneshotChild(data []byte, peer *net.UnixAddr) *oneshotForkConn {
+	peer = cloneUnixAddr(peer)
+	session := l.g.ForkSession()
+	rememberUnixgramPeer(session, peer)
+	return newOneshotForkConn(
+		append([]byte(nil), data...),
+		l.c.LocalAddr(),
+		peer,
+		session,
+		&l.writeMu,
+		l.c.SetWriteDeadline,
+		func(p []byte) (int, error) {
+			if peer == nil {
+				return 0, fmt.Errorf("no peer")
+			}
+			return l.c.WriteToUnix(p, peer)
+		},
+		nil,
+	)
 }
 func (l *unixgramListener) Close() error {
 	return l.c.Close()
 }
 func (l *unixgramListener) Addr() net.Addr {
 	return &net.UnixAddr{Name: l.path, Net: "unixgram"}
-}
-
-// unixPacketConn is one datagram session (first payload + reply path).
-type unixPacketConn struct {
-	c         *net.UnixConn
-	peer      *net.UnixAddr
-	first     []byte
-	shared    bool
-	closeOnce sync.Once
-	closeErr  error
-	writeMu   *sync.Mutex
-	writeDL   sharedWriteDeadline
-}
-
-func (u *unixPacketConn) Read(p []byte) (int, error) {
-	if len(u.first) > 0 {
-		n := copy(p, u.first)
-		u.first = nil
-		return n, nil
-	}
-	// UNIX-RECVFROM,fork is one-shot: the
-	// accepted datagram is already in first. Never read the shared parent
-	// socket again — that would steal other peers' packets.
-	return 0, io.EOF
-}
-func (u *unixPacketConn) Write(p []byte) (int, error) {
-	if u.peer == nil {
-		return 0, fmt.Errorf("no peer")
-	}
-	return writeSharedPacket(u.writeMu, u.writeDL.get(), u.c.SetWriteDeadline, func() (int, error) {
-		return u.c.WriteToUnix(p, u.peer)
-	})
-}
-func (u *unixPacketConn) Close() error {
-	u.closeOnce.Do(func() {
-		if u.shared {
-			return
-		}
-		u.closeErr = u.c.Close()
-	})
-	return u.closeErr
-}
-func (u *unixPacketConn) LocalAddr() net.Addr  { return u.c.LocalAddr() }
-func (u *unixPacketConn) RemoteAddr() net.Addr { return u.peer }
-func (u *unixPacketConn) SetDeadline(t time.Time) error {
-	return u.SetWriteDeadline(t)
-}
-func (u *unixPacketConn) SetReadDeadline(time.Time) error {
-	// Read never touches the shared listener; do not install a deadline on it.
-	return nil
-}
-func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
-	u.writeDL.set(t)
-	return nil
 }
 
 // openAbstractRecvfrom: bind abstract datagram, one peer packet then reply (like UNIX-RECVFROM).
