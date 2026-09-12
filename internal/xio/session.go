@@ -45,7 +45,8 @@ func RememberAddrs(g *Global, c net.Conn) {
 	// Do not os.Setenv: fork goroutines would race on process environment.
 }
 
-// lockSession locks this Global's SessionVars mutex, creating it on first use.
+// lockSession locks this Global's SessionVars mutex. Constructors store one;
+// a zero-value session still creates it on first use.
 func (g *Global) lockSession() func() {
 	if g == nil {
 		return func() {}

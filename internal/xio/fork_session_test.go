@@ -3,6 +3,7 @@ package xio
 import (
 	"errors"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -14,8 +15,8 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	lg := logx.New()
 	src := Options{BlockSize: 9}
 	g := NewSession(src, lg)
-	if g.childSignals != nil || g.sessionMu.Load() != nil {
-		t.Fatal("NewSession owns empty sync/signals")
+	if g.childSignals == nil || g.sessionMu.Load() == nil {
+		t.Fatal("NewSession owns sync/signals from create")
 	}
 	if g.Log != lg {
 		t.Fatal("root session uses the provided logger")
@@ -38,7 +39,8 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	g.Peer.SessionVars = map[string]string{"A": "1"}
 	g.Peer.TLSVars = map[string]string{"B": "2"}
 	g.statsPrinted = printed
-	g.childSignals = new(childSignalSession)
+	parentSig := g.childSignals
+	parentMu := g.sessionMu.Load()
 
 	c := g.ForkSession()
 	c.Peer.SessionVars["A"] = "x"
@@ -47,8 +49,11 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	if !c.sharesOptions(g) {
 		t.Fatal("fork must share private Options storage")
 	}
-	if c.Options().BlockSize != 9 || !c.ForkChild || c.childSignals != nil || c.statsPrinted != printed {
-		t.Fatal("shared options, ForkChild set, signals reset, stats shared")
+	if c.Options().BlockSize != 9 || !c.ForkChild || c.statsPrinted != printed {
+		t.Fatal("shared options, ForkChild set, stats shared")
+	}
+	if c.childSignals == nil || c.childSignals == parentSig {
+		t.Fatal("child owns a distinct signal table")
 	}
 	if c.Log == nil || c.Log == lg || !g.LogMixed {
 		t.Fatal("Log cloned, LogMixed copied per session")
@@ -56,8 +61,8 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	if g.Peer.SessionVars["A"] != "1" || g.Peer.TLSVars["B"] != "2" {
 		t.Fatal("peer maps must be cloned")
 	}
-	if c.sessionMu.Load() != nil {
-		t.Fatal("child mutex starts unset")
+	if c.sessionMu.Load() == nil || c.sessionMu.Load() == parentMu {
+		t.Fatal("child owns a distinct session mutex")
 	}
 }
 
@@ -91,8 +96,7 @@ func TestForkSessionCopiesLogger(t *testing.T) {
 	lg := logx.New()
 	g := NewSession(Options{}, lg)
 	g.LogMixed = true
-	parentSig := new(childSignalSession)
-	g.childSignals = parentSig
+	parentSig := g.childSignals
 
 	c := g.ForkSession()
 	if c.Log == nil || c.Log == g.Log || c.Log == lg {
@@ -101,7 +105,7 @@ func TestForkSessionCopiesLogger(t *testing.T) {
 	if !c.LogMixed {
 		t.Fatal("LogMixed is copied")
 	}
-	if c.childSignals != nil || g.childSignals != parentSig {
+	if c.childSignals == nil || c.childSignals == parentSig || g.childSignals != parentSig {
 		t.Fatal("child owns a fresh signal table; parent keeps its own")
 	}
 	c.LogMixed = false
@@ -151,9 +155,41 @@ func TestForkSessionOwnsSniffFiles(t *testing.T) {
 	}
 }
 
+func TestForkSessionOwnsDistinctSessionMu(t *testing.T) {
+	g := NewSession(Options{}, nil)
+	SetSessionEnv(g, "A", "1")
+	c := g.ForkSession()
+	if g.sessionMu.Load() == nil || c.sessionMu.Load() == nil || g.sessionMu.Load() == c.sessionMu.Load() {
+		t.Fatal("parent and child must own distinct SessionVars mutexes")
+	}
+
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 1000; i++ {
+			SetSessionEnv(g, "A", "p")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		for i := 0; i < 1000; i++ {
+			SetSessionEnv(c, "A", "c")
+		}
+	}()
+	close(start)
+	wg.Wait()
+	if g.SessionVar("A") != "p" || c.SessionVar("A") != "c" {
+		t.Fatal("parent and child SessionVars must stay independent")
+	}
+}
+
 func TestForkSessionNilOwnsState(t *testing.T) {
 	c := (*Global)(nil).ForkSession()
-	if !c.ForkChild || c.options == nil || c.childSignals != nil || c.sessionMu.Load() != nil {
+	if !c.ForkChild || c.options == nil || c.childSignals == nil || c.sessionMu.Load() == nil {
 		t.Fatal("nil ForkSession still creates session-owned sync/signals and options")
 	}
 }
