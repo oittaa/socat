@@ -80,3 +80,35 @@ func TestResolveChdirLockfileAndLink(t *testing.T) {
 		t.Fatalf("link=%q", got.Terminal.Link.Value)
 	}
 }
+
+func decodeAndResolveChdir(t *testing.T, text string, facts addrconfig.Facts) addrconfig.Address {
+	t.Helper()
+	spec, err := parse.ParseSpec(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolvePreparedPaths(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return got
+}
+
+func TestResolveChdirUNIXIPLiteralBind(t *testing.T) {
+	dir := t.TempDir()
+	got := decodeAndResolveChdir(t, "UNIX-CONNECT:server.sock,bind=127.0.0.1,chdir="+dir, addrconfig.Facts{
+		Type: "UNIX-CONNECT",
+		Kind: addrconfig.AddressKindUNIX,
+		Role: addrconfig.AddressRoleConnect,
+	})
+	if got.Network.Bind.IsLiteral() {
+		t.Fatalf("UNIX bind treated as IP literal: %+v", got.Network.Bind)
+	}
+	if want := filepath.Join(dir, "127.0.0.1"); got.Network.Bind.Original() != want {
+		t.Fatalf("bind=%q want %q", got.Network.Bind.Original(), want)
+	}
+}

@@ -435,6 +435,41 @@ func TestDecodeBindHostPort(t *testing.T) {
 	}
 }
 
+func TestDecodeUNIXFilesystemBindIsPath(t *testing.T) {
+	unixFacts := Facts{Type: "UNIX-CONNECT", Kind: AddressKindUNIX, Role: AddressRoleConnect}
+	spec, err := parse.ParseSpec("UNIX-CONNECT:server.sock,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(spec, unixFacts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.BindSet || got.Network.Bind.IsLiteral() {
+		t.Fatalf("UNIX bind=127.0.0.1 is an IP literal: %+v", got.Network.Bind)
+	}
+	if got.Network.Bind.Original() != "127.0.0.1" || got.Network.BindPortSet {
+		t.Fatalf("UNIX bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
+	}
+
+	gopen, err := parse.ParseSpec("GOPEN:server.sock,bind=127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(gopen, Facts{Type: "GOPEN", Kind: AddressKindGOPEN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.BindSet || got.Network.Bind.IsLiteral() || got.Network.Bind.Original() != "127.0.0.1" {
+		t.Fatalf("GOPEN bind=%+v", got.Network.Bind)
+	}
+
+	got = decodeSpec(t, "TCP:h:9,bind=127.0.0.1")
+	if !got.Network.BindSet || !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "127.0.0.1" {
+		t.Fatalf("TCP bind=%+v", got.Network.Bind)
+	}
+}
+
 func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 	spec, err := parse.ParseSpec("TCP4-LISTEN:443,bind=127.0.0.1:8080")
 	if err != nil {

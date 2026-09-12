@@ -513,6 +513,11 @@ func decodeNetworkOption(a *Address, o parse.Option, name string) (bool, error) 
 			n.BindSet = true
 			return true, nil
 		}
+		if filesystemBindKind(n.Kind) {
+			n.Bind = HostTarget{Name: text}
+			n.BindSet = true
+			return true, nil
+		}
 		n.Bind, n.BindPort, n.BindPortSet = parseBindValue(text, bindSplitsHostPort(n))
 		n.BindSet = true
 		return true, nil
@@ -765,6 +770,10 @@ func targetFromText(text string) HostTarget {
 		return HostTarget{Literal: ip, Name: text}
 	}
 	return HostTarget{Name: text}
+}
+
+func filesystemBindKind(kind AddressKind) bool {
+	return kind == AddressKindUNIX || kind == AddressKindGOPEN
 }
 
 func bindSplitsHostPort(n *Network) bool {
