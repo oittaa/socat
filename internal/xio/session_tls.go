@@ -52,35 +52,35 @@ func rememberTLSState(g *Global, st tls.ConnectionState) {
 	if g == nil {
 		return
 	}
-	g.TLSVars = make(map[string]string)
+	g.Peer.TLSVars = make(map[string]string)
 	if st.Version != 0 {
-		g.TLSVars["PROTO_VERSION"] = tlsProtocolVersion(st.Version)
+		g.Peer.TLSVars["PROTO_VERSION"] = tlsProtocolVersion(st.Version)
 	}
 	if st.CipherSuite != 0 {
-		g.TLSVars["CIPHER"] = tls.CipherSuiteName(st.CipherSuite)
+		g.Peer.TLSVars["CIPHER"] = tls.CipherSuiteName(st.CipherSuite)
 	}
 	if len(st.PeerCertificates) == 0 {
 		return
 	}
 	leaf := st.PeerCertificates[0]
 	// Layout: "C = XY, CN = localhost, O = dest-unreach, OU = socat, L = Lunar Base"
-	g.TLSVars["X509_SUBJECT"] = FormatTLSName(leaf.Subject)
-	g.TLSVars["X509_ISSUER"] = FormatTLSName(leaf.Issuer)
+	g.Peer.TLSVars["X509_SUBJECT"] = FormatTLSName(leaf.Subject)
+	g.Peer.TLSVars["X509_ISSUER"] = FormatTLSName(leaf.Issuer)
 	for name, value := range tlsSubjectFields(leaf.Subject) {
-		g.TLSVars["X509_"+name] = value
+		g.Peer.TLSVars["X509_"+name] = value
 	}
 	if len(leaf.DNSNames) > 0 {
 		value := strings.Join(leaf.DNSNames, " // ")
-		g.TLSVars["X509V3_SUBJECTALTNAME_DNS"] = value
+		g.Peer.TLSVars["X509V3_SUBJECTALTNAME_DNS"] = value
 		// Older manuals documented this shortened spelling.
-		g.TLSVars["X509V3_DNS"] = value
+		g.Peer.TLSVars["X509V3_DNS"] = value
 	}
 	if len(leaf.IPAddresses) > 0 {
 		values := make([]string, 0, len(leaf.IPAddresses))
 		for _, ip := range leaf.IPAddresses {
 			values = append(values, ip.String())
 		}
-		g.TLSVars["X509V3_SUBJECTALTNAME_IPADD"] = strings.Join(values, " // ")
+		g.Peer.TLSVars["X509V3_SUBJECTALTNAME_IPADD"] = strings.Join(values, " // ")
 	}
 }
 

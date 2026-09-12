@@ -123,11 +123,11 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 	}
 	if g != nil {
 		if bindPath != "" {
-			g.SockAddr = bindPath
+			g.Peer.SockAddr = bindPath
 		} else {
-			g.SockAddr = path
+			g.Peer.SockAddr = path
 		}
-		g.PeerAddr = path
+		g.Peer.PeerAddr = path
 	}
 	// Filesystem (non-ABSTRACT) clients default unlink-close=1 after a
 	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
@@ -261,11 +261,11 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	}
 	if req.g != nil {
 		if bindPath != "" {
-			req.g.SockAddr = bindPath
+			req.g.Peer.SockAddr = bindPath
 		} else {
-			req.g.SockAddr = path
+			req.g.Peer.SockAddr = path
 		}
-		req.g.PeerAddr = path
+		req.g.Peer.PeerAddr = path
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		if err := applyUnixgramSocketOptions(uc, req.config); err != nil {

@@ -23,8 +23,8 @@ func TestSockaddrDLName(t *testing.T) {
 func TestProcessAncillaryRecvdstaddrRecvifDarwin(t *testing.T) {
 	g := &Global{Log: logx.New()}
 	handleIPv4CmsgDarwin(unix.IP_RECVDSTADDR, []byte{127, 0, 0, 1}, g)
-	if g.SessionVars["IP_DSTADDR"] != "127.0.0.1" {
-		t.Fatalf("IP_DSTADDR=%q", g.SessionVars["IP_DSTADDR"])
+	if g.Peer.SessionVars["IP_DSTADDR"] != "127.0.0.1" {
+		t.Fatalf("IP_DSTADDR=%q", g.Peer.SessionVars["IP_DSTADDR"])
 	}
 
 	var dl [20]byte
@@ -33,7 +33,7 @@ func TestProcessAncillaryRecvdstaddrRecvifDarwin(t *testing.T) {
 	dl[9] = 'n'
 	g2 := &Global{Log: logx.New()}
 	handleIPv4CmsgDarwin(unix.IP_RECVIF, dl[:], g2)
-	if g2.SessionVars["IP_IF"] != "en" {
-		t.Fatalf("IP_IF=%q", g2.SessionVars["IP_IF"])
+	if g2.Peer.SessionVars["IP_IF"] != "en" {
+		t.Fatalf("IP_IF=%q", g2.Peer.SessionVars["IP_IF"])
 	}
 }

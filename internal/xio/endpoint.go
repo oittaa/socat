@@ -123,9 +123,10 @@ type Options struct {
 	Progname     string // -lp value; default "socat"
 }
 
-// sessionPeer is per-connection identity for SOCAT_* env and sniff paths.
-// ForkSession clones the maps; RememberAddrs overwrites the address strings.
-type sessionPeer struct {
+// Peer is per-connection identity for SOCAT_* env and sniff paths.
+// ForkSession copies the strings and clones the maps. RememberAddrs
+// overwrites the address strings on this session only.
+type Peer struct {
 	SockAddr string
 	PeerAddr string
 	SockPort string
@@ -166,12 +167,13 @@ type sessionRuntime struct {
 	LogMixed     bool // -lm: stderr until both endpoints are ready
 }
 
-// Global is one logical session. options is a named dependency (not an
-// anonymous embed) and is shared with ForkSession results. Remaining
-// session-state groups stay embedded until later migrations.
+// Global is one logical session. options and Peer are named dependencies
+// (not anonymous embeds). options is shared with ForkSession results;
+// Peer is copied (maps cloned). Remaining groups stay embedded until
+// later migrations.
 type Global struct {
 	options *Options
-	sessionPeer
+	Peer    Peer
 	childResult
 	sniffFiles
 	sessionRuntime
@@ -219,20 +221,15 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 	if opts == nil {
 		opts = &Options{}
 	}
-	peer := sessionPeer{}
+	peer := Peer{}
 	var result childResult
 	var sniff sniffFiles
 	logMixed := false
 	var stats *atomic.Bool
 	if from != nil {
-		peer = sessionPeer{
-			SockAddr:    from.SockAddr,
-			PeerAddr:    from.PeerAddr,
-			SockPort:    from.SockPort,
-			PeerPort:    from.PeerPort,
-			TLSVars:     cloneStringMap(from.TLSVars),
-			SessionVars: from.cloneSessionVars(),
-		}
+		peer = from.Peer
+		peer.TLSVars = cloneStringMap(from.Peer.TLSVars)
+		peer.SessionVars = from.cloneSessionVars()
 		result = from.childResult
 		sniff = from.sniffFiles
 		logMixed = from.LogMixed
@@ -246,7 +243,7 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 	}
 	return &Global{
 		options:     opts,
-		sessionPeer: peer,
+		Peer:        peer,
 		childResult: result,
 		sniffFiles:  sniff,
 		sessionRuntime: sessionRuntime{

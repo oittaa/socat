@@ -21,19 +21,19 @@ func RememberAddrs(g *Global, c net.Conn) {
 	if la := c.LocalAddr(); la != nil {
 		host, port, err := net.SplitHostPort(la.String())
 		if err == nil {
-			g.SockAddr = FormatSocatAddr(host)
-			g.SockPort = port
+			g.Peer.SockAddr = FormatSocatAddr(host)
+			g.Peer.SockPort = port
 		} else {
-			g.SockAddr = la.String()
+			g.Peer.SockAddr = la.String()
 		}
 	}
 	if ra := c.RemoteAddr(); ra != nil {
 		host, port, err := net.SplitHostPort(ra.String())
 		if err == nil {
-			g.PeerAddr = FormatSocatAddr(host)
-			g.PeerPort = port
+			g.Peer.PeerAddr = FormatSocatAddr(host)
+			g.Peer.PeerPort = port
 		} else {
-			g.PeerAddr = ra.String()
+			g.Peer.PeerAddr = ra.String()
 		}
 	}
 	if carrier, ok := c.(interface{ SessionEnvironment() map[string]string }); ok {
@@ -73,7 +73,7 @@ func (g *Global) cloneSessionVars() map[string]string {
 	}
 	unlock := g.lockSession()
 	defer unlock()
-	return cloneStringMap(g.SessionVars)
+	return cloneStringMap(g.Peer.SessionVars)
 }
 
 // SessionVarsSnapshot copies SessionVars for EXEC/SYSTEM child environments.
@@ -89,7 +89,7 @@ func (g *Global) SessionVar(name string) string {
 	}
 	unlock := g.lockSession()
 	defer unlock()
-	return g.SessionVars[name]
+	return g.Peer.SessionVars[name]
 }
 
 // SetSessionEnv records a per-session output variable without its executable
@@ -100,10 +100,10 @@ func SetSessionEnv(g *Global, name, value string) {
 	}
 	unlock := g.lockSession()
 	defer unlock()
-	if g.SessionVars == nil {
-		g.SessionVars = make(map[string]string)
+	if g.Peer.SessionVars == nil {
+		g.Peer.SessionVars = make(map[string]string)
 	}
-	g.SessionVars[name] = value
+	g.Peer.SessionVars[name] = value
 }
 
 // sessionEnv returns SOCAT_* / PROGNAME_* values from this session.
@@ -124,26 +124,26 @@ func sessionEnv(g *Global) []string {
 		"VERSION":  socat.Version,
 		"PID":      strconv.Itoa(os.Getpid()),
 		"PPID":     strconv.Itoa(os.Getpid()),
-		"SOCKADDR": g.SockAddr,
-		"PEERADDR": g.PeerAddr,
-		"SOCKPORT": g.SockPort,
-		"PEERPORT": g.PeerPort,
+		"SOCKADDR": g.Peer.SockAddr,
+		"PEERADDR": g.Peer.PeerAddr,
+		"SOCKPORT": g.Peer.SockPort,
+		"PEERPORT": g.Peer.PeerPort,
 	}
 	unlock := g.lockSession()
-	for name, value := range g.SessionVars {
+	for name, value := range g.Peer.SessionVars {
 		values[name] = value
 	}
 	unlock()
 
 	names := sortedKeys(values)
-	tlsNames := sortedKeys(g.TLSVars)
+	tlsNames := sortedKeys(g.Peer.TLSVars)
 	out := make([]string, 0, len(prefixes)*(len(names)+2*len(tlsNames)))
 	for _, prefix := range prefixes {
 		for _, name := range names {
 			out = append(out, prefix+"_"+name+"="+values[name])
 		}
 		for _, name := range tlsNames {
-			value := g.TLSVars[name]
+			value := g.Peer.TLSVars[name]
 			out = append(out,
 				prefix+"_TLS_"+name+"="+value,
 				prefix+"_OPENSSL_"+name+"="+value,
@@ -177,7 +177,7 @@ func childEnviron(g *Global) []string {
 		}
 	}
 	var dropPrefixes []string
-	if g != nil && g.TLSVars != nil {
+	if g != nil && g.Peer.TLSVars != nil {
 		prog := g.Options().Progname
 		if prog == "" {
 			prog = "socat"
@@ -222,13 +222,13 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 	}
 	switch name {
 	case "SOCKADDR":
-		return g.SockAddr, true
+		return g.Peer.SockAddr, true
 	case "PEERADDR":
-		return g.PeerAddr, true
+		return g.Peer.PeerAddr, true
 	case "SOCKPORT":
-		return g.SockPort, true
+		return g.Peer.SockPort, true
 	case "PEERPORT":
-		return g.PeerPort, true
+		return g.Peer.PeerPort, true
 	}
 	for _, entry := range sessionEnv(g) {
 		if i := strings.IndexByte(entry, '='); i > 0 && entry[:i] == name {

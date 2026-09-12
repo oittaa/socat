@@ -63,7 +63,7 @@ func TestAncillaryEnvironmentIsSessionScoped(t *testing.T) {
 	binary.NativeEndian.PutUint32(data[:], 42)
 	g := &Global{}
 	handleIPv4Cmsg(unix.IP_TTL, data[:], g)
-	if got := g.SessionVars["IP_TTL"]; got != "42" {
+	if got := g.Peer.SessionVars["IP_TTL"]; got != "42" {
 		t.Fatalf("IP_TTL=%q", got)
 	}
 }
@@ -73,23 +73,23 @@ func TestAncillaryDarwinRecvTTLSetsIPTTL(t *testing.T) {
 	// Linux IP_TTL. The session env name stays IP_TTL.
 	g := &Global{}
 	handleIPv4Cmsg(unix.IP_RECVTTL, []byte{64}, g)
-	if got := g.SessionVars["IP_TTL"]; got != "64" {
-		t.Fatalf("session env=%v want IP_TTL=64", g.SessionVars)
+	if got := g.Peer.SessionVars["IP_TTL"]; got != "64" {
+		t.Fatalf("session env=%v want IP_TTL=64", g.Peer.SessionVars)
 	}
 }
 
 func TestAncillaryRecvTOSSetsIPTOS(t *testing.T) {
 	g := &Global{}
 	handleIPv4Cmsg(unix.IP_RECVTOS, []byte{0x10}, g)
-	if got := g.SessionVars["IP_TOS"]; got != "16" {
-		t.Fatalf("session env=%v want IP_TOS=16", g.SessionVars)
+	if got := g.Peer.SessionVars["IP_TOS"]; got != "16" {
+		t.Fatalf("session env=%v want IP_TOS=16", g.Peer.SessionVars)
 	}
 }
 
 func TestAncillaryIPRetoptsSetsIPOptions(t *testing.T) {
 	g := &Global{}
 	handleIPv4Cmsg(unix.IP_RETOPTS, []byte{0x01, 0x00}, g)
-	if got := g.SessionVars["IP_OPTIONS"]; got != "x0100" {
-		t.Fatalf("session env=%v want IP_OPTIONS=x0100", g.SessionVars)
+	if got := g.Peer.SessionVars["IP_OPTIONS"]; got != "x0100" {
+		t.Fatalf("session env=%v want IP_OPTIONS=x0100", g.Peer.SessionVars)
 	}
 }

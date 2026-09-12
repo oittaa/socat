@@ -182,21 +182,21 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 	// local address used for this peer (loopback peer → loopback sock).
 	if g != nil {
 		if raddr != nil {
-			g.PeerAddr = xio.FormatSocatAddr(raddr.IP.String())
-			g.PeerPort = strconv.Itoa(raddr.Port)
+			g.Peer.PeerAddr = xio.FormatSocatAddr(raddr.IP.String())
+			g.Peer.PeerPort = strconv.Itoa(raddr.Port)
 		}
 		if la := pc.LocalAddr(); la != nil {
 			if host, p, e := net.SplitHostPort(la.String()); e == nil {
-				g.SockPort = p
+				g.Peer.SockPort = p
 				lip := net.ParseIP(xio.StripBrackets(host))
 				if lip != nil && lip.IsUnspecified() && raddr != nil {
 					localIP := udpRouteLocalIP(network, raddr)
 					if localIP == nil {
 						localIP = lip
 					}
-					g.SockAddr = xio.FormatSocatAddr(localIP.String())
+					g.Peer.SockAddr = xio.FormatSocatAddr(localIP.String())
 				} else {
-					g.SockAddr = xio.FormatSocatAddr(host)
+					g.Peer.SockAddr = xio.FormatSocatAddr(host)
 				}
 			}
 		}
