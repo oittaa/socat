@@ -42,7 +42,7 @@ func TestCREATEDoesNotApplyODirect(t *testing.T) {
 
 func openedReaderFlags(t *testing.T, o *xio.Opened) int {
 	t.Helper()
-	f := openedFile(t, o.Stream, true)
+	f := openedFile(t, o.Stream(), true)
 	got, err := unix.FcntlInt(f.Fd(), unix.F_GETFL, 0)
 	if err != nil {
 		t.Fatal(err)

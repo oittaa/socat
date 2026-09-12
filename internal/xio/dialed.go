@@ -2,9 +2,9 @@ package xio
 
 import (
 	"context"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -22,39 +22,48 @@ type Dialed struct {
 
 // OpenDialed opens a client address: CONNECT,fork loop, or one dial + wrap.
 func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) (*Opened, error) {
-	o := &Opened{Label: d.Label}
-	for _, f := range d.Cleanup {
-		if f != nil {
-			o.AddCleanup(f)
+	runCleanup := func() {
+		for _, f := range d.Cleanup {
+			if f != nil {
+				f()
+			}
 		}
 	}
 	fork, maxChildren, err := ForkLimits(s)
 	if err != nil {
-		logx.CloseQuiet(o)
+		runCleanup()
 		return nil, err
 	}
 	wrap := d.Wrap
 	if wrap == nil {
 		wrap = DefaultWrapDial(s)
 	}
+	attach := func(o *Opened) *Opened {
+		for _, f := range d.Cleanup {
+			if f != nil {
+				o.AddCleanup(f)
+			}
+		}
+		return o
+	}
 	if fork {
-		o.Kind = KindDial
-		o.MaxChildren = maxChildren
-		o.Interval = s.Common.Retry.Policy().Interval
-		o.Dial = WrapNetNSDial(netNamespaceName(s), g, d.Dial)
-		o.WrapDial = wrap
-		return o, nil
+		return attach(NewRepeatedDial(d.Label, RepeatedDial{
+			Dial:        WrapNetNSDial(netNamespaceName(s), g, d.Dial),
+			Interval:    s.Common.Retry.Policy().Interval,
+			MaxChildren: maxChildren,
+			WrapDial:    wrap,
+		})), nil
 	}
 	conn, err := d.Dial(ctx)
 	if err != nil {
-		logx.CloseQuiet(o)
+		runCleanup()
 		return nil, err
 	}
 	RememberAddrs(g, conn)
 	if d.RememberTLS {
 		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
 			logx.CloseQuiet(conn)
-			logx.CloseQuiet(o)
+			runCleanup()
 			return nil, err
 		}
 	}
@@ -64,9 +73,8 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	st, err := wrap(conn)
 	if err != nil {
 		logx.CloseQuiet(conn)
-		logx.CloseQuiet(o)
+		runCleanup()
 		return nil, err
 	}
-	o.Stream = st
-	return o, nil
+	return attach(NewReady(d.Label, st)), nil
 }

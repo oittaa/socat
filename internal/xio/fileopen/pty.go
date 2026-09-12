@@ -80,10 +80,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	o := &xio.Opened{
-		Stream: st,
-		Label:  "PTY:" + slaveName,
-	}
+	o := xio.NewReady("PTY:"+slaveName, st)
 	if s.Terminal.WaitSlave.Value {
 		_ = slave.Close()
 		slave = nil

@@ -18,7 +18,7 @@ func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 			for i := 0; i < 10; i++ {
 				o := openEXECSpec(t, "EXEC:"+bin+","+opt+",rawer,echo=0", ModeRDWR)
 				waitExecPTYChild(t, o)
-				got := strings.TrimSpace(strings.ReplaceAll(string(readStreamBytes(t, o.Stream, time.Second)), "\r", ""))
+				got := strings.TrimSpace(strings.ReplaceAll(string(readStreamBytes(t, o.Stream(), time.Second)), "\r", ""))
 				if got != "tty" {
 					t.Fatalf("iteration %d: output %q want tty", i, got)
 				}
@@ -33,7 +33,7 @@ func TestDarwinEXECPtyDrainsOutputAfterChildExit(t *testing.T) {
 func TestDarwinEXECPtySilentChildReachesEOF(t *testing.T) {
 	o := openEXECSpec(t, "SYSTEM:true,pty,rawer,echo=0", ModeRDWR)
 	waitExecPTYChild(t, o)
-	if got := readStreamBytes(t, o.Stream, time.Second); len(got) != 0 {
+	if got := readStreamBytes(t, o.Stream(), time.Second); len(got) != 0 {
 		t.Fatalf("silent child output %q", got)
 	}
 }
@@ -57,7 +57,7 @@ func buildIsattyHelper(t *testing.T) string {
 func waitExecPTYChild(t *testing.T, o *Opened) {
 	t.Helper()
 	select {
-	case <-o.childDone:
+	case <-o.childDone():
 	case <-time.After(3 * time.Second):
 		t.Fatal("timed out waiting for EXEC PTY child")
 	}

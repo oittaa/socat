@@ -45,7 +45,7 @@ func openTEXT(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Glo
 	if err != nil {
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "TEXT"}, nil
+	return xio.NewReady("TEXT", st), nil
 }
 
 // STALL — never readable, never writable (pipes that never become ready).
@@ -114,7 +114,7 @@ func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Gl
 	}
 	// When idle timeout cancels, Close() runs cleanup and unblocks.
 	_ = closeFDs
-	return &xio.Opened{Stream: stream, Label: "STALL"}, nil
+	return xio.NewReady("STALL", stream), nil
 }
 
 type multiCloserFuncs []func()

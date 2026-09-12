@@ -55,7 +55,7 @@ func openSTDIO(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 	if err != nil {
 		return nil, err
 	}
-	o := &xio.Opened{Stream: st, Label: "STDIO"}
+	o := xio.NewReady("STDIO", st)
 	switch mode {
 	case xio.ModeRead:
 		err = attachConfiguredTermios(o, s, os.Stdin)
@@ -85,7 +85,7 @@ func openSTDIN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.
 	if err != nil {
 		return nil, err
 	}
-	o := &xio.Opened{Stream: st, Label: "STDIN"}
+	o := xio.NewReady("STDIN", st)
 	if err := attachConfiguredTermios(o, s, os.Stdin); err != nil {
 		_ = o.Close()
 		return nil, err
@@ -107,7 +107,7 @@ func openSTDOUT(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 	if err != nil {
 		return nil, err
 	}
-	o := &xio.Opened{Stream: st, Label: "STDOUT"}
+	o := xio.NewReady("STDOUT", st)
 	if err := attachConfiguredTermios(o, s, os.Stdout); err != nil {
 		_ = o.Close()
 		return nil, err
@@ -129,7 +129,7 @@ func openSTDERR(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 	if err != nil {
 		return nil, err
 	}
-	o := &xio.Opened{Stream: st, Label: "STDERR"}
+	o := xio.NewReady("STDERR", st)
 	if err := attachConfiguredTermios(o, s, os.Stderr); err != nil {
 		_ = o.Close()
 		return nil, err
@@ -184,10 +184,7 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 	if err != nil {
 		return fail(err)
 	}
-	o := &xio.Opened{
-		Stream: st,
-		Label:  fmt.Sprintf("FD:%d", n),
-	}
+	o := xio.NewReady(fmt.Sprintf("FD:%d", n), st)
 	if err := attachConfiguredTermios(o, s, f); err != nil {
 		_ = o.Close()
 		return nil, err

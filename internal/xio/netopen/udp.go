@@ -90,7 +90,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "UDP:" + raddr.String()}, nil
+	return xio.NewReady("UDP:"+raddr.String(), st), nil
 }
 
 func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTarget, remote *net.UDPAddr, s addrconfig.Address, g *xio.Global) (net.Conn, error) {

@@ -56,7 +56,7 @@ func TestTCPMappedIPv4LiteralConnectsIPv4Listener(t *testing.T) {
 		t.Fatal("listener did not accept")
 	}
 	t.Cleanup(func() { _ = peer.Close() })
-	if _, err := o.Stream.Write([]byte("ok")); err != nil {
+	if _, err := o.Stream().Write([]byte("ok")); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 2)
@@ -91,7 +91,7 @@ func TestTCP4ClientBindEmptyHostConnectsOnLoopback(t *testing.T) {
 		t.Fatalf("client bind=:0,ai-passive=0: %v", err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	la, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+	la, ok := o.Stream().(interface{ LocalAddr() net.Addr })
 	if !ok {
 		t.Fatal("stream has no LocalAddr")
 	}
@@ -105,7 +105,7 @@ func TestTCP4ClientBindEmptyHostConnectsOnLoopback(t *testing.T) {
 		t.Fatal("listener accept failed")
 	}
 	t.Cleanup(func() { _ = peer.Close() })
-	if _, err := o.Stream.Write([]byte("ok")); err != nil {
+	if _, err := o.Stream().Write([]byte("ok")); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 2)
@@ -139,7 +139,7 @@ func TestUDP4DatagramBindEmptyHostUsesLoopback(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	la, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+	la, ok := o.Stream().(interface{ LocalAddr() net.Addr })
 	if !ok {
 		t.Fatal("stream has no LocalAddr")
 	}

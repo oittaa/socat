@@ -41,7 +41,7 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := lo.Listener.Addr().(*net.UDPAddr).Port
+	port := lo.Listener().Addr().(*net.UDPAddr).Port
 	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
 	return port
 }
@@ -74,7 +74,7 @@ func TestQUICListenConnectEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("quic-roundtrip"))
+	echoRoundtrip(t, o.Stream(), []byte("quic-roundtrip"))
 }
 
 func TestQUICVerifyFailsWithoutTrust(t *testing.T) {
@@ -119,7 +119,7 @@ func TestQUICListenForkTwoClients(t *testing.T) {
 		if err != nil {
 			t.Fatalf("client %d: %v", i, err)
 		}
-		echoRoundtrip(t, o.Stream, []byte(msg))
+		echoRoundtrip(t, o.Stream(), []byte(msg))
 		_ = o.Close()
 	}
 }

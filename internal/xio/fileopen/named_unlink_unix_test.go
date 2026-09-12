@@ -56,7 +56,7 @@ func TestCreateUnlinkLateRemovesNameWhileOpen(t *testing.T) {
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("CREATE unlink-late left the name: %v", err)
 	}
-	if _, err := o.Stream.Write([]byte("x")); err != nil {
+	if _, err := o.Stream().Write([]byte("x")); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -122,7 +122,7 @@ func TestOpenUnlinkLateEqualsZeroDoesNotUnlink(t *testing.T) {
 	if _, err := os.Lstat(path); err != nil {
 		t.Fatalf("unlink-late=0 removed the name: %v", err)
 	}
-	got, err := io.ReadAll(o.Stream)
+	got, err := io.ReadAll(o.Stream())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func TestOpenPermEarlyChmodsExistingFile(t *testing.T) {
 	o := openSpec(t, "OPEN:"+path+",perm-early=0600", xio.ModeRead)
 	t.Cleanup(func() { _ = o.Close() })
 	assertNamedMode(t, path, 0o600)
-	got, err := io.ReadAll(o.Stream)
+	got, err := io.ReadAll(o.Stream())
 	if err != nil {
 		t.Fatal(err)
 	}

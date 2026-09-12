@@ -228,16 +228,16 @@ func TestH2cCONNECTrcvtimeoThenEcho(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 
-	n, err := o.Stream.Read(make([]byte, 1))
+	n, err := o.Stream().Read(make([]byte, 1))
 	if n != 0 || !xio.IsTimeoutErr(err) {
 		t.Fatalf("rcvtimeo Read n=%d err=%v", n, err)
 	}
 	payload := []byte("after-timeout")
-	if _, err := o.Stream.Write(payload); err != nil {
+	if _, err := o.Stream().Write(payload); err != nil {
 		t.Fatal(err)
 	}
 	got := make([]byte, len(payload))
-	if _, err := io.ReadFull(o.Stream, got); err != nil {
+	if _, err := io.ReadFull(o.Stream(), got); err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != string(payload) {

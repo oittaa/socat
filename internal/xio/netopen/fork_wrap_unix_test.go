@@ -22,7 +22,7 @@ func TestSocketRecvfromForkHasWrapDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.PeerFilter != nil {
+	if o.PeerFilter() != nil {
 		t.Fatal("SOCKET-RECVFROM,fork must filter in Accept only")
 	}
 	assertWrapDialReadbytes(t, o)
@@ -39,7 +39,7 @@ func TestSocketListenForkHasWrapDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.PeerFilter == nil {
+	if o.PeerFilter() == nil {
 		t.Fatal("SOCKET-LISTEN must install PeerFilter")
 	}
 	assertWrapDialReadbytes(t, o)

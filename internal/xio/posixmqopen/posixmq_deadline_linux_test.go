@@ -167,7 +167,7 @@ func startBlockedSendFork(t *testing.T, q string) blockedOp {
 	o := openSpec(t, fmt.Sprintf("POSIXMQ-SEND:%s,fork,mq-maxmsg=1,mq-msgsize=64,unlink-early", q), xio.ModeWrite)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
-	conn, err := o.Dial(ctx)
+	conn, err := o.Dial()(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

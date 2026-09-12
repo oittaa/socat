@@ -10,7 +10,7 @@ import (
 
 func assertWrapDialReadbytes(t *testing.T, o *xio.Opened) {
 	t.Helper()
-	if o.WrapDial == nil {
+	if o.WrapDial() == nil {
 		t.Fatal("WrapDial is nil")
 	}
 	a, b := net.Pipe()
@@ -18,7 +18,7 @@ func assertWrapDialReadbytes(t *testing.T, o *xio.Opened) {
 		_ = a.Close()
 		_ = b.Close()
 	})
-	st, err := o.WrapDial(a)
+	st, err := o.WrapDial()(a)
 	if err != nil {
 		t.Fatal(err)
 	}

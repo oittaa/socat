@@ -82,5 +82,5 @@ func TestWSSConnectDisabledFIPSStillEchoes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("wss-fips0"))
+	echoRoundtrip(t, o.Stream(), []byte("wss-fips0"))
 }

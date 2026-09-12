@@ -35,7 +35,7 @@ func TestQUICConnectWrapAfterLifecycle(t *testing.T) {
 	if len(ops) == 0 {
 		t.Fatal("lifecycle option was not applied on the QUIC packet socket")
 	}
-	echoRoundtrip(t, o.Stream, []byte("quic-lifecycle"))
+	echoRoundtrip(t, o.Stream(), []byte("quic-lifecycle"))
 }
 
 func TestQUICListenWrapAfterLifecycle(t *testing.T) {
@@ -69,7 +69,7 @@ func TestQUICListenWrapAfterLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = cli.Close() }()
-	echoRoundtrip(t, cli.Stream, []byte("listen-wrap"))
+	echoRoundtrip(t, cli.Stream(), []byte("listen-wrap"))
 	mu.Lock()
 	got := append([]string(nil), ops...)
 	mu.Unlock()

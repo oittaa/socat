@@ -251,7 +251,7 @@ func assertOpenSpecEXECChildSOPriority(t *testing.T, specText string, mode Mode)
 	if hits[0].value != 5 {
 		t.Fatalf("SO_PRIORITY value=%d want 5", hits[0].value)
 	}
-	parent := asOSFile(o.Stream)
+	parent := asOSFile(o.Stream())
 	if parent == nil {
 		t.Fatal("parent EXEC stream has no *os.File")
 	}

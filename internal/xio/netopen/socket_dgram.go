@@ -90,7 +90,7 @@ func openSocketDgram(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: s.Type}, nil
+	return xio.NewReady(s.Type, st), nil
 }
 
 func openSocketRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
@@ -181,7 +181,7 @@ func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mo
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: s.Type}, nil
+	return xio.NewReady(s.Type, st), nil
 }
 
 func openSocketRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
@@ -203,14 +203,12 @@ func openSocketRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Gl
 		rcvTimeout: rcvTimeout,
 		nullEOF:    s.Transfer.NullEOF.Value,
 	}
-	return &xio.Opened{
-		Kind:           xio.KindListen,
+	return xio.NewAcceptParent(s.Type, xio.AcceptParent{
 		ForkSocketpair: true,
 		Listener:       ln,
-		Label:          s.Type,
 		MaxChildren:    maxChildren,
 		WrapDial:       xio.DefaultWrapOpened(s),
-	}, nil
+	}), nil
 }
 
 func openSocketRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
@@ -232,7 +230,7 @@ func openSocketRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio
 		logx.CloseQuiet(f)
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: s.Type}, nil
+	return xio.NewReady(s.Type, st), nil
 }
 
 // emptyDatagramPolicy is how a SOCK_DGRAM receive treats a zero-length packet.

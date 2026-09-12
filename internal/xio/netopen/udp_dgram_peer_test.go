@@ -34,7 +34,7 @@ func openDgramStream(t *testing.T, spec string) (*xio.Opened, *net.UDPAddr) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	la, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+	la, ok := o.Stream().(interface{ LocalAddr() net.Addr })
 	if !ok {
 		t.Fatal("stream has no LocalAddr")
 	}
@@ -72,10 +72,10 @@ func TestUDPRecvShutdownClosesRead(t *testing.T) {
 	o, addr := openDgramStream(t, "UDP4-RECV:0,bind=127.0.0.1")
 	// Queued data makes a missing close fail without waiting for a timeout.
 	writeTo(t, listenUDP4Probe(t), "queued", addr)
-	if err := o.Stream.ShutdownWrite(); err != nil {
+	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := o.Stream.Read(make([]byte, 64)); !errors.Is(err, net.ErrClosed) {
+	if _, err := o.Stream().Read(make([]byte, 64)); !errors.Is(err, net.ErrClosed) {
 		t.Fatalf("read after shutdown: %v, want closed socket", err)
 	}
 }
@@ -125,7 +125,7 @@ func testSendtoSourceportBinds(t *testing.T, typ string, listen func(*testing.T)
 			_ = o.Close()
 			cancel()
 		})
-		la, ok := o.Stream.(interface{ LocalAddr() net.Addr })
+		la, ok := o.Stream().(interface{ LocalAddr() net.Addr })
 		if !ok {
 			t.Fatal("stream has no LocalAddr")
 		}
@@ -149,7 +149,7 @@ func testSendtoIgnoresWrongPeer(t *testing.T, typ string, listen func(*testing.T
 	impostor := listen(t)
 	writeTo(t, impostor, "impostor", local)
 	writeTo(t, peer, "from-peer", local)
-	got, err := readDgram(t, st.Stream, 3*time.Second)
+	got, err := readDgram(t, st.Stream(), 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func testDatagramAcceptsWrongPeer(t *testing.T, typ string, listen func(*testing
 	st, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1")
 	impostor := listen(t)
 	writeTo(t, impostor, "impostor", local)
-	got, err := readDgram(t, st.Stream, 3*time.Second)
+	got, err := readDgram(t, st.Stream(), 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,13 +181,13 @@ func testDatagramRangeFilter(t *testing.T, typ string, listen func(*testing.T) n
 	denied, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,range=10.0.0.0/8")
 	impostor := listen(t)
 	writeTo(t, impostor, "nope", local)
-	if _, err := readDgram(t, denied.Stream, 200*time.Millisecond); err == nil {
+	if _, err := readDgram(t, denied.Stream(), 200*time.Millisecond); err == nil {
 		t.Fatalf("%s range=10.0.0.0/8 accepted a 127.0.0.1 sender", typ)
 	}
 
 	allowed, localOK := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,range=127.0.0.1/32")
 	writeTo(t, impostor, "ok-range", localOK)
-	got, err := readDgram(t, allowed.Stream, 3*time.Second)
+	got, err := readDgram(t, allowed.Stream(), 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func testDatagramSourceportFilter(t *testing.T, typ string, listen func(*testing
 	impostor := listen(t)
 	writeTo(t, impostor, "wrong-port", local)
 	writeTo(t, dest, "right-port", local)
-	got, err := readDgram(t, st.Stream, 3*time.Second)
+	got, err := readDgram(t, st.Stream(), 3*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func testDatagramTCPWrapFilter(t *testing.T, typ string, listen func(*testing.T)
 	st, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,hosts-allow="+allow+",hosts-deny="+deny)
 	impostor := listen(t)
 	writeTo(t, impostor, "wrapped", local)
-	if _, err := readDgram(t, st.Stream, 200*time.Millisecond); err == nil {
+	if _, err := readDgram(t, st.Stream(), 200*time.Millisecond); err == nil {
 		t.Fatalf("%s tcpwrap deny ALL accepted a packet", typ)
 	}
 }

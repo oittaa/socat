@@ -20,7 +20,7 @@ func TestOpenSpecCarriesChildrenShutup(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = opened.Close() })
-	if opened.ChildrenShutup != 2 {
-		t.Fatalf("ChildrenShutup=%d want 2", opened.ChildrenShutup)
+	if opened.ChildrenShutup() != 2 {
+		t.Fatalf("ChildrenShutup=%d want 2", opened.ChildrenShutup())
 	}
 }

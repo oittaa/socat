@@ -9,7 +9,7 @@ import (
 )
 
 func TestRunOpenedClosesLeftWhenRightPrepareFails(t *testing.T) {
-	lo := &Opened{}
+	lo := NewReady("", nil)
 	closed := false
 	lo.AddCleanup(func() { closed = true })
 	ch, err := parse.ParseChannel("NOSUCH:x")

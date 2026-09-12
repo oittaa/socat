@@ -82,11 +82,11 @@ func echoViaSOCKS5(t *testing.T, spec string) {
 	}
 	defer func() { _ = o.Close() }()
 	payload := []byte("socks5-ok\n")
-	if _, err := o.Stream.Write(payload); err != nil {
+	if _, err := o.Stream().Write(payload); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, len(payload))
-	if _, err := io.ReadFull(o.Stream, buf); err != nil {
+	if _, err := io.ReadFull(o.Stream(), buf); err != nil {
 		t.Fatal(err)
 	}
 	if string(buf) != string(payload) {
@@ -132,11 +132,11 @@ func echoViaSOCKS4(t *testing.T, spec string, socks4a bool) {
 	}
 	defer func() { _ = o.Close() }()
 	payload := []byte("socks4-ok\n")
-	if _, err := o.Stream.Write(payload); err != nil {
+	if _, err := o.Stream().Write(payload); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, len(payload))
-	if _, err := io.ReadFull(o.Stream, buf); err != nil {
+	if _, err := io.ReadFull(o.Stream(), buf); err != nil {
 		t.Fatal(err)
 	}
 	if string(buf) != string(payload) {
@@ -325,11 +325,11 @@ func echoViaSOCKS5Auth(t *testing.T, spec, wantUser, wantPass string) {
 	}
 	defer func() { _ = o.Close() }()
 	payload := []byte("socks5-ok\n")
-	if _, err := o.Stream.Write(payload); err != nil {
+	if _, err := o.Stream().Write(payload); err != nil {
 		t.Fatal(err)
 	}
 	buf := make([]byte, len(payload))
-	if _, err := io.ReadFull(o.Stream, buf); err != nil {
+	if _, err := io.ReadFull(o.Stream(), buf); err != nil {
 		t.Fatal(err)
 	}
 	if string(buf) != string(payload) {

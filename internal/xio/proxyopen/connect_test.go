@@ -64,11 +64,11 @@ func echoViaPROXY(t *testing.T, spec string) {
 	}
 	defer func() { _ = o.Close() }()
 	payload := []byte("proxy-connect-ok")
-	if _, err := o.Stream.Write(payload); err != nil {
+	if _, err := o.Stream().Write(payload); err != nil {
 		t.Fatal(err)
 	}
 	got := make([]byte, len(payload))
-	if _, err := io.ReadFull(o.Stream, got); err != nil {
+	if _, err := io.ReadFull(o.Stream(), got); err != nil {
 		t.Fatal(err)
 	}
 	if string(got) != string(payload) {

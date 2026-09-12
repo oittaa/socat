@@ -84,7 +84,7 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lo.Listener == nil {
+	if lo.Listener() == nil {
 		_ = lo.Close()
 		t.Fatal("listen address did not return a listener (use fork)")
 	}
@@ -95,9 +95,9 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened
 
 func wsListenPort(t *testing.T, o *xio.Opened) int {
 	t.Helper()
-	ta, ok := o.Listener.Addr().(*net.TCPAddr)
+	ta, ok := o.Listener().Addr().(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("WS-LISTEN addr %T", o.Listener.Addr())
+		t.Fatalf("WS-LISTEN addr %T", o.Listener().Addr())
 	}
 	if ta.Port == 0 {
 		t.Fatal("WS-LISTEN bound port 0")
@@ -133,7 +133,7 @@ func TestWSListenConnectEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("roundtrip"))
+	echoRoundtrip(t, o.Stream(), []byte("roundtrip"))
 }
 
 func TestWSListenPathOption(t *testing.T) {
@@ -150,7 +150,7 @@ func TestWSListenPathOption(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("pathopt"))
+	echoRoundtrip(t, o.Stream(), []byte("pathopt"))
 }
 
 func TestWSListenForkTwoClients(t *testing.T) {
@@ -167,7 +167,7 @@ func TestWSListenForkTwoClients(t *testing.T) {
 		if err != nil {
 			t.Fatalf("client %d: %v", i, err)
 		}
-		echoRoundtrip(t, o.Stream, []byte(msg))
+		echoRoundtrip(t, o.Stream(), []byte(msg))
 		_ = o.Close()
 	}
 }
@@ -186,7 +186,7 @@ func TestWSSListenConnectEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("hello-wss-listen"))
+	echoRoundtrip(t, o.Stream(), []byte("hello-wss-listen"))
 }
 
 func TestWSListenProtocol(t *testing.T) {
@@ -203,5 +203,5 @@ func TestWSListenProtocol(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = o.Close() }()
-	echoRoundtrip(t, o.Stream, []byte("proto"))
+	echoRoundtrip(t, o.Stream(), []byte("proto"))
 }

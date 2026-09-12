@@ -31,7 +31,7 @@ func TestCREATEAppendStillTruncatesExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	w := openUse(t, "CREATE:"+path+",append", xio.ModeWrite)
-	if _, err := io.WriteString(w.Stream, "new"); err != nil {
+	if _, err := io.WriteString(w.Stream(), "new"); err != nil {
 		t.Fatal(err)
 	}
 	if err := w.Close(); err != nil {
