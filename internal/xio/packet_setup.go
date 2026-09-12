@@ -47,7 +47,7 @@ func ListenClientPacket(ctx context.Context, network string, host addrconfig.Hos
 	bind := func(p addrconfig.PortTarget) (net.PacketConn, error) {
 		return ListenPacketWithOptions(ctx, network, host, p, s)
 	}
-	if !s.Network.LowPort.Value || (!port.Empty() && !port.IsZero()) {
+	if !ClientUsesLowport(s) || (!port.Empty() && !port.IsZero()) {
 		if port.Empty() {
 			port = addrconfig.PortFromText("0")
 		}

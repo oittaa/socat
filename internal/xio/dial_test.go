@@ -93,6 +93,23 @@ func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	}
 }
 
+func TestSourcePortZeroWithLowportDoesNotWalkReservedPorts(t *testing.T) {
+	s, err := parse.ParseSpec("TCP4:127.0.0.1:1,sourceport=0,lowport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := mustDecodeAddress(t, s)
+	if ClientUsesLowport(config) {
+		t.Fatal("explicit sourceport=0 must not select lowport")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err = DialTCPAll(ctx, DialTargetFromText("tcp4", "127.0.0.1", "1"), config, nil, time.Second, nil)
+	if err != nil && strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
+		t.Fatalf("sourceport=0,lowport walked reserved ports: %v", err)
+	}
+}
+
 // lowportWildcardBindDenied reports whether binding 0.0.0.0:1023 is denied
 // with EACCES/EPERM, matching dialTCPLowport's fail-closed condition.
 func lowportWildcardBindDenied() bool {

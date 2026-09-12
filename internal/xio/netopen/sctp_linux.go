@@ -119,7 +119,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	lowport := s.Network.LowPort.Value && (s.Network.SourcePort.Empty() || s.Network.SourcePort.IsZero())
+	lowport := xio.ClientUsesLowport(s)
 	var lastErr error
 	for _, ip := range ips {
 		af := 2

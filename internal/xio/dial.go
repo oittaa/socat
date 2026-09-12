@@ -72,7 +72,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	lowport := s.Network.LowPort.Value && (s.Network.SourcePort.Empty() || s.Network.SourcePort.IsZero())
+	lowport := ClientUsesLowport(s)
 
 	var lastErr error
 	for _, ip := range ips {

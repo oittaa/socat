@@ -45,7 +45,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	if err != nil {
 		return nil, err
 	}
-	lowport := s.Network.LowPort.Value && (s.Network.SourcePort.Empty() || s.Network.SourcePort.IsZero())
+	lowport := xio.ClientUsesLowport(s)
 	var conn net.Conn
 	if lowport {
 		bind, bindErr := xio.ListenBindHost(s, network)

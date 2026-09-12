@@ -43,7 +43,7 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 	}
 	sourceSpecified := exactPeer && !s.Network.SourcePort.Empty()
 	var laddr *net.UDPAddr
-	if s.Network.LowPort.Value && (!sourceSpecified || s.Network.SourcePort.IsZero()) {
+	if s.Network.LowPort.Value && (!sourceSpecified || s.Network.SourcePort.Empty()) {
 		bind, bindErr := xio.ListenBindHost(s, network)
 		if bindErr != nil {
 			return nil, bindErr

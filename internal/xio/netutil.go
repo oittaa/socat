@@ -83,7 +83,7 @@ func reuseaddrListenDefault(s addrconfig.Address, network string) bool {
 }
 
 // udpListenAddress reports whether this is a UDP listen address
-// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is GroupQUIC.
+// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not GROUP_UDP.
 func udpListenAddress(s addrconfig.Address) bool {
 	return s.Facts.Group == GroupUDP && s.Facts.Role == addrconfig.AddressRoleListen
 }
@@ -291,6 +291,13 @@ func ClientLocalPort(config addrconfig.Address) addrconfig.PortTarget {
 		return p
 	}
 	return addrconfig.PortFromText("0")
+}
+
+// ClientUsesLowport is true when outgoing bind should walk 640–1023.
+// An explicit sourceport=, including 0, is that bind port and does not
+// select a reserved port.
+func ClientUsesLowport(s addrconfig.Address) bool {
+	return s.Network.LowPort.Value && s.Network.SourcePort.Empty()
 }
 
 // SourcePortText is the prepared sourceport= value, or empty when absent.
