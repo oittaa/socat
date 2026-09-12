@@ -117,7 +117,7 @@ type Options struct {
 	LogFacility  logx.Facility // syslog facility for -ly/-lm
 	Statistics   bool
 	Experimental bool // --experimental (netns= warning)
-	// -r / -R path templates. Files live on sniffFiles, opened after peer is known.
+	// -r / -R path templates. Files live on Sniff, opened after peer is known.
 	RawLeftPath  string
 	RawRightPath string
 	Progname     string // -lp value; default "socat"
@@ -146,21 +146,36 @@ type childResult struct {
 	ChildErr      error
 }
 
-// sniffFiles are -r/-R dumps. ForkSession copies the pointers; openSniffFiles
-// then closes and reopens so parent and child do not share an *os.File.
-type sniffFiles struct {
+// Sniff is this session's -r/-R dump files. ForkSession does not share the
+// parent's *os.File pointers. openSniffFiles closes this session's files
+// and opens new ones from Options path templates so the session owns them.
+type Sniff struct {
 	RawLeft  *os.File
 	RawRight *os.File
 }
 
+func (s *Sniff) closeFiles() {
+	if s == nil {
+		return
+	}
+	if s.RawLeft != nil {
+		_ = s.RawLeft.Close()
+		s.RawLeft = nil
+	}
+	if s.RawRight != nil {
+		_ = s.RawRight.Close()
+		s.RawRight = nil
+	}
+}
+
 // Global is one logical session. Named dependencies (not anonymous embeds):
-// options (shared), Peer (copied), Log (cloned on fork). Remaining groups
-// stay embedded until later migrations.
+// options (shared), Peer (copied), Log (cloned on fork), Sniff (session-owned
+// files). Remaining groups stay embedded until later migrations.
 type Global struct {
 	options *Options
 	Peer    Peer
 	childResult
-	sniffFiles
+	Sniff Sniff
 	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
 	// then closes only the per-session duplicate, like a fork child's copy of
 	// the inherited descriptor.
@@ -207,16 +222,16 @@ func NewSession(opts Options, log *logx.Logger) *Global {
 // createSession is the single session constructor.
 //
 // Share: opts (immutable process options).
-// Copy: Peer (maps cloned), child wait status, sniff pointers, and LogMixed
-// when from is non-nil. log is cloned from from when log is nil.
-// Own: sessionMu (unset) and childSignals (nil).
+// Copy: Peer (maps cloned), child wait status, and LogMixed when from is
+// non-nil. log is cloned from from when log is nil.
+// Own: Sniff (empty; child opens its own files), sessionMu (unset),
+// and childSignals (nil).
 func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool) *Global {
 	if opts == nil {
 		opts = &Options{}
 	}
 	peer := Peer{}
 	var result childResult
-	var sniff sniffFiles
 	logMixed := false
 	var stats *atomic.Bool
 	if from != nil {
@@ -230,7 +245,6 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 			SessionVars: from.cloneSessionVars(),
 		}
 		result = from.childResult
-		sniff = from.sniffFiles
 		logMixed = from.LogMixed
 		stats = from.statsPrinted
 		if log == nil {
@@ -244,7 +258,6 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 		options:      opts,
 		Peer:         peer,
 		childResult:  result,
-		sniffFiles:   sniff,
 		ForkChild:    forkChild,
 		Log:          log,
 		LogMixed:     logMixed,
@@ -262,7 +275,7 @@ func cloneLogger(log *logx.Logger) *logx.Logger {
 // ForkSession returns a per-connection session derived from g.
 //
 // Share: Options, statsPrinted.
-// Copy: peer address strings, child wait status, sniff file pointers, LogMixed.
+// Copy: peer address strings, child wait status, LogMixed.
 // Clone: Log, TLSVars, SessionVars (so SOCAT_* env does not race).
 // Reset: ForkChild=true, childSignals=nil, sessionMu unset (child installs one).
 // Passing *g without a copy is not safe: RememberAddrs writes peer fields.

@@ -112,16 +112,9 @@ func openSniffFilesLocked(g *Global) error {
 	if g == nil {
 		return nil
 	}
-	// Close previous session files. Fork children copied the pointers; re-open
-	// so the child does not share the parent's *os.File.
-	if g.RawLeft != nil {
-		_ = g.RawLeft.Close()
-		g.RawLeft = nil
-	}
-	if g.RawRight != nil {
-		_ = g.RawRight.Close()
-		g.RawRight = nil
-	}
+	// Close this session's files, then open replacements. ForkSession does
+	// not share the parent's *os.File pointers.
+	g.Sniff.closeFiles()
 	now := time.Now()
 	opts := g.Options()
 	prog := opts.Progname
@@ -137,7 +130,7 @@ func openSniffFilesLocked(g *Global) error {
 		if err != nil {
 			return fmt.Errorf("-r %q: %w", path, err)
 		}
-		g.RawLeft = f
+		g.Sniff.RawLeft = f
 	}
 	if opts.RawRightPath != "" {
 		path, err := expandSniffPath(opts.RawRightPath, prog, now, g)
@@ -148,7 +141,7 @@ func openSniffFilesLocked(g *Global) error {
 		if err != nil {
 			return fmt.Errorf("-R %q: %w", path, err)
 		}
-		g.RawRight = f
+		g.Sniff.RawRight = f
 	}
 	return nil
 }
