@@ -20,7 +20,6 @@ type Facts struct {
 	Kind   AddressKind
 	Role   AddressRole
 	Family IPFamily
-	Secure bool
 }
 
 // Address is immutable prepared address data.
@@ -174,7 +173,6 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 				Kind:   facts.Kind,
 				Role:   facts.Role,
 				Family: facts.Family,
-				Secure: facts.Secure,
 			},
 			Common: Common{
 				Retry: Retry{Interval: time.Second},

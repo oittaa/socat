@@ -65,7 +65,6 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 			Kind:   desc.Kind,
 			Role:   desc.Role,
 			Family: desc.Family,
-			Secure: desc.Secure,
 		}
 	}
 	config, err := addrconfig.Decode(spec, facts)
@@ -104,7 +103,6 @@ func OpenWithType(ctx context.Context, name string, config addrconfig.Address, m
 		Kind:   desc.Kind,
 		Role:   desc.Role,
 		Family: desc.Family,
-		Secure: desc.Secure,
 	}
 	return desc.Opener(ctx, config, mode, g)
 }

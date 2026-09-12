@@ -27,10 +27,3 @@ func wsTarget(s addrconfig.Address, listen bool) (host, port, path string, err e
 	}
 	return host, port, path, nil
 }
-
-func wsScheme(s addrconfig.Address) string {
-	if s.Facts.Secure {
-		return "wss"
-	}
-	return "ws"
-}

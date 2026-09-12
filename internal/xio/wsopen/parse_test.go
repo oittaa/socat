@@ -3,7 +3,6 @@ package wsopen
 import (
 	"testing"
 
-	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -46,26 +45,6 @@ func TestWSTargetListen(t *testing.T) {
 	}
 	if port != "8080" || path != "/echo" {
 		t.Fatalf("port=%q path=%q", port, path)
-	}
-}
-
-func TestWSScheme(t *testing.T) {
-	s, _ := parse.ParseSpec("WSS:h:443")
-	if wsScheme(mustAddr(t, s)) != "wss" {
-		t.Fatal(wsScheme(mustAddr(t, s)))
-	}
-	plain, _ := parse.ParseSpec("WS:h:80")
-	if wsScheme(mustAddr(t, plain)) != "ws" {
-		t.Fatal(wsScheme(mustAddr(t, plain)))
-	}
-}
-
-func TestWSSchemeUsesPreparedSecure(t *testing.T) {
-	if wsScheme(addrconfig.Address{Type: "WSS", Facts: addrconfig.Facts{Secure: false}}) != "ws" {
-		t.Fatal("Type WSS without Secure must not select wss")
-	}
-	if wsScheme(addrconfig.Address{Type: "WS", Facts: addrconfig.Facts{Secure: true}}) != "wss" {
-		t.Fatal("Secure must select wss")
 	}
 }
 
