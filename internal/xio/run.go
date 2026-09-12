@@ -74,26 +74,11 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	lMode, rMode := channelModes(g)
 	defer func() { _ = lo.Close() }()
 
-	switch lo.Kind() {
-	case KindListen:
-		if lo.Listener() == nil {
-			return fmt.Errorf("%s: listen fork without listener", lo.Label)
-		}
+	switch lo.payload.(type) {
+	case *acceptParent:
 		return runForkListen(ctx, lo, right, rMode, g)
-	case KindDial:
-		// Client CONNECT/TLS-CONNECT with fork.
+	case *repeatedDial:
 		return runConnectFork(ctx, lo, right, rMode, g)
-	case KindExec:
-		if lo.NoForkConfig() == nil {
-			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
-		}
-		// Left EXEC,nofork: open right first, then exec on right's stream.
-		ro, err := OpenPreparedChannel(ctx, right, rMode, g)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = ro.Close() }()
-		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkConfig(), g, lMode)
 	}
 
 	ro, err := OpenPreparedChannel(ctx, right, rMode, g)
@@ -101,24 +86,25 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 		return err
 	}
 	defer func() { _ = ro.Close() }()
+	return runOpenedPair(ctx, lo, ro, g, lMode, rMode)
+}
 
-	switch ro.Kind() {
-	case KindExec:
-		if ro.NoForkConfig() == nil {
-			return fmt.Errorf("%s: exec nofork without spec", ro.Label)
-		}
+// runOpenedPair continues after both endpoints are open. Left accept/dial
+// parents never reach here; they keep the right channel closed until each child.
+func runOpenedPair(ctx context.Context, lo, ro *Opened, g *Global, lMode, rMode Mode) error {
+	if p := lo.nofork(); p != nil {
+		// Left EXEC,nofork: right is already open; inherit its stream.
+		return runExecNoFork(ctx, ro.EffectiveStream(), p.config, g, lMode)
+	}
+	switch ro.payload.(type) {
+	case *deferredNoFork:
 		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
-		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkConfig(), g, rMode)
-	case KindListen:
-		if ro.Listener() == nil {
-			return fmt.Errorf("%s: listen fork without listener", ro.Label)
-		}
-		// Listen on right with left already open.
+		return runExecNoFork(ctx, lo.EffectiveStream(), ro.nofork().config, g, rMode)
+	case *acceptParent:
 		return runForkListenRight(ctx, lo, ro, g)
-	case KindDial:
+	case *repeatedDial:
 		return runConnectForkWithLeft(ctx, lo.EffectiveStream(), ro, g)
 	}
-
 	return transferPair(ctx, lo, ro, g)
 }
 
@@ -272,9 +258,6 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 
 func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn) error) error {
 	dial := o.Dial()
-	if dial == nil {
-		return fmt.Errorf("%s: connect fork without dialer", o.Label)
-	}
 	interval := o.Interval()
 	if interval <= 0 {
 		interval = time.Second
