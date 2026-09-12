@@ -28,11 +28,8 @@ func kindOf(s addrconfig.Address) mqKind {
 }
 
 func queueName(s addrconfig.Address) (string, error) {
-	if len(s.Params) > 1 {
-		return "", fmt.Errorf("too many parameters (%d instead of 1)", len(s.Params))
-	}
-	if len(s.Params) != 1 || s.Params[0] == "" {
+	if s.Network.MQName == "" {
 		return "", fmt.Errorf("%s: requires a queue name", s.Type)
 	}
-	return s.Params[0], nil
+	return s.Network.MQName, nil
 }

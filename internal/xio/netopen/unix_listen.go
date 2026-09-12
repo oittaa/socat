@@ -13,11 +13,11 @@ import (
 )
 
 func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		// Fail fast: testaddrs uses UNIX-LISTEN::::: probes.
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
-	path := s.Params[0]
+	path := s.Network.SocketPath
 	if s.Network.BindSet {
 		// bind= on UNIX-LISTEN is invalid (must not bind twice).
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
@@ -88,10 +88,10 @@ func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xi
 
 // openAbstractListen: ABSTRACT-LISTEN:name — stream listen in Linux abstract namespace.
 func openAbstractListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-LISTEN requires name")
 	}
-	name := s.Params[0]
+	name := s.Network.SocketPath
 	if !xio.IsAbstract(name) {
 		name = "@" + name
 	}

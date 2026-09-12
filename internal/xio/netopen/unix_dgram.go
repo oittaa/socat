@@ -30,10 +30,10 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
-	remote := unixAddr(s.Params[0])
+	remote := unixAddr(s.Network.SocketPath)
 	bindPath, err := resolveUnixBindConfig(s)
 	if err != nil {
 		return nil, err
@@ -147,13 +147,13 @@ func openUnixRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *x
 }
 
 func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
 	if !from && mode == xio.ModeWrite {
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
-	path := unixAddr(s.Params[0])
+	path := unixAddr(s.Network.SocketPath)
 	if err := prepareUnixFilesystemPath(path, s); err != nil {
 		return nil, err
 	}
@@ -415,24 +415,24 @@ func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
 
 // openAbstractRecvfrom: bind abstract datagram, one peer packet then reply (like UNIX-RECVFROM).
 func openAbstractRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-RECVFROM requires name")
 	}
-	path := abstractName(s.Params[0])
+	path := abstractName(s.Network.SocketPath)
 	ps := s
-	ps.Params = []string{path}
+	ps.Network.SocketPath = path
 	// Force abstract path through openUnixRecvCommon without filesystem unlink.
 	return openUnixRecvCommon(ctx, ps, mode, g, true)
 }
 
 // openAbstractRecv: bind abstract datagram, read-only merge of packets.
 func openAbstractRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-RECV requires name")
 	}
-	path := abstractName(s.Params[0])
+	path := abstractName(s.Network.SocketPath)
 	ps := s
-	ps.Params = []string{path}
+	ps.Network.SocketPath = path
 	return openUnixRecvCommon(ctx, ps, mode, g, false)
 }
 
@@ -441,10 +441,10 @@ func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-SENDTO requires name")
 	}
-	target := abstractName(s.Params[0])
+	target := abstractName(s.Network.SocketPath)
 	bindOpt, err := resolveUnixBind(s)
 	if err != nil {
 		return nil, err
@@ -478,7 +478,7 @@ func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode
 	}
 	_ = mode
 	_ = g
-	return &xio.Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Params[0]}, nil
+	return &xio.Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Network.SocketPath}, nil
 }
 
 func applyUnixgramSocketOptions(c *net.UnixConn, s addrconfig.Address) error {

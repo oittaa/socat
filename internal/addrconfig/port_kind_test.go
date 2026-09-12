@@ -1,6 +1,7 @@
 package addrconfig
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -45,8 +46,39 @@ func TestUNIXListenPathIsNotListenPort(t *testing.T) {
 	if got.Network.ListenSet || !got.Network.ListenPort.Empty() {
 		t.Fatalf("listen port set=%v %+v", got.Network.ListenSet, got.Network.ListenPort)
 	}
-	if len(got.Params) != 1 || got.Params[0] != "/tmp/sock" {
-		t.Fatalf("params=%q", got.Params)
+	if got.Network.SocketPath != "/tmp/sock" {
+		t.Fatalf("unix path=%q", got.Network.SocketPath)
+	}
+}
+
+func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
+	create, err := parse.ParseSpec("CREATE:out.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Decode(create, Facts{Type: "CREATE", Kind: AddressKindCREATE})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.File.Path != "out.txt" {
+		t.Fatalf("file path=%q", got.File.Path)
+	}
+
+	mq, err := parse.ParseSpec("POSIXMQ:/queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err = Decode(mq, Facts{Type: "POSIXMQ", Kind: AddressKindPOSIXMQ})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Network.MQName != "/queue" {
+		t.Fatalf("mq name=%q", got.Network.MQName)
+	}
+
+	_, err = Decode(parse.Spec{Type: "POSIXMQ", Params: []string{"a", "b"}}, Facts{Type: "POSIXMQ", Kind: AddressKindPOSIXMQ})
+	if err == nil || !strings.Contains(err.Error(), "too many parameters") {
+		t.Fatalf("extra posixmq params: %v", err)
 	}
 }
 

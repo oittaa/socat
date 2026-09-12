@@ -12,6 +12,7 @@ import (
 
 // File is decoded descriptor and filesystem configuration.
 type File struct {
+	Path        string
 	Access      FileAccess
 	Create      OptionalBool
 	Exclusive   bool

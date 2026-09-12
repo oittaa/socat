@@ -8,14 +8,14 @@ import (
 
 func TestNamedFilesystemUnixSocketUsesKindAndRole(t *testing.T) {
 	listen := addrconfig.Address{
-		Facts:  addrconfig.Facts{Kind: addrconfig.AddressKindUNIX, Role: addrconfig.AddressRoleListen},
-		Params: []string{"/tmp/sock"},
+		Facts:   addrconfig.Facts{Kind: addrconfig.AddressKindUNIX, Role: addrconfig.AddressRoleListen},
+		Network: addrconfig.Network{SocketPath: "/tmp/sock"},
 	}
 	if FDSkipNamedUnixSocket(listen) != FDSkipOwner {
 		t.Fatal("UNIX listen filesystem name")
 	}
 	abstract := listen
-	abstract.Params = []string{"@abs"}
+	abstract.Network.SocketPath = "@abs"
 	if FDSkipNamedUnixSocket(abstract) != (FDSkip{}) {
 		t.Fatal("abstract UNIX listen")
 	}

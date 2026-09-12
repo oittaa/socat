@@ -34,10 +34,10 @@ func openUserFileWithUmask(config addrconfig.File, path string, flags int, perm 
 }
 
 func openOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.File.Path == "" {
 		return nil, fmt.Errorf("OPEN requires filename")
 	}
-	path := s.Params[0]
+	path := s.File.Path
 	flags, err := ConfiguredOpenFlags(s.File, mode)
 	if err != nil {
 		return nil, err
@@ -55,13 +55,13 @@ func openOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.G
 }
 
 func openCREATE(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 {
+	if s.File.Path == "" {
 		return nil, fmt.Errorf("CREATE requires filename")
 	}
 	if mode == xio.ModeRead {
 		return nil, fmt.Errorf("CREATE is write-only")
 	}
-	path := s.Params[0]
+	path := s.File.Path
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if s.File.Append {
 		// CREATE uses creat(2) semantics (always truncates first). append is
@@ -83,10 +83,10 @@ func openCREATE(ctx context.Context, s addrconfig.Address, mode xio.Mode, _ *xio
 }
 
 func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 {
+	if s.File.Path == "" {
 		return nil, fmt.Errorf("GOPEN requires filename")
 	}
-	path := s.Params[0]
+	path := s.File.Path
 	early, err := namedOpenEarly(path, s.File)
 	if err != nil {
 		return nil, err
@@ -113,7 +113,9 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 			return nil, err
 		}
 		// UNIX generic client probes stream, seqpacket, then datagram.
-		o, err := xio.OpenWithType(ctx, "UNIX", s, mode, g)
+		unix := s
+		unix.Network.SocketPath = path
+		o, err := xio.OpenWithType(ctx, "UNIX", unix, mode, g)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +159,7 @@ func openGOPEN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.
 
 func openPIPE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Named pipe if param present; else anonymous pipe echo
-	if len(s.Params) >= 1 && s.Params[0] != "" {
+	if s.File.Path != "" {
 		return openNamedPIPE(s, mode)
 	}
 	if err := rejectUnnamedPIPEOpenFlags(s.File); err != nil {
@@ -227,7 +229,7 @@ type namedPIPE struct {
 }
 
 func prepareNamedPIPE(config addrconfig.Address) (*namedPIPE, error) {
-	path := config.Params[0]
+	path := config.File.Path
 	// unlink-early unlinks even when the name is missing; ENOENT aborts
 	// before mkfifo. OPEN / CREATE / GOPEN instead share namedOpenEarly
 	// (exists && unlink-early).

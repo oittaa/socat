@@ -45,7 +45,7 @@ func decodeIoctl(o parse.Option, name string) (FileAction, error) {
 		if len(data) == 0 {
 			return FileAction{}, fmt.Errorf("invalid %s %q (empty dalan value)", action.Name, o.Value)
 		}
-		action.Request, action.Bytes = request, data
+		action.Request, action.Bytes = request, append([]byte(nil), data...)
 	case "ioctl-string":
 		action.Ioctl = IoctlString
 		request, value, err := splitIoctlRest(o, false)

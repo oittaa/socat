@@ -70,10 +70,10 @@ func unixTempnam(pattern string) (string, error) {
 }
 
 func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
-	path := unixAddr(s.Params[0])
+	path := unixAddr(s.Network.SocketPath)
 	bindPath, err := resolveUnixBind(s)
 	if err != nil {
 		return nil, err
@@ -304,15 +304,15 @@ func unixAddr(path string) string {
 
 // openAbstractConnect: ABSTRACT-CONNECT / ABSTRACT-CLIENT stream connect.
 func openAbstractConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-CONNECT requires name")
 	}
-	name := s.Params[0]
+	name := s.Network.SocketPath
 	if !xio.IsAbstract(name) {
 		name = "@" + name
 	}
 	ps := s
-	ps.Params = []string{name}
+	ps.Network.SocketPath = name
 	return openUnixConnect(ctx, ps, mode, g)
 }
 

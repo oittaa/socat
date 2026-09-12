@@ -45,7 +45,7 @@ func namedFilesystemUnixSocket(config addrconfig.Address) bool {
 	default:
 		return false
 	}
-	if len(config.Params) > 0 && IsAbstract(config.Params[0]) {
+	if config.Network.SocketPath != "" && IsAbstract(config.Network.SocketPath) {
 		return false
 	}
 	return true

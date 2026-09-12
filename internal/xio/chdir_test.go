@@ -35,8 +35,8 @@ func TestResolveChdirAddressPath(t *testing.T) {
 		Options: []parse.Option{{Name: "chdir", Value: dir, Has: true}},
 	}
 	got := resolveChdirConfig(t, spec)
-	if want := filepath.Join(dir, "result.txt"); len(got.Params) != 1 || got.Params[0] != want {
-		t.Fatalf("params=%q want [%q]", got.Params, want)
+	if want := filepath.Join(dir, "result.txt"); got.File.Path != want {
+		t.Fatalf("path=%q want %q", got.File.Path, want)
 	}
 	if spec.Params[0] != "result.txt" {
 		t.Fatalf("input spec mutated: %q", spec.Params)
@@ -53,8 +53,8 @@ func TestResolveChdirCDAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := resolveChdirConfig(t, *ch.Single)
-	if want := filepath.Join(dir, "result.txt"); len(got.Params) != 1 || got.Params[0] != want {
-		t.Fatalf("params=%q want [%q]", got.Params, want)
+	if want := filepath.Join(dir, "result.txt"); got.File.Path != want {
+		t.Fatalf("path=%q want %q", got.File.Path, want)
 	}
 	if got.Process.Chdir.Value != dir && !filepath.IsAbs(got.Process.Chdir.Value) {
 		t.Fatalf("chdir=%q want absolute directory", got.Process.Chdir.Value)

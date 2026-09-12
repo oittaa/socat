@@ -147,7 +147,7 @@ func applyPreparedGenericAction(fd int, action addrconfig.SocketAction) error {
 	if action.Value.IsInt {
 		err = setSockoptInt(fd, action.Number, action.Option, action.Value.Int)
 	} else {
-		err = setSockoptBytes(fd, action.Number, action.Option, action.Value.Bytes)
+		err = setSockoptBytes(fd, action.Number, action.Option, append([]byte(nil), action.Value.Bytes...))
 	}
 	return sockerr("setsockopt", err)
 }

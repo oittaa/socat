@@ -35,6 +35,12 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 
 	config.Params = append([]string(nil), config.Params...)
 	config.Process.Chdir.Value = abs
+	if filesystemAddressParam(config) && config.File.Path != "" {
+		config.File.Path = resolveRelativePath(abs, config.File.Path)
+	}
+	if unixAddressType(config) && config.Network.SocketPath != "" {
+		config.Network.SocketPath = resolveRelativePath(abs, config.Network.SocketPath)
+	}
 	if filesystemAddressParam(config) && len(config.Params) > 0 {
 		config.Params[0] = resolveRelativePath(abs, config.Params[0])
 	}

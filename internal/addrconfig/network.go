@@ -361,6 +361,7 @@ type Network struct {
 	ReusePort        OptionalBool
 	UnixBindTempname OptionalString
 	UnixTightSocklen OptionalBool
+	SocketPath       string
 	Backlog          OptionalInt
 	KeepAlive        OptionalBool
 	KeepIdle         OptionalDuration
@@ -404,10 +405,18 @@ type Network struct {
 
 	InterfaceName string
 
+	MQName        string
 	MQPriority    OptionalUint32
 	MQFlush       OptionalBool
 	MQMaxMessages OptionalInt
 	MQMessageSize OptionalInt
+}
+
+func firstParam(params []string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	return params[0]
 }
 
 func decodeNetwork(d *decoder, spec parse.Spec) error {
@@ -480,7 +489,17 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 		return decodeSOCKSPositional(d)
 	case AddressKindEXEC, AddressKindSYSTEM, AddressKindSHELL:
 		return nil
+	case AddressKindFile, AddressKindCREATE, AddressKindPIPE, AddressKindGOPEN:
+		a.File.Path = firstParam(a.Params)
+		return nil
 	case AddressKindUNIX, AddressKindABSTRACT:
+		n.SocketPath = firstParam(a.Params)
+		return nil
+	case AddressKindPOSIXMQ:
+		if len(a.Params) > 1 {
+			return fmt.Errorf("too many parameters (%d instead of 1)", len(a.Params))
+		}
+		n.MQName = firstParam(a.Params)
 		return nil
 	default:
 		switch n.Role {

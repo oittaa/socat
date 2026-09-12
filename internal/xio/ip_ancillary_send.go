@@ -106,7 +106,7 @@ func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAct
 		if len(action.Value.Bytes) == 0 {
 			return nil
 		}
-		if err := applyIPOptionsBytes(fd, action.Value.Bytes); err != nil {
+		if err := applyIPOptionsBytes(fd, append([]byte(nil), action.Value.Bytes...)); err != nil {
 			return fmt.Errorf("ip-options: %w", err)
 		}
 		return nil
