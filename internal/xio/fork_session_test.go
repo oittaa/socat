@@ -85,6 +85,30 @@ func TestForkSessionCopiesPeer(t *testing.T) {
 	}
 }
 
+func TestForkSessionCopiesLogger(t *testing.T) {
+	lg := logx.New()
+	g := NewSession(Options{}, lg)
+	g.LogMixed = true
+	parentSig := new(childSignalSession)
+	g.childSignals = parentSig
+
+	c := g.ForkSession()
+	if c.Log == nil || c.Log == g.Log || c.Log == lg {
+		t.Fatal("fork must clone Log")
+	}
+	if !c.LogMixed {
+		t.Fatal("LogMixed is copied")
+	}
+	if c.childSignals != nil || g.childSignals != parentSig {
+		t.Fatal("child owns a fresh signal table; parent keeps its own")
+	}
+	c.LogMixed = false
+	c.Log = logx.New()
+	if !g.LogMixed || g.Log != lg {
+		t.Fatal("parent logger is independent")
+	}
+}
+
 func TestForkSessionNilOwnsState(t *testing.T) {
 	c := (*Global)(nil).ForkSession()
 	if !c.ForkChild || c.options == nil || c.childSignals != nil || c.sessionMu.Load() != nil {
