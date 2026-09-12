@@ -829,8 +829,8 @@ func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChil
 
 	w := c.watchWait(done)
 	linger := 500 * time.Millisecond
-	if c.g != nil && c.g.Linger > 0 {
-		linger = c.g.Linger
+	if c.g != nil && c.g.Options().Linger > 0 {
+		linger = c.g.Options().Linger
 	}
 	endClose := c.config.Transfer.EndClose.Value
 	o, err := NewReady("EXEC", st)

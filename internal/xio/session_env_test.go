@@ -21,7 +21,11 @@ func environMap(env []string) map[string]string {
 
 func TestChildEnvironOverlaysSession(t *testing.T) {
 	t.Setenv("SOCAT_PEERADDR", "stale")
-	g := &Global{SockAddr: "10.0.0.1", SockPort: "1", PeerAddr: "10.0.0.2", PeerPort: "2", Progname: "socat"}
+	g := NewSession(Options{Progname: "socat"}, nil)
+	g.SockAddr = "10.0.0.1"
+	g.SockPort = "1"
+	g.PeerAddr = "10.0.0.2"
+	g.PeerPort = "2"
 	got := environMap(childEnviron(g))
 	if got["SOCAT_PEERADDR"] != "10.0.0.2" {
 		t.Fatalf("SOCAT_PEERADDR=%q", got["SOCAT_PEERADDR"])
@@ -39,7 +43,8 @@ func TestChildEnvironOverlaysSession(t *testing.T) {
 }
 
 func TestSessionEnvironUsesPrognameAndSocatCompatibilityNames(t *testing.T) {
-	g := &Global{Progname: "relay", SessionVars: map[string]string{"TIMESTAMP": "now"}}
+	g := NewSession(Options{Progname: "relay"}, nil)
+	g.SessionVars = map[string]string{"TIMESTAMP": "now"}
 	got := environMap(sessionEnv(g))
 	for _, name := range []string{"SOCAT_TIMESTAMP", "RELAY_TIMESTAMP", "SOCAT_VERSION", "RELAY_VERSION"} {
 		if got[name] == "" {
@@ -68,7 +73,7 @@ func TestPreferredResolveVersionFromEnvironment(t *testing.T) {
 	if got := preferredResolveVersion(&Global{}); got != IPv6 {
 		t.Fatalf("env=6 got %v", got)
 	}
-	if got := preferredResolveVersion(&Global{IPVersion: IPv4}); got != IPv4 {
+	if got := preferredResolveVersion(NewSession(Options{IPVersion: IPv4}, nil)); got != IPv4 {
 		t.Fatalf("explicit -4 must win, got %v", got)
 	}
 	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "0")

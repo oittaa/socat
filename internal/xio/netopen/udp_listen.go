@@ -143,7 +143,7 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 
 	// Non-fork: one peer session. Keep the listen socket for further
 	// packets from that peer and for replies.
-	buf := make([]byte, max(g.BlockSize, 8192))
+	buf := make([]byte, max(g.Options().BlockSize, 8192))
 	wantCtrl := xio.NeedAncillary(s)
 	recvErr := xio.NeedRecvErr(s)
 	var n int

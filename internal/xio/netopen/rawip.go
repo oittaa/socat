@@ -83,7 +83,7 @@ func NetworkIP(g *xio.Global, s addrconfig.Address, def string) string {
 		}
 	}
 	if g != nil {
-		switch g.IPVersion {
+		switch g.Options().IPVersion {
 		case xio.IPv6:
 			return "ip6"
 		case xio.IPv4:
@@ -376,7 +376,7 @@ func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global
 
 func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.IPConn, network string, wantCtrl bool) (*xio.Opened, error) {
 	// One permitted packet, then EOF. Keep the socket for reply writes.
-	buf := make([]byte, max(g.BlockSize, 65535))
+	buf := make([]byte, max(g.Options().BlockSize, 65535))
 	stripV4 := network == "ip4"
 	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {

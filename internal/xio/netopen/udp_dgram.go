@@ -383,7 +383,7 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 	// DialUDP(local, peer) after Close fails with EADDRINUSE.
 	// When ancillary options are set, use recvmsg so we can log/set env
 	// before SYSTEM/EXEC children start (UDP*ENV tests).
-	buf := make([]byte, max(g.BlockSize, 65535))
+	buf := make([]byte, max(g.Options().BlockSize, 65535))
 	wantCtrl := xio.NeedAncillary(s)
 	recvErr := xio.NeedRecvErr(s)
 	type res struct {

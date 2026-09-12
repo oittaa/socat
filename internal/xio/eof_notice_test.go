@@ -36,7 +36,7 @@ func transferEOFNotice(t *testing.T, left, right relay.Stream) string {
 	lg := logx.New()
 	lg.SetOutput(&logBuf)
 	lg.SetLevel(logx.Notice)
-	g := &Global{Log: lg, BlockSize: 8192, Linger: 0, LeftToRight: true}
+	g := NewSession(Options{BlockSize: 8192, Linger: 0, LeftToRight: true}, lg)
 	if err := transferStreamsOpts(context.Background(), left, right, g, false, false); err != nil {
 		t.Fatal(err)
 	}

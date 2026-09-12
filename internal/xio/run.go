@@ -19,10 +19,11 @@ func channelModes(g *Global) (lMode, rMode Mode) {
 	if g == nil {
 		return lMode, rMode
 	}
-	if g.LeftToRight && !g.RightToLeft {
+	opts := g.Options()
+	if opts.LeftToRight && !opts.RightToLeft {
 		return ModeRead, ModeWrite
 	}
-	if g.RightToLeft && !g.LeftToRight {
+	if opts.RightToLeft && !opts.LeftToRight {
 		return ModeWrite, ModeRead
 	}
 	return lMode, rMode
@@ -439,7 +440,8 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	relay.ConfigureStreamPair(left, right)
 	WaitFromEnv("SOCAT_TRANSFER_WAIT")
 	// Open -r/-R sniff files at transfer start (after peer env is set).
-	if g != nil && (g.RawLeftPath != "" || g.RawRightPath != "") {
+	opts := g.Options()
+	if g != nil && (opts.RawLeftPath != "" || opts.RawRightPath != "") {
 		if err := openSniffFiles(g); err != nil {
 			return err
 		}
@@ -454,19 +456,19 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 			}
 		}()
 	}
-	leftToRight, rightToLeft := g.LeftToRight, g.RightToLeft
+	leftToRight, rightToLeft := opts.LeftToRight, opts.RightToLeft
 	if !leftToRight && !rightToLeft {
 		leftToRight, rightToLeft = true, true
 	}
 	cfg := relay.Config{
-		BufferSize:   g.BlockSize,
-		Linger:       g.Linger,
-		IdleTimeout:  g.Idle,
+		BufferSize:   opts.BlockSize,
+		Linger:       opts.Linger,
+		IdleTimeout:  opts.Idle,
 		LeftToRight:  leftToRight,
 		RightToLeft:  rightToLeft,
-		Verbose:      g.Verbose,
-		Hex:          g.Hex,
-		Dump:         g.Dump,
+		Verbose:      opts.Verbose,
+		Hex:          opts.Hex,
+		Dump:         opts.Dump,
 		NoCloseLeft:  noCloseLeft,
 		NoCloseRight: noCloseRight,
 	}
@@ -478,7 +480,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if g.RawRight != nil {
 		cfg.RawRight = g.RawRight
 	}
-	if g != nil && g.Statistics && g.Log != nil {
+	if g != nil && opts.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
 			PrintStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
 			g.markStatsPrinted()

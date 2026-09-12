@@ -92,7 +92,7 @@ func openExecCleanupCtx(t *testing.T, ctx context.Context, specText string, mode
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := OpenSpec(ctx, spec, mode, &Global{Log: logx.New(), Linger: linger})
+	o, err := OpenSpec(ctx, spec, mode, NewSession(Options{Linger: linger}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ func (g *Global) maybeSwitchMixedLog() {
 		return
 	}
 	g.Log.Infof("switching to syslog")
-	if err := g.Log.UseSyslog(g.Progname, g.LogFacility); err != nil {
+	if err := g.Log.UseSyslog(g.Options().Progname, g.Options().LogFacility); err != nil {
 		g.Log.Errorf("%s", err)
 		return
 	}

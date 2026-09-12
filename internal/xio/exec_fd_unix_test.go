@@ -27,7 +27,7 @@ func openEXECSpec(t *testing.T, specText string, mode Mode) *Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := OpenSpec(context.Background(), spec, mode, &Global{Log: logx.New(), Linger: time.Second})
+	o, err := OpenSpec(context.Background(), spec, mode, NewSession(Options{Linger: time.Second}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

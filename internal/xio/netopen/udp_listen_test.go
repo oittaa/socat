@@ -45,7 +45,7 @@ func waitUDPAccept(t *testing.T, ch <-chan udpAcceptResult, timeout time.Duratio
 }
 
 func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	g := xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 	spec, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,rcvtimeo=nope")
 	if err != nil {
 		t.Fatal(err)

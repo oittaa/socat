@@ -21,7 +21,7 @@ func TestUnixListenForkWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +43,7 @@ func TestAbstractListenForkWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openAbstractListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	o, err := openAbstractListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

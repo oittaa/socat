@@ -486,7 +486,7 @@ func ListenNetwork(g *Global, config addrconfig.Address) string {
 	}
 	ver := IPv4Default
 	if g != nil {
-		ver = g.IPVersion
+		ver = g.Options().IPVersion
 	}
 	switch ver {
 	case IPv4:

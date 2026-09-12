@@ -34,7 +34,7 @@ func openSocketKind(t *testing.T, raw string, mode xio.Mode) *xio.Opened {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	t.Cleanup(cancel)
 	s := mustSocketSpec(t, raw)
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	g := xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 	o, err := xio.OpenSpec(ctx, s, mode, g)
 	if err != nil {
 		t.Fatal(err)

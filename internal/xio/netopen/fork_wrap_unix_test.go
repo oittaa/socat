@@ -12,7 +12,7 @@ import (
 )
 
 func TestSocketRecvfromForkHasWrapDial(t *testing.T) {
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	g := xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 	spec, err := parse.ParseSpec("SOCKET-RECVFROM:2:2:17:x00007f0000010000000000000000,reuseaddr,fork,readbytes=4")
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestSocketRecvfromForkHasWrapDial(t *testing.T) {
 }
 
 func TestSocketListenForkHasWrapDial(t *testing.T) {
-	g := &xio.Global{BlockSize: 8192, Log: logx.New()}
+	g := xio.NewSession(xio.Options{BlockSize: 8192}, logx.New())
 	spec, err := parse.ParseSpec("SOCKET-LISTEN:2:0:x00007f0000010000000000000000,reuseaddr,fork,readbytes=4")
 	if err != nil {
 		t.Fatal(err)

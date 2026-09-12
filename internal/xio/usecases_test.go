@@ -34,29 +34,19 @@ func cloneGlobal(g *xio.Global) *xio.Global {
 	if g == nil {
 		g = testGlobal()
 	}
-	cg := &xio.Global{
-		Log:          g.Log,
-		BlockSize:    g.BlockSize,
-		Linger:       g.Linger,
-		LeftToRight:  g.LeftToRight,
-		RightToLeft:  g.RightToLeft,
-		Experimental: g.Experimental,
-		IPVersion:    g.IPVersion,
-		DumpFDs:      g.DumpFDs,
-		DumpFDOut:    g.DumpFDOut,
-		LogMixed:     g.LogMixed,
-		LogFacility:  g.LogFacility,
-		Progname:     g.Progname,
+	opts := g.Options()
+	if opts.BlockSize == 0 {
+		opts.BlockSize = 8192
 	}
-	if cg.Log == nil {
-		cg.Log = logx.New()
+	if opts.Linger == 0 {
+		opts.Linger = 200 * time.Millisecond
 	}
-	if cg.BlockSize == 0 {
-		cg.BlockSize = 8192
+	log := g.Log
+	if log == nil {
+		log = logx.New()
 	}
-	if cg.Linger == 0 {
-		cg.Linger = 200 * time.Millisecond
-	}
+	cg := xio.NewSession(opts, log)
+	cg.LogMixed = g.LogMixed
 	return cg
 }
 
@@ -321,8 +311,7 @@ func TestTCPListenForwardsToTCP(t *testing.T) {
 }
 
 func TestTEXTToCREATE(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	g.LeftToRight = true
+	ctx, g := testCtx(t), xio.NewSession(xio.Options{BlockSize: 8192, LeftToRight: true}, logx.New())
 	path := filepath.Join(t.TempDir(), "text.out")
 	left := mustParse(t, "TEXT:hello-text")
 	right := mustParse(t, "CREATE:"+path)
@@ -607,8 +596,7 @@ func TestECHOAliasPIPE(t *testing.T) {
 }
 
 func TestCREATAliasCREATE(t *testing.T) {
-	ctx, g := testCtx(t), testGlobal()
-	g.LeftToRight = true
+	ctx, g := testCtx(t), xio.NewSession(xio.Options{BlockSize: 8192, LeftToRight: true}, logx.New())
 	path := filepath.Join(t.TempDir(), "creat.out")
 	if err := xio.Run(ctx, mustParse(t, "TEXT:creat-ok"), mustParse(t, "CREAT:"+path), g); err != nil {
 		t.Fatal(err)

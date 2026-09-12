@@ -100,9 +100,9 @@ const (
 	IPvAny // -0
 )
 
-// globalOptions is parsed process configuration. It is immutable after
-// buildGlobal. ForkSession copies it by value.
-type globalOptions struct {
+// Options is parsed process configuration. It is immutable after NewSession.
+// Sessions share one private *Options; Options() returns a value snapshot.
+type Options struct {
 	IPVersion    IPVersion
 	BlockSize    int
 	Linger       time.Duration
@@ -166,10 +166,11 @@ type sessionRuntime struct {
 	LogMixed     bool // -lm: stderr until both endpoints are ready
 }
 
-// Global is parsed options plus the current logical session's runtime state.
-// Callers still use the promoted field names (g.BlockSize, g.SockAddr, ...).
+// Global is one logical session. options is a named dependency (not an
+// anonymous embed) and is shared with ForkSession results. Remaining
+// session-state groups stay embedded until later migrations.
 type Global struct {
-	globalOptions
+	options *Options
 	sessionPeer
 	childResult
 	sniffFiles
@@ -178,51 +179,101 @@ type Global struct {
 	// Pointer, never an embedded atomic.Bool, so copies cannot copy a lock.
 	statsPrinted *atomic.Bool
 	// sessionMu guards SessionVars. Each session CAS-installs its own mutex;
-	// ForkSession must not copy this field.
+	// createSession must not copy this field.
 	sessionMu atomic.Pointer[sync.Mutex]
+}
+
+// Options returns a snapshot of this session's process options.
+// A nil or uninitialized session yields the zero Options value. The
+// snapshot is not shared storage: mutating it cannot change the session
+// or its forks.
+func (g *Global) Options() Options {
+	if g == nil || g.options == nil {
+		return Options{}
+	}
+	return *g.options
+}
+
+// sharesOptions reports whether g and other hold the same private Options
+// pointer. Tests use this instead of comparing Options() snapshots.
+func (g *Global) sharesOptions(other *Global) bool {
+	return g != nil && other != nil && g.options != nil && g.options == other.options
+}
+
+// NewSession creates a root logical session.
+//
+// opts is copied onto the heap. Later ForkSession results share that
+// *Options. log is stored as-is (forks clone it). Peer maps start empty.
+// sessionMu and the child signal table start unset so this session owns them.
+func NewSession(opts Options, log *logx.Logger) *Global {
+	return createSession(&opts, nil, log, false)
+}
+
+// createSession is the single session constructor.
+//
+// Share: opts (immutable process options).
+// Copy: peer maps, child wait status, sniff pointers, and LogMixed when
+// from is non-nil. log is cloned from from when log is nil.
+// Own: sessionMu (unset) and childSignals (nil).
+func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool) *Global {
+	if opts == nil {
+		opts = &Options{}
+	}
+	peer := sessionPeer{}
+	var result childResult
+	var sniff sniffFiles
+	logMixed := false
+	var stats *atomic.Bool
+	if from != nil {
+		peer = sessionPeer{
+			SockAddr:    from.SockAddr,
+			PeerAddr:    from.PeerAddr,
+			SockPort:    from.SockPort,
+			PeerPort:    from.PeerPort,
+			TLSVars:     cloneStringMap(from.TLSVars),
+			SessionVars: from.cloneSessionVars(),
+		}
+		result = from.childResult
+		sniff = from.sniffFiles
+		logMixed = from.LogMixed
+		stats = from.statsPrinted
+		if log == nil && from.Log != nil {
+			log = from.Log.Clone()
+		}
+	}
+	if stats == nil && forkChild {
+		stats = new(atomic.Bool)
+	}
+	return &Global{
+		options:     opts,
+		sessionPeer: peer,
+		childResult: result,
+		sniffFiles:  sniff,
+		sessionRuntime: sessionRuntime{
+			ForkChild: forkChild,
+			Log:       log,
+			LogMixed:  logMixed,
+		},
+		statsPrinted: stats,
+	}
 }
 
 // ForkSession returns a per-connection session derived from g.
 //
-// Copy: options, peer address strings, child wait status, sniff file pointers, LogMixed.
+// Share: Options, statsPrinted.
+// Copy: peer address strings, child wait status, sniff file pointers, LogMixed.
 // Clone: Log, TLSVars, SessionVars (so SOCAT_* env does not race).
-// Share: statsPrinted.
 // Reset: ForkChild=true, childSignals=nil, sessionMu unset (child installs one).
 // Passing *g without a copy is not safe: RememberAddrs writes peer fields.
 func (g *Global) ForkSession() *Global {
 	if g == nil {
-		return &Global{sessionRuntime: sessionRuntime{ForkChild: true}, statsPrinted: new(atomic.Bool)}
+		return createSession(&Options{}, nil, nil, true)
 	}
-	unlock := g.lockSession()
-	vars := cloneStringMap(g.SessionVars)
-	unlock()
-	var log *logx.Logger
-	if g.Log != nil {
-		log = g.Log.Clone()
+	opts := g.options
+	if opts == nil {
+		opts = &Options{}
 	}
-	stats := g.statsPrinted
-	if stats == nil {
-		stats = new(atomic.Bool)
-	}
-	return &Global{
-		globalOptions: g.globalOptions,
-		sessionPeer: sessionPeer{
-			SockAddr:    g.SockAddr,
-			PeerAddr:    g.PeerAddr,
-			SockPort:    g.SockPort,
-			PeerPort:    g.PeerPort,
-			TLSVars:     cloneStringMap(g.TLSVars),
-			SessionVars: vars,
-		},
-		childResult: g.childResult,
-		sniffFiles:  g.sniffFiles,
-		sessionRuntime: sessionRuntime{
-			ForkChild: true,
-			Log:       log,
-			LogMixed:  g.LogMixed,
-		},
-		statsPrinted: stats,
-	}
+	return createSession(opts, g, nil, true)
 }
 
 func cloneStringMap(src map[string]string) map[string]string {

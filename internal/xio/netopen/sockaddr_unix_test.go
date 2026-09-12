@@ -64,7 +64,7 @@ func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
 }
 
 func TestSocketIPv4ShortSockaddrBindIsEINVAL(t *testing.T) {
-	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err == nil {
 		t.Fatal("short sockaddr_in bind succeeded")
 	}

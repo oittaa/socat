@@ -11,10 +11,10 @@ import (
 )
 
 func (g *Global) dumpSessionFDs(left, right relay.Stream) {
-	if g == nil || !g.DumpFDs {
+	if g == nil || !g.Options().DumpFDs {
 		return
 	}
-	out := g.DumpFDOut
+	out := g.Options().DumpFDOut
 	if out == nil {
 		out = os.Stderr
 	}
