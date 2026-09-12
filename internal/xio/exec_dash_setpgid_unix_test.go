@@ -192,7 +192,7 @@ func readExecStdout(t *testing.T, spec string) string {
 	}
 	defer func() { _ = o.Close() }()
 	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, o.Stream); err != nil {
+	if _, err := io.Copy(&buf, o.Stream()); err != nil {
 		t.Fatal(err)
 	}
 	_ = o.Close()

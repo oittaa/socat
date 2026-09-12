@@ -136,7 +136,7 @@ func TestEXECPrintsStdout(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	got := strings.TrimSpace(string(readAll(t, o.Stream)))
+	got := strings.TrimSpace(string(readAll(t, o.Stream())))
 	if got != "socat-exec-ok" {
 		t.Fatalf("EXEC got %q", got)
 	}
@@ -152,7 +152,7 @@ func TestSHELLHonorsShell(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if got := string(readAll(t, o.Stream)); got != "socat-shell-ok" {
+	if got := string(readAll(t, o.Stream())); got != "socat-shell-ok" {
 		t.Fatalf("SHELL got %q", got)
 	}
 }
@@ -169,11 +169,11 @@ func TestSYSTEMSocketpairRoundtrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 	const payload = "abcde"
-	mustWrite(t, o.Stream, []byte(payload))
-	if err := o.Stream.ShutdownWrite(); err != nil {
+	mustWrite(t, o.Stream(), []byte(payload))
+	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+	if got := string(readFull(t, o.Stream(), len(payload))); got != payload {
 		t.Fatalf("SYSTEM socketpair got %q", got)
 	}
 }
@@ -190,11 +190,11 @@ func TestTCPListenEXECCat(t *testing.T) {
 		"EXEC:"+cat)
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
 	const payload = "inetd-cat"
-	mustWrite(t, cli.Stream, []byte(payload))
-	if err := cli.Stream.ShutdownWrite(); err != nil {
+	mustWrite(t, cli.Stream(), []byte(payload))
+	if err := cli.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+	if got := string(readFull(t, cli.Stream(), len(payload))); got != payload {
 		t.Fatalf("EXEC cat got %q", got)
 	}
 }
@@ -212,11 +212,11 @@ func TestTCPListenEXECCatEndClose(t *testing.T) {
 		"EXEC:"+cat+",end-close")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",connect-timeout=2")
 	const payload = "inetd-end-close"
-	mustWrite(t, cli.Stream, []byte(payload))
-	if err := cli.Stream.ShutdownWrite(); err != nil {
+	mustWrite(t, cli.Stream(), []byte(payload))
+	if err := cli.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+	if got := string(readFull(t, cli.Stream(), len(payload))); got != payload {
 		t.Fatalf("EXEC cat,end-close got %q", got)
 	}
 }
@@ -233,8 +233,8 @@ func TestEXECPtyRoundtrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 	const payload = "abcde"
-	mustWrite(t, o.Stream, []byte(payload))
-	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+	mustWrite(t, o.Stream(), []byte(payload))
+	if got := string(readFull(t, o.Stream(), len(payload))); got != payload {
 		t.Fatalf("EXEC,pty got %q", got)
 	}
 }
@@ -250,8 +250,8 @@ func TestEXECfdinFdout(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 	const payload = "fghij"
-	mustWrite(t, o.Stream, []byte(payload))
-	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+	mustWrite(t, o.Stream(), []byte(payload))
+	if got := string(readFull(t, o.Stream(), len(payload))); got != payload {
 		t.Fatalf("fdin/fdout got %q", got)
 	}
 }
@@ -286,11 +286,11 @@ func TestUNIXListenEXECCat(t *testing.T) {
 	startListenRight(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork", "EXEC:"+cat)
 	cli := openClient(t, ctx, g, "UNIX-CONNECT:"+path)
 	const payload = "unix-inetd"
-	mustWrite(t, cli.Stream, []byte(payload))
-	if err := cli.Stream.ShutdownWrite(); err != nil {
+	mustWrite(t, cli.Stream(), []byte(payload))
+	if err := cli.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readFull(t, cli.Stream, len(payload))); got != payload {
+	if got := string(readFull(t, cli.Stream(), len(payload))); got != payload {
 		t.Fatalf("UNIX-LISTEN EXEC got %q", got)
 	}
 }
@@ -307,11 +307,11 @@ func TestEXECPipesRoundtrip(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 	const payload = "pipes-ok"
-	mustWrite(t, o.Stream, []byte(payload))
-	if err := o.Stream.ShutdownWrite(); err != nil {
+	mustWrite(t, o.Stream(), []byte(payload))
+	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	if got := string(readFull(t, o.Stream, len(payload))); got != payload {
+	if got := string(readFull(t, o.Stream(), len(payload))); got != payload {
 		t.Fatalf("EXEC,pipes got %q", got)
 	}
 }

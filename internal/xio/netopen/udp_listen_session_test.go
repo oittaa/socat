@@ -170,18 +170,18 @@ func assertNoUDP(t *testing.T, pc *net.UDPConn, wait time.Duration) {
 
 func TestUDPListenNonForkKeepsSamePeerSession(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("pkt1"))
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "pkt1" {
 		t.Fatalf("first=%q err=%v", got, err)
 	}
 	if _, err := client.Write([]byte("pkt2")); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "pkt2" {
 		t.Fatalf("second=%q err=%v want pkt2", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream, 80*time.Millisecond)
+	got, err = readStreamTimeout(t, o.Stream(), 80*time.Millisecond)
 	if !errors.Is(err, errReadTimeout) {
 		t.Fatalf("LISTEN returned %q err=%v after two datagrams; want to keep waiting", got, err)
 	}
@@ -189,10 +189,10 @@ func TestUDPListenNonForkKeepsSamePeerSession(t *testing.T) {
 
 func TestUDPListenDefaultShutNull(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("hi"))
-	if _, err := readStreamTimeout(t, o.Stream, 2*time.Second); err != nil {
+	if _, err := readStreamTimeout(t, o.Stream(), 2*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.Stream.ShutdownWrite(); err != nil {
+	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
 	waitEmptyUDP(t, client, 2*time.Second)
@@ -200,10 +200,10 @@ func TestUDPListenDefaultShutNull(t *testing.T) {
 
 func TestUDPListenShutNoneSendsNoDatagram(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,shut-none", []byte("hi"))
-	if _, err := readStreamTimeout(t, o.Stream, 2*time.Second); err != nil {
+	if _, err := readStreamTimeout(t, o.Stream(), 2*time.Second); err != nil {
 		t.Fatal(err)
 	}
-	if err := o.Stream.ShutdownWrite(); err != nil {
+	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
 	assertNoUDP(t, client, 150*time.Millisecond)
@@ -225,22 +225,22 @@ func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) (shutt
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.WrapDial == nil {
+	if o.WrapDial() == nil {
 		t.Fatal("WrapDial is nil")
 	}
-	client, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, o.Listener.Addr().(*net.UDPAddr))
+	client, err := net.DialUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, o.Listener().Addr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	ch := startUDPAccept(o.Listener)
+	ch := startUDPAccept(o.Listener())
 	for _, packet := range first {
 		if _, err := client.Write(packet); err != nil {
 			t.Fatal(err)
 		}
 	}
 	sess := waitUDPAccept(t, ch, 2*time.Second, "fork session")
-	st, err := o.WrapDial(sess)
+	st, err := o.WrapDial()(sess)
 	if err != nil {
 		_ = sess.Close()
 		t.Fatal(err)
@@ -251,7 +251,7 @@ func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) (shutt
 
 func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
 	o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,null-eof", nil)
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("got %q err=%v want EOF", got, err)
 	}
@@ -262,7 +262,7 @@ func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
 	// packet would expose "hello" and fail instead of merely timing out.
 	t.Run("nonfork", func(t *testing.T) {
 		o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", nil, []byte("hello"))
-		got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+		got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 		if !errors.Is(err, io.EOF) || got != "" {
 			t.Fatalf("got %q err=%v want EOF", got, err)
 		}
@@ -279,14 +279,14 @@ func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
 
 func TestUDPListenConnectedEmptyDatagramIsEOF(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("hello"))
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "hello" {
 		t.Fatalf("first got %q err=%v want hello", got, err)
 	}
 	if _, err := client.Write(nil); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("empty datagram got %q err=%v want EOF", got, err)
 	}
@@ -373,11 +373,11 @@ func TestUDPRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "payload" {
 		t.Fatalf("got %q err=%v want payload", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("second=%q err=%v want EOF", got, err)
 	}
@@ -389,7 +389,7 @@ func TestUDPRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
 	}

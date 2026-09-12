@@ -143,9 +143,10 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		life.drop(conn)
 		return nil, err
 	}
-	o := &xio.Opened{
-		Stream: st,
-		Label:  "UNIX:" + path,
+	o, err := xio.NewReady("UNIX:"+path, st)
+	if err != nil {
+		life.drop(conn)
+		return nil, err
 	}
 	life.attach(o)
 	return o, nil
@@ -281,7 +282,11 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 		life.drop(conn)
 		return nil, err
 	}
-	o := &xio.Opened{Stream: st, Label: "UNIX:" + path}
+	o, err := xio.NewReady("UNIX:"+path, st)
+	if err != nil {
+		life.drop(conn)
+		return nil, err
+	}
 	life.attach(o)
 	return o, nil
 }

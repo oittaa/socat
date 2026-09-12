@@ -83,8 +83,8 @@ func TestOpenDialedUsesPreparedRetryInterval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opened.Interval != time.Nanosecond {
-		t.Fatalf("fork interval=%v", opened.Interval)
+	if opened.Interval() != time.Nanosecond {
+		t.Fatalf("fork interval=%v", opened.Interval())
 	}
 }
 

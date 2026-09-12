@@ -31,7 +31,7 @@ func TestUnixRecvfromForkHasWrapDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.PeerFilter != nil {
+	if o.PeerFilter() != nil {
 		t.Fatal("UNIX-RECVFROM must not install an IP PeerFilter")
 	}
 	assertWrapDialReadbytes(t, o)
@@ -56,7 +56,7 @@ func TestUnixRecvfromForkWrapAfterLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Listener == nil || o.WrapDial == nil {
+	if o.Listener() == nil || o.WrapDial() == nil {
 		t.Fatal("UNIX-RECVFROM,fork did not return a wrapable listener")
 	}
 	if len(ops) == 0 {
@@ -69,12 +69,12 @@ func TestUnixRecvfromForkWrapAfterLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	ch := startUDPAccept(o.Listener)
+	ch := startUDPAccept(o.Listener())
 	if _, err := client.Write([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}
 	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom child")
-	st, err := o.WrapDial(child)
+	st, err := o.WrapDial()(child)
 	if err != nil {
 		t.Fatalf("WrapDial after lifecycle on owner: %v", err)
 	}
@@ -299,7 +299,7 @@ func openUnixRecvfromFork(t *testing.T, extra string) (*xio.Opened, string) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Listener == nil {
+	if o.Listener() == nil {
 		t.Fatal("UNIX-RECVFROM,fork did not return a listener")
 	}
 	return o, path
@@ -310,11 +310,11 @@ func TestUnixRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 		writeUnixgramTo(t, client, path, nil)
 		writeUnixgramTo(t, client, path, []byte("payload"))
 	})
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "payload" {
 		t.Fatalf("got %q err=%v want payload", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("second=%q err=%v want EOF", got, err)
 	}
@@ -324,7 +324,7 @@ func TestUnixRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
 	o, _ := openUnixRecvfromAfter(t, ",null-eof", func(client *net.UnixConn, path string) {
 		writeUnixgramTo(t, client, path, nil)
 	})
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
 	}
@@ -334,11 +334,11 @@ func TestUnixRecvfromNonForkReplyDest(t *testing.T) {
 	o, client := openUnixRecvfromAfter(t, "", func(client *net.UnixConn, path string) {
 		writeUnixgramTo(t, client, path, []byte("ping"))
 	})
-	got, err := readStreamTimeout(t, o.Stream, 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
 	if err != nil || got != "ping" {
 		t.Fatalf("got %q err=%v want ping", got, err)
 	}
-	if _, err := o.Stream.Write([]byte("pong")); err != nil {
+	if _, err := o.Stream().Write([]byte("pong")); err != nil {
 		t.Fatal(err)
 	}
 	got, err = readStreamTimeout(t, client, 2*time.Second)
@@ -350,7 +350,7 @@ func TestUnixRecvfromNonForkReplyDest(t *testing.T) {
 func TestUnixRecvfromForkChildReplyCloseIsolation(t *testing.T) {
 	o, path := openUnixRecvfromFork(t, "")
 	clientA := unixgramClient(t)
-	ch := startUDPAccept(o.Listener)
+	ch := startUDPAccept(o.Listener())
 	writeUnixgramTo(t, clientA, path, []byte("ping"))
 	child := waitUDPAccept(t, ch, 2*time.Second, "first unix recvfrom child")
 	if _, ok := child.(*oneshotForkConn); !ok {
@@ -376,7 +376,7 @@ func TestUnixRecvfromForkChildReplyCloseIsolation(t *testing.T) {
 	}
 
 	clientB := unixgramClient(t)
-	ch = startUDPAccept(o.Listener)
+	ch = startUDPAccept(o.Listener())
 	writeUnixgramTo(t, clientB, path, []byte("next"))
 	child2 := waitUDPAccept(t, ch, 2*time.Second, "second unix recvfrom child")
 	t.Cleanup(func() { _ = child2.Close() })
@@ -389,7 +389,7 @@ func TestUnixRecvfromForkChildReplyCloseIsolation(t *testing.T) {
 func TestUnixRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 	o, path := openUnixRecvfromFork(t, "")
 	client := unixgramClient(t)
-	ch := startUDPAccept(o.Listener)
+	ch := startUDPAccept(o.Listener())
 	writeUnixgramTo(t, client, path, nil)
 	writeUnixgramTo(t, client, path, []byte("payload"))
 	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom after empty")
@@ -403,7 +403,7 @@ func TestUnixRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 func TestUnixRecvfromForkNullEOFEmptyEndsSession(t *testing.T) {
 	o, path := openUnixRecvfromFork(t, ",null-eof")
 	client := unixgramClient(t)
-	ch := startUDPAccept(o.Listener)
+	ch := startUDPAccept(o.Listener())
 	writeUnixgramTo(t, client, path, nil)
 	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom null-eof")
 	t.Cleanup(func() { _ = child.Close() })

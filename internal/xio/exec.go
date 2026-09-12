@@ -386,7 +386,7 @@ func startCmd(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, c
 			return nil, err
 		}
 		config := c.config
-		return &Opened{Kind: KindExec, Label: "EXEC-nofork", NoForkConfig: &config}, nil
+		return NewDeferredNoFork("EXEC-nofork", config), nil
 	}
 	if err := c.prepareForked(ctx); err != nil {
 		return nil, err
@@ -833,11 +833,15 @@ func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChil
 		linger = c.g.Linger
 	}
 	endClose := c.config.Transfer.EndClose.Value
-	o := &Opened{
-		Stream:    st,
-		Label:     "EXEC",
-		childDone: w.done,
+	o, err := NewReady("EXEC", st)
+	if err != nil {
+		c.killWait()
+		for _, f := range cleanup {
+			f()
+		}
+		return nil, err
 	}
+	o.setChildDone(w.done)
 	for _, f := range cleanup {
 		o.AddCleanup(f)
 	}

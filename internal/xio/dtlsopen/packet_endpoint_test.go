@@ -24,12 +24,12 @@ func packetEndpointPair(t *testing.T, options string) (context.Context, *xio.Ope
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	c, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+ln.Listener.Addr().String()+client+options), xio.ModeRDWR, nil)
+	c, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+ln.Listener().Addr().String()+client+options), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	p, err := ln.Listener.Accept()
+	p, err := ln.Listener().Accept()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,11 +41,11 @@ func packetEndpointPair(t *testing.T, options string) (context.Context, *xio.Ope
 
 func TestPacketizerEndpointReadDeadline(t *testing.T) {
 	_, client, _ := packetEndpointPair(t, "")
-	relay.ConfigureStreamPair(client.Stream, semanticTestStream{kind: relay.ByteStreamIO})
-	if _, err := relay.SetStreamReadDeadline(client.Stream, time.Now().Add(-time.Second)); err != nil {
+	relay.ConfigureStreamPair(client.Stream(), semanticTestStream{kind: relay.ByteStreamIO})
+	if _, err := relay.SetStreamReadDeadline(client.Stream(), time.Now().Add(-time.Second)); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := client.Stream.Read(make([]byte, 1)); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+	if n, err := client.Stream().Read(make([]byte, 1)); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
 		t.Fatalf("read deadline: %d, %v", n, err)
 	}
 }

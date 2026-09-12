@@ -102,7 +102,7 @@ func TestIP4DatagramAcceptsAnySender(t *testing.T) {
 
 	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1))
 	payload := []byte("any-sender")
-	got := waitRawRead(t, client, payload, o.Stream)
+	got := waitRawRead(t, client, payload, o.Stream())
 	if string(got) != string(payload) {
 		t.Fatalf("DATAGRAM read %q want %q", got, payload)
 	}

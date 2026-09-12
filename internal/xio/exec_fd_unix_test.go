@@ -90,10 +90,10 @@ func TestOpenSpecFDInOnlyModeWriteUnix(t *testing.T) {
 	const payload = "hello"
 	got := captureInheritedStdout(t, func() {
 		o := openEXECSpec(t, "SYSTEM:cat <&3,fdin=3", ModeWrite)
-		if _, err := o.Stream.Write([]byte(payload)); err != nil {
+		if _, err := o.Stream().Write([]byte(payload)); err != nil {
 			t.Fatal(err)
 		}
-		if err := o.Stream.ShutdownWrite(); err != nil {
+		if err := o.Stream().ShutdownWrite(); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -106,7 +106,7 @@ func TestOpenSpecStderrCustomFDOutUnix(t *testing.T) {
 	var inherited, relayed string
 	inherited = captureInheritedStdout(t, func() {
 		o := openEXECSpec(t, "SYSTEM:printf O; printf D >&4; printf E >&2,fdin=3,fdout=4,stderr", ModeRDWR)
-		relayed = string(readStreamBytes(t, o.Stream, 3*time.Second))
+		relayed = string(readStreamBytes(t, o.Stream(), 3*time.Second))
 	})
 	if inherited != "O" {
 		t.Fatalf("inherited stdout %q want O", inherited)
@@ -123,7 +123,7 @@ func TestOpenSpecStderrHighFDOutUnix(t *testing.T) {
 	var inherited, relayed string
 	inherited = captureInheritedStdout(t, func() {
 		o := openEXECSpec(t, "EXEC:/bin/bash -c \\\"printf O; printf D >&10; printf E >&2\\\",fdin=9,fdout=10,stderr", ModeRDWR)
-		relayed = string(readStreamBytes(t, o.Stream, 3*time.Second))
+		relayed = string(readStreamBytes(t, o.Stream(), 3*time.Second))
 	})
 	if inherited != "O" {
 		t.Fatalf("inherited stdout %q want O", inherited)
@@ -158,7 +158,7 @@ func TestOpenSpecChdirWithHighFDOutUnix(t *testing.T) {
 	}
 	dir := t.TempDir()
 	o := openEXECSpec(t, "EXEC:/bin/bash -c \\\"pwd >&10\\\",chdir="+dir+",fdout=10", ModeRead)
-	got := strings.TrimSpace(string(readStreamBytes(t, o.Stream, 3*time.Second)))
+	got := strings.TrimSpace(string(readStreamBytes(t, o.Stream(), 3*time.Second)))
 	want, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		want = dir
@@ -179,10 +179,10 @@ func TestOpenSpecEXECSocktypeDgramUnix(t *testing.T) {
 	const payload = "hello"
 	got := captureInheritedStdout(t, func() {
 		o := openEXECSpec(t, "EXEC:/bin/cat,socktype="+strconv.Itoa(syscall.SOCK_DGRAM), ModeWrite)
-		if _, err := o.Stream.Write([]byte(payload)); err != nil {
+		if _, err := o.Stream().Write([]byte(payload)); err != nil {
 			t.Fatal(err)
 		}
-		if err := o.Stream.ShutdownWrite(); err != nil {
+		if err := o.Stream().ShutdownWrite(); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -193,7 +193,7 @@ func TestOpenSpecEXECSocktypeDgramUnix(t *testing.T) {
 
 func parentSocketType(t *testing.T, o *Opened) (int, error) {
 	t.Helper()
-	f := asOSFile(o.Stream)
+	f := asOSFile(o.Stream())
 	if f == nil {
 		t.Fatal("parent EXEC stream has no *os.File")
 	}

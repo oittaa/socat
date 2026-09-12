@@ -95,7 +95,7 @@ func TestUDP4SendtoRecvErrICMPLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	probeStreamRecvErr(t, o.Stream, g, logBuf)
+	probeStreamRecvErr(t, o.Stream(), g, logBuf)
 }
 
 func TestUDP4DatagramRecvErrICMPLinux(t *testing.T) {
@@ -108,7 +108,7 @@ func TestUDP4DatagramRecvErrICMPLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	probeStreamRecvErr(t, o.Stream, g, logBuf)
+	probeStreamRecvErr(t, o.Stream(), g, logBuf)
 }
 
 func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, addrconfig.Address, xio.Mode, *xio.Global) (*xio.Opened, error), g *xio.Global) (*xio.Opened, *net.UDPConn) {
@@ -170,24 +170,24 @@ func TestUDP4ListenRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
 	o, client := openUDP4RecvErrFirst(t, "UDP4-LISTEN:0,bind=127.0.0.1,ip-recverr", openUDP4Listen, g)
 	buf := make([]byte, 16)
-	setRWDeadline(o.Stream, time.Now().Add(2*time.Second))
-	n, err := o.Stream.Read(buf)
+	setRWDeadline(o.Stream(), time.Now().Add(2*time.Second))
+	n, err := o.Stream().Read(buf)
 	if err != nil || string(buf[:n]) != "hello" {
 		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
 	}
 	_ = client.Close()
-	probeStreamRecvErr(t, o.Stream, g, logBuf)
+	probeStreamRecvErr(t, o.Stream(), g, logBuf)
 }
 
 func TestUDP4RecvfromRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
 	o, client := openUDP4RecvErrFirst(t, "UDP4-RECVFROM:0,bind=127.0.0.1,ip-recverr", openUDP4Recvfrom, g)
 	buf := make([]byte, 16)
-	setRWDeadline(o.Stream, time.Now().Add(2*time.Second))
-	n, err := o.Stream.Read(buf)
+	setRWDeadline(o.Stream(), time.Now().Add(2*time.Second))
+	n, err := o.Stream().Read(buf)
 	if err != nil || string(buf[:n]) != "hello" {
 		t.Fatalf("first payload n=%d err=%v data=%q", n, err, buf[:n])
 	}
 	_ = client.Close()
-	probeStreamRecvErr(t, o.Stream, g, logBuf)
+	probeStreamRecvErr(t, o.Stream(), g, logBuf)
 }

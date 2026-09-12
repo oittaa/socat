@@ -26,10 +26,10 @@ func TestUnixListenForkWrapDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Kind != xio.KindListen {
-		t.Fatalf("Kind=%v want KindListen", o.Kind)
+	if o.Kind() != xio.KindListen {
+		t.Fatalf("Kind=%v want KindListen", o.Kind())
 	}
-	if o.PeerFilter == nil {
+	if o.PeerFilter() == nil {
 		t.Fatal("fork UNIX-LISTEN must install PeerFilter")
 	}
 	assertWrapDialReadbytes(t, o)
@@ -48,8 +48,8 @@ func TestAbstractListenForkWrapDial(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Kind != xio.KindListen {
-		t.Fatalf("Kind=%v want KindListen", o.Kind)
+	if o.Kind() != xio.KindListen {
+		t.Fatalf("Kind=%v want KindListen", o.Kind())
 	}
 	assertWrapDialReadbytes(t, o)
 }
@@ -81,7 +81,7 @@ func TestUnixListenAcceptTimeoutZeroAccepts(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = c.Close() })
 	})
-	if o.Stream == nil {
+	if o.Stream() == nil {
 		t.Fatal("accept-timeout=0 did not accept")
 	}
 }

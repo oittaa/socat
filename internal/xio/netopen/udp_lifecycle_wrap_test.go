@@ -25,13 +25,13 @@ func TestUDPRecvfromForkWrapAfterLifecycle(t *testing.T) {
 	}
 	applied := append([]string(nil), ops...)
 
-	client := dialUDPListener(t, o.Listener)
-	ch := startUDPAccept(o.Listener)
+	client := dialUDPListener(t, o.Listener())
+	ch := startUDPAccept(o.Listener())
 	if _, err := client.Write([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}
 	child := waitUDPAccept(t, ch, 2*time.Second, "recvfrom child")
-	st, err := o.WrapDial(child)
+	st, err := o.WrapDial()(child)
 	if err != nil {
 		t.Fatalf("WrapDial after lifecycle on owner: %v", err)
 	}
@@ -47,14 +47,14 @@ func TestUDPRecvfromForkWrapAfterLifecycle(t *testing.T) {
 
 func TestUDPRecvfromForkChildCloseLeavesParentOpen(t *testing.T) {
 	o := openForkUDP4Recvfrom(t, "UDP4-RECVFROM:0,bind=127.0.0.1,fork")
-	client := dialUDPListener(t, o.Listener)
+	client := dialUDPListener(t, o.Listener())
 
-	accept1 := startUDPAccept(o.Listener)
+	accept1 := startUDPAccept(o.Listener())
 	if _, err := client.Write([]byte("one")); err != nil {
 		t.Fatal(err)
 	}
 	child1 := waitUDPAccept(t, accept1, 2*time.Second, "first child")
-	st1, err := o.WrapDial(child1)
+	st1, err := o.WrapDial()(child1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,12 +78,12 @@ func TestUDPRecvfromForkChildCloseLeavesParentOpen(t *testing.T) {
 		t.Fatalf("reply %q err=%v want ack", reply[:n], err)
 	}
 
-	accept2 := startUDPAccept(o.Listener)
+	accept2 := startUDPAccept(o.Listener())
 	if _, err := client.Write([]byte("two")); err != nil {
 		t.Fatal(err)
 	}
 	child2 := waitUDPAccept(t, accept2, 2*time.Second, "second child")
-	st2, err := o.WrapDial(child2)
+	st2, err := o.WrapDial()(child2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func openForkUDP4Recvfrom(t *testing.T, spec string) *xio.Opened {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Listener == nil || o.WrapDial == nil {
+	if o.Listener() == nil || o.WrapDial() == nil {
 		t.Fatal("UDP-RECVFROM,fork did not return a wrapable listener")
 	}
 	return o

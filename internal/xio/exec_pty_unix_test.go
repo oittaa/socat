@@ -145,7 +145,7 @@ func readExecPtySessionProbe(t *testing.T, bin, spec string) string {
 		}
 		select {
 		case <-ticker.C:
-		case <-o.childDone:
+		case <-o.childDone():
 			data, _ = os.ReadFile(resultPath)
 			t.Fatalf("child exited before writing session probe for %s: %q", spec, data)
 		case <-timer.C:

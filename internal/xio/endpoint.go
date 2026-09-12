@@ -261,11 +261,11 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// OpenedKind says how Run uses an Opened. Kind selects which fields are live.
+// OpenedKind is the Run discriminator. Kind() reports it from the payload.
 type OpenedKind int
 
 const (
-	// KindReady: transfer I/O is already open (Stream / Read / Write).
+	// KindReady: transfer I/O is already open.
 	KindReady OpenedKind = iota
 	// KindListen: bound listener; Run accepts in a fork loop.
 	KindListen
@@ -275,47 +275,19 @@ const (
 	KindExec
 )
 
-// Opened is a live address endpoint. Kind selects the mode; callers still use
-// the field names (o.Stream, o.Listener, o.Dial, ...).
+// Opened is a live address endpoint. Construct it with NewReady, NewReadySplit,
+// NewAcceptParent, NewRepeatedDial, or NewDeferredNoFork. Variant data lives
+// in one private payload; see the ownership table in endpoint_variant.go.
 type Opened struct {
-	Kind  OpenedKind
 	Label string
 
-	// Ready I/O. Listen/dial parents leave these nil until a child wraps a conn.
-	Stream relay.Stream
-	Read   relay.Stream
-	Write  relay.Stream
+	payload openedPayload
 
-	// KindListen: bound socket and accept-loop knobs.
-	Listener       net.Listener
-	ForkSocketpair bool // datagram sessions bridged through a socketpair
-	PeerFilter     func(net.Conn) error
-	AcceptTimeout  time.Duration
-
-	// KindDial: repeated connect until cancel. Dial includes TLS/SOCKS/HTTP handshake.
-	Dial     func(ctx context.Context) (net.Conn, error)
-	Interval time.Duration
-
-	// Listen and dial parents.
-	MaxChildren    int
-	ChildrenShutup int // demote child diagnostics; parent/siblings unchanged
-	// WrapDial wraps each accepted or dialed conn (crlf, escape, ...). Optional.
-	WrapDial         func(net.Conn) (relay.Stream, error)
-	HandshakeTimeout time.Duration
-
-	// Exactly-once teardown. Order: tty restore (fd still open), Stream, Listener, Cleanup.
+	// Shared teardown. Order: tty restore (fd still open), payload, Cleanup.
 	Cleanup    []func()
 	ttyRestore []func()
 	closeOnce  sync.Once
 	closeErr   error
-
-	// NoForkConfig is KindExec: EXEC/SYSTEM/SHELL,nofork started in Run with
-	// the peer FD as stdio.
-	NoForkConfig *addrconfig.Address
-	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
-	// max-children retain their slot until that process, not just its relay,
-	// has finished.
-	childDone <-chan struct{}
 }
 
 // Close runs endpoint teardown once. Later calls return the first result.
@@ -329,11 +301,10 @@ func (o *Opened) Close() error {
 func (o *Opened) close() error {
 	var first error
 	o.restoreTTY()
-	if err := o.closeReady(); err != nil && first == nil {
-		first = err
-	}
-	if err := o.closeListen(); err != nil && first == nil {
-		first = err
+	if o.payload != nil {
+		if err := o.payload.close(); err != nil && first == nil {
+			first = err
+		}
 	}
 	o.runCleanup()
 	return first
@@ -344,24 +315,6 @@ func (o *Opened) restoreTTY() {
 	for i := len(o.ttyRestore) - 1; i >= 0; i-- {
 		o.ttyRestore[i]()
 	}
-}
-
-func (o *Opened) closeReady() error {
-	if o.Stream == nil {
-		return nil
-	}
-	return o.Stream.Close()
-}
-
-func (o *Opened) closeListen() error {
-	if o.Listener == nil {
-		return nil
-	}
-	err := o.Listener.Close()
-	if err != nil && !errors.Is(err, net.ErrClosed) {
-		return err
-	}
-	return nil
 }
 
 func (o *Opened) runCleanup() {
@@ -379,25 +332,9 @@ func (o *Opened) AddTTYRestore(f func()) {
 	o.ttyRestore = append(o.ttyRestore, f)
 }
 
-// EffectiveStream returns the stream used for bidirectional transfer.
+// EffectiveStream is the ready-I/O transfer stream. Other variants return nil.
 func (o *Opened) EffectiveStream() relay.Stream {
-	if o.Stream != nil {
-		return o.Stream
-	}
-	if o.Read != nil || o.Write != nil {
-		return relay.FDStream{
-			R: readerOrEOF(o.Read),
-			W: writerOrDiscard(o.Write),
-			C: NewMultiCloser(o.Read, o.Write),
-			CloseW: func() error {
-				if o.Write != nil {
-					return o.Write.ShutdownWrite()
-				}
-				return nil
-			},
-		}
-	}
-	return nil
+	return o.Stream()
 }
 
 // MultiCloser closes two streams.
@@ -419,20 +356,6 @@ func (m MultiCloser) Close() error {
 		}
 	}
 	return err
-}
-
-func readerOrEOF(s relay.Stream) io.Reader {
-	if s != nil {
-		return s
-	}
-	return EOFReader{}
-}
-
-func writerOrDiscard(s relay.Stream) io.Writer {
-	if s != nil {
-		return s
-	}
-	return io.Discard
 }
 
 type EOFReader struct{}
@@ -470,22 +393,14 @@ func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened,
 		logx.CloseQuiet(left)
 		return nil, fmt.Errorf("dual write side: %w", err)
 	}
-	o := &Opened{
-		Read:  left.EffectiveStream(),
-		Write: right.EffectiveStream(),
-		Label: d.Raw,
+	o, err := NewReadySplit(d.Raw, left.EffectiveStream(), right.EffectiveStream())
+	if err != nil {
+		logx.CloseQuiet(left)
+		logx.CloseQuiet(right)
+		return nil, err
 	}
 	o.AddCleanup(func() { logx.CloseQuiet(left) })
 	o.AddCleanup(func() { logx.CloseQuiet(right) })
-	// Combine into Stream
-	o.Stream = relay.FDStream{
-		R: o.Read,
-		W: o.Write,
-		C: NewMultiCloser(o.Read, o.Write),
-		CloseW: func() error {
-			return o.Write.ShutdownWrite()
-		},
-	}
 	return o, nil
 }
 
@@ -538,7 +453,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		o.AddCleanup(release)
 	}
 	if prepared.Config.Common.ChildrenShutup.Set {
-		o.ChildrenShutup = prepared.Config.Common.ChildrenShutup.Value
+		o.SetChildrenShutup(prepared.Config.Common.ChildrenShutup.Value)
 	}
 	return o, nil
 }

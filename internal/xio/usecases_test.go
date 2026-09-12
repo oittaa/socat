@@ -71,16 +71,16 @@ func mustParse(t *testing.T, spec string) parse.Channel {
 
 func listenerPort(t *testing.T, o *xio.Opened) int {
 	t.Helper()
-	if o == nil || o.Listener == nil {
+	if o == nil || o.Listener() == nil {
 		t.Fatal("listen address did not return a listener (use fork)")
 	}
-	switch addr := o.Listener.Addr().(type) {
+	switch addr := o.Listener().Addr().(type) {
 	case *net.TCPAddr:
 		return addr.Port
 	case *net.UDPAddr:
 		return addr.Port
 	default:
-		t.Fatalf("listener addr %T", o.Listener.Addr())
+		t.Fatalf("listener addr %T", o.Listener().Addr())
 		return 0
 	}
 }
@@ -92,7 +92,7 @@ func startListenRight(t *testing.T, ctx context.Context, g *xio.Global, listenSp
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lo.Listener == nil {
+	if lo.Listener() == nil {
 		_ = lo.Close()
 		t.Fatal("listen address did not return a listener (use fork)")
 	}
@@ -206,10 +206,10 @@ func echoLive(t *testing.T, st io.ReadWriter, payload []byte) {
 
 func streamOf(t *testing.T, o *xio.Opened) io.ReadWriter {
 	t.Helper()
-	if o.Stream == nil {
+	if o.Stream() == nil {
 		t.Fatal("opened address has no stream")
 	}
-	return o.Stream
+	return o.Stream()
 }
 
 func listenCert(t *testing.T) string {
@@ -274,7 +274,7 @@ func waitBoundPort(t *testing.T, bound <-chan net.Addr, failed <-chan error) int
 func localUDPPort(t *testing.T, o *xio.Opened) int {
 	t.Helper()
 	type localAddrer interface{ LocalAddr() net.Addr }
-	if la, ok := o.Stream.(localAddrer); ok {
+	if la, ok := o.Stream().(localAddrer); ok {
 		if addr, ok := la.LocalAddr().(*net.UDPAddr); ok {
 			return addr.Port
 		}
@@ -590,8 +590,8 @@ func TestTCPConnectReadbytes(t *testing.T) {
 	ctx, g := testCtx(t), testGlobal()
 	srv := startForkListenPIPE(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	cli := openClient(t, ctx, g, "TCP4:127.0.0.1:"+tcpPort(t, srv)+",readbytes=4,connect-timeout=2")
-	mustWrite(t, cli.Stream, []byte("hello"))
-	if got := string(readFull(t, cli.Stream, 4)); got != "hell" {
+	mustWrite(t, cli.Stream(), []byte("hello"))
+	if got := string(readFull(t, cli.Stream(), 4)); got != "hell" {
 		t.Fatalf("readbytes got %q want hell", got)
 	}
 }
@@ -643,8 +643,8 @@ func TestUDP4DatagramToRecv(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = send.Close() })
 	const payload = "dgram-hi"
-	mustWrite(t, send.Stream, []byte(payload))
-	if got := string(readFull(t, recv.Stream, len(payload))); got != payload {
+	mustWrite(t, send.Stream(), []byte(payload))
+	if got := string(readFull(t, recv.Stream(), len(payload))); got != payload {
 		t.Fatalf("UDP-DATAGRAM got %q", got)
 	}
 }

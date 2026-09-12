@@ -147,12 +147,12 @@ func TestSocketRecvWriteModeRejected(t *testing.T) {
 func TestSocketRecvRangeFilter(t *testing.T) {
 	o := openSocketKind(t, socketDgramSpec("SOCKET-RECV", unix.AF_INET, unix.SOCK_DGRAM, unix.IPPROTO_UDP,
 		ipv4SocketHex(0, [4]byte{127, 0, 0, 1}), "range=127.0.0.0/8"), xio.ModeRead)
-	port := dgramPort(t, o.Stream)
+	port := dgramPort(t, o.Stream())
 	src := listenSocketTestUDP(t)
 	if _, err := src.WriteTo([]byte("ok-recv"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := readSocketDeadline(t, o.Stream, 2*time.Second)
+	got, err := readSocketDeadline(t, o.Stream(), 2*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

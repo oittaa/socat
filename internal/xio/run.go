@@ -74,9 +74,9 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	lMode, rMode := channelModes(g)
 	defer func() { _ = lo.Close() }()
 
-	switch lo.Kind {
+	switch lo.Kind() {
 	case KindListen:
-		if lo.Listener == nil {
+		if lo.Listener() == nil {
 			return fmt.Errorf("%s: listen fork without listener", lo.Label)
 		}
 		return runForkListen(ctx, lo, right, rMode, g)
@@ -84,7 +84,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 		// Client CONNECT/TLS-CONNECT with fork.
 		return runConnectFork(ctx, lo, right, rMode, g)
 	case KindExec:
-		if lo.NoForkConfig == nil {
+		if lo.NoForkConfig() == nil {
 			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
 		}
 		// Left EXEC,nofork: open right first, then exec on right's stream.
@@ -93,7 +93,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 			return err
 		}
 		defer func() { _ = ro.Close() }()
-		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkConfig, g, lMode)
+		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkConfig(), g, lMode)
 	}
 
 	ro, err := OpenPreparedChannel(ctx, right, rMode, g)
@@ -102,15 +102,15 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	}
 	defer func() { _ = ro.Close() }()
 
-	switch ro.Kind {
+	switch ro.Kind() {
 	case KindExec:
-		if ro.NoForkConfig == nil {
+		if ro.NoForkConfig() == nil {
 			return fmt.Errorf("%s: exec nofork without spec", ro.Label)
 		}
 		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
-		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkConfig, g, rMode)
+		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkConfig(), g, rMode)
 	case KindListen:
-		if ro.Listener == nil {
+		if ro.Listener() == nil {
 			return fmt.Errorf("%s: listen fork without listener", ro.Label)
 		}
 		// Listen on right with left already open.
@@ -124,8 +124,10 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 
 // streamFromDial applies optional WrapDial, else plain NetStream.
 func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
-	if o != nil && o.WrapDial != nil {
-		return o.WrapDial(c)
+	if o != nil {
+		if wrap := o.WrapDial(); wrap != nil {
+			return wrap(c)
+		}
 	}
 	return relay.NetStream{Conn: c}, nil
 }
@@ -145,17 +147,17 @@ func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMod
 		defer func() { _ = ro.Close() }()
 		cg.beginLogicalSession(left, ro.EffectiveStream())
 		err = transferStreams(cctx, left, ro.EffectiveStream(), cg)
-		waitForkChild(cctx, lo.MaxChildren, ro)
+		waitForkChild(cctx, lo.MaxChildren(), ro)
 		return err
 	})
 }
 
 func waitForkChild(ctx context.Context, maxChildren int, opened *Opened) {
-	if maxChildren <= 0 || opened == nil || opened.childDone == nil {
+	if maxChildren <= 0 || opened == nil || opened.childDone() == nil {
 		return
 	}
 	select {
-	case <-opened.childDone:
+	case <-opened.childDone():
 	case <-ctx.Done():
 	}
 }
@@ -214,14 +216,14 @@ func (s childSlots) release() {
 // max-children accounting and the peer filter. It waits for active sessions
 // before returning. g.Log must be non-nil (the CLI always installs a logger).
 func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global, logAccept bool, body func(c net.Conn, cg *Global)) error {
-	slots := newChildSlots(o.MaxChildren)
+	slots := newChildSlots(o.MaxChildren())
 	var children sync.WaitGroup
 	defer children.Wait()
 	for {
 		if !slots.acquire(ctx) {
 			return nil
 		}
-		conn, err := AcceptWithTimeout(ctx, ln, o.AcceptTimeout)
+		conn, err := AcceptWithTimeout(ctx, ln, o.AcceptTimeout())
 		if err != nil {
 			slots.release()
 			if errors.Is(err, ErrAcceptTimeout) {
@@ -235,8 +237,8 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			}
 			return err
 		}
-		if o.PeerFilter != nil {
-			if ferr := o.PeerFilter(conn); ferr != nil {
+		if filter := o.PeerFilter(); filter != nil {
+			if ferr := filter(conn); ferr != nil {
 				CloseRefusedPeer(conn)
 				slots.release()
 				if ctx.Err() != nil {
@@ -256,8 +258,8 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			defer slots.release()
 			defer children.Done()
 			cg := g.ForkSession()
-			if o.ChildrenShutup > 0 && cg.Log != nil {
-				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
+			if o.ChildrenShutup() > 0 && cg.Log != nil {
+				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
 			}
 			RememberAddrs(cg, c)
 			body(c, cg)
@@ -269,14 +271,15 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 }
 
 func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn) error) error {
-	if o.Dial == nil {
+	dial := o.Dial()
+	if dial == nil {
 		return fmt.Errorf("%s: connect fork without dialer", o.Label)
 	}
-	interval := o.Interval
+	interval := o.Interval()
 	if interval <= 0 {
 		interval = time.Second
 	}
-	slots := newChildSlots(o.MaxChildren)
+	slots := newChildSlots(o.MaxChildren())
 	var children sync.WaitGroup
 	defer children.Wait()
 	if g != nil && g.Log != nil {
@@ -291,7 +294,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		if !slots.acquire(ctx) {
 			return nil
 		}
-		conn, err := o.Dial(ctx)
+		conn, err := dial(ctx)
 		if err != nil {
 			slots.release()
 			if ctx.Err() != nil {
@@ -311,11 +314,11 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
 			defer stopClose()
 			cg := g.ForkSession()
-			if o.ChildrenShutup > 0 && cg.Log != nil {
-				cg.Log = cg.Log.WithShutup(o.ChildrenShutup)
+			if o.ChildrenShutup() > 0 && cg.Log != nil {
+				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
 			}
 			RememberAddrs(cg, c)
-			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout); err != nil {
+			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout()); err != nil {
 				if cg.Log != nil {
 					cg.Log.Debugf("connect handshake: %s", err)
 				}
@@ -342,7 +345,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 }
 
 func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
-	ln := lo.Listener
+	ln := lo.Listener()
 	lg := g.Log
 	lg.Noticef("listening on %s", ln.Addr())
 	stop := context.AfterFunc(ctx, func() {
@@ -350,7 +353,7 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 	})
 	defer stop()
 	return lo.forEachAccepted(ctx, ln, g, true, func(c net.Conn, cg *Global) {
-		if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout); err != nil {
+		if err := RememberTLSPeer(cg, c, lo.HandshakeTimeout()); err != nil {
 			cg.Log.Errorf("handshake: %s", err)
 			return
 		}
@@ -371,7 +374,7 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 		// (TCP-LISTEN,fork PIPE) transfer directly — a bridge would open
 		// -r/-R sniff files twice per session.
 		// Adapters need the original peer's message boundaries.
-		if lo.ForkSocketpair && !adapted {
+		if lo.ForkSocketpair() && !adapted {
 			sp0, sp1, spErr := unixSocketpairLogged(cg)
 			if spErr != nil {
 				cg.Log.Errorf("socketpair: %s", spErr)
@@ -384,7 +387,7 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 				defer func() { _ = sp1.Close() }()
 				defer func() { _ = ro.Close() }()
 				_ = transferStreams(ctx, FileStream(sp1), ro.EffectiveStream(), cg)
-				waitForkChild(ctx, lo.MaxChildren, ro)
+				waitForkChild(ctx, lo.MaxChildren(), ro)
 			}()
 			defer func() { _ = sp0.Close() }()
 			if err := transferStreams(ctx, leftStream, FileStream(sp0), cg); err != nil {
@@ -397,12 +400,12 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 		if err := transferStreams(ctx, leftStream, ro.EffectiveStream(), cg); err != nil {
 			cg.Log.Debugf("transfer: %s", err)
 		}
-		waitForkChild(ctx, lo.MaxChildren, ro)
+		waitForkChild(ctx, lo.MaxChildren(), ro)
 	})
 }
 
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
-	ln := ro.Listener
+	ln := ro.Listener()
 	left := lo.EffectiveStream()
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
 	// max-children applies to the listen address (right side here).
@@ -420,7 +423,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		// Serialize sessions on the shared left stream.
 		leftMu.Lock()
 		defer leftMu.Unlock()
-		if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout); err != nil {
+		if err := RememberTLSPeer(cg, c, ro.HandshakeTimeout()); err != nil {
 			cg.Log.Errorf("handshake: %s", err)
 			return
 		}

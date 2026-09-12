@@ -85,15 +85,17 @@ func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, ses
 	NoteListenBound(ln.Addr())
 
 	if fork {
-		o := &Opened{
-			Kind:             KindListen,
+		o, err := NewAcceptParent(sess.Label, AcceptParent{
 			Listener:         ln,
-			Label:            sess.Label,
 			PeerFilter:       peerFilter.AllowConn,
 			MaxChildren:      maxChildren,
 			WrapDial:         wrap,
 			HandshakeTimeout: sess.HandshakeTimeout,
 			AcceptTimeout:    AcceptTimeout(s),
+		})
+		if err != nil {
+			_ = safeCloseLn()
+			return nil, err
 		}
 		o.AddCleanup(func() { _ = safeCloseLn() })
 		stop := context.AfterFunc(ctx, func() {
@@ -165,7 +167,12 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 		_ = safeCloseLn()
 		return nil, err
 	}
-	o := &Opened{Kind: KindReady, Label: sess.Label, Stream: st}
+	o, err := NewReady(sess.Label, st)
+	if err != nil {
+		logx.CloseQuiet(st)
+		_ = safeCloseLn()
+		return nil, err
+	}
 	if sess.KeepListenerForSession {
 		o.AddCleanup(func() { _ = safeCloseLn() })
 	}
