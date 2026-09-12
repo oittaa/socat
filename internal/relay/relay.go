@@ -113,10 +113,10 @@ type dirOutcome struct {
 
 func classifyDirError(dir direction, err error) dirOutcome {
 	o := dirOutcome{dir: dir, err: err}
-	switch {
-	case err == nil:
+	switch err {
+	case nil:
 		o.class = classOK
-	case err == context.Canceled:
+	case context.Canceled:
 		o.class = classCanceled
 	default:
 		o.class = classFailed
