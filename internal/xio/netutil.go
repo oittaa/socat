@@ -71,7 +71,7 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 // sets it when fork is on. Other UDP-backed addresses (UDP-RECVFROM,
 // QUIC-LISTEN, …) only set it when reuseaddr is present.
 func reuseaddrListenDefault(s addrconfig.Address, network string) bool {
-	if udpListenAddress(s.Type) {
+	if udpListenAddress(s) {
 		return ForkRequested(s)
 	}
 	switch network {
@@ -82,18 +82,10 @@ func reuseaddrListenDefault(s addrconfig.Address, network string) bool {
 	}
 }
 
-// udpListenAddress reports whether addrType is a UDP listen keyword
-// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not UDP-LISTEN.
-func udpListenAddress(addrType string) bool {
-	if reg, ok := AddressRegistrationForType(addrType); ok {
-		addrType = reg.Name
-	}
-	switch strings.ToUpper(strings.TrimSpace(addrType)) {
-	case "UDP-LISTEN", "UDP-L", "UDP4-LISTEN", "UDP4-L", "UDP6-LISTEN", "UDP6-L":
-		return true
-	default:
-		return false
-	}
+// udpListenAddress reports whether this is a UDP listen address
+// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is GroupQUIC.
+func udpListenAddress(s addrconfig.Address) bool {
+	return s.Facts.Group == GroupUDP && s.Facts.Role == addrconfig.AddressRoleListen
 }
 
 // UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the
@@ -103,7 +95,7 @@ func udpListenAddress(addrType string) bool {
 // sharing; the first session then takes the listen socket instead of dropping
 // the datagram.
 func UDPForkPortReuse(s addrconfig.Address) bool {
-	if !udpListenAddress(s.Type) || !ForkRequested(s) {
+	if !udpListenAddress(s) || !ForkRequested(s) {
 		return false
 	}
 	if s.Network.ReuseAddr.Set {
@@ -400,7 +392,7 @@ func ListenPort(s addrconfig.Address) (addrconfig.PortTarget, error) {
 	}
 	port := s.Network.ListenPort
 	text := port.Text()
-	if text == "" || strings.Trim(text, ":") == "" {
+	if port.Empty() || strings.Trim(text, ":") == "" {
 		return addrconfig.PortTarget{}, fmt.Errorf("%s: invalid port %q", s.Type, text)
 	}
 	return port, nil

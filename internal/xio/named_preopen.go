@@ -2,7 +2,6 @@ package xio
 
 import (
 	"os"
-	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 )
@@ -38,8 +37,11 @@ func FDSkipNamedUnixSocket(s addrconfig.Address) FDSkip {
 // namedFilesystemUnixSocket is true after bind of a filesystem UNIX listen
 // or recv name. Abstract names have no directory entry.
 func namedFilesystemUnixSocket(config addrconfig.Address) bool {
-	switch strings.ToUpper(config.Type) {
-	case "UNIX-LISTEN", "UNIX-L", "UNIX-RECV", "UNIX-RECVFROM":
+	if config.Facts.Kind != addrconfig.AddressKindUNIX {
+		return false
+	}
+	switch config.Facts.Role {
+	case addrconfig.AddressRoleListen, addrconfig.AddressRoleReceive, addrconfig.AddressRoleReceiveFrom:
 	default:
 		return false
 	}

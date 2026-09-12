@@ -4,7 +4,6 @@ package wsopen
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 )
@@ -15,39 +14,22 @@ func wsTarget(s addrconfig.Address, listen bool) (host, port, path string, err e
 		path = s.TLS.WSPath.Value
 	}
 	if listen {
-		if !s.Network.ListenSet {
+		if !s.Network.ListenSet || s.Network.ListenPort.Empty() {
 			return "", "", "", fmt.Errorf("%s requires port", s.Type)
 		}
 		port = s.Network.ListenPort.Text()
 	} else {
-		if !s.Network.TargetSet {
+		if !s.Network.TargetSet || s.Network.Target.Empty() || s.Network.TargetPort.Empty() {
 			return "", "", "", fmt.Errorf("%s requires host and port", s.Type)
 		}
 		host = s.Network.Target.Original()
 		port = s.Network.TargetPort.Text()
 	}
-	if port == "" {
-		if listen {
-			return "", "", "", fmt.Errorf("%s requires port", s.Type)
-		}
-		return "", "", "", fmt.Errorf("%s requires host and port", s.Type)
-	}
-	return host, port, normalizeWSPath(path), nil
-}
-
-func normalizeWSPath(p string) string {
-	if p == "" {
-		return "/"
-	}
-	if !strings.HasPrefix(p, "/") {
-		return "/" + p
-	}
-	return p
+	return host, port, path, nil
 }
 
 func wsScheme(s addrconfig.Address) string {
-	t := strings.ToUpper(s.Type)
-	if strings.HasPrefix(t, "WSS") {
+	if s.Facts.Secure {
 		return "wss"
 	}
 	return "ws"

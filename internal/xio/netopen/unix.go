@@ -79,7 +79,7 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		return nil, err
 	}
 	if bindPath != "" {
-		if strings.HasPrefix(strings.ToUpper(s.Type), "ABSTRACT") {
+		if s.Facts.Kind == addrconfig.AddressKindABSTRACT {
 			bindPath = abstractName(bindPath)
 		} else {
 			bindPath = unixAddr(bindPath)
@@ -96,7 +96,7 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 	}
 
 	networks := []string{network}
-	autodetect := !explicitType && genericUnixClient(s.Type)
+	autodetect := !explicitType && genericUnixClient(s)
 	if autodetect {
 		if seqpacket, ok := unixSeqpacketNetwork(); ok {
 			networks = append(networks, seqpacket)
@@ -171,10 +171,10 @@ func unixSocketNetwork(s addrconfig.Address) (network string, explicit bool, err
 	}
 }
 
-func genericUnixClient(typ string) bool {
-	switch strings.ToUpper(typ) {
-	case "UNIX", "UNIX-CLIENT", "ABSTRACT-CLIENT":
-		return true
+func genericUnixClient(s addrconfig.Address) bool {
+	switch s.Facts.Kind {
+	case addrconfig.AddressKindUNIX, addrconfig.AddressKindABSTRACT:
+		return s.Facts.Role == addrconfig.AddressRoleOther
 	default:
 		return false
 	}

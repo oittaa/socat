@@ -32,7 +32,7 @@ func openSCTPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
 	host, port := s.Network.Target, s.Network.TargetPort
-	if host.String() == "" || port.Text() == "" {
+	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	network = sctpNetwork(xio.ConnectNetworkForType(g, s, host, tcpNetwork(network)))

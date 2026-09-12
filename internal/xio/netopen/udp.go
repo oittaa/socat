@@ -28,7 +28,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	}
 	host := s.Network.Target
 	port := s.Network.TargetPort
-	if host.String() == "" || port.Text() == "" {
+	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Select the mapped remote network before resolving bind=. UDP6 to an
@@ -45,8 +45,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	if err != nil {
 		return nil, err
 	}
-	sp := xio.SourcePortText(s)
-	lowport := s.Network.LowPort.Value && (sp == "" || sp == "0")
+	lowport := s.Network.LowPort.Value && (s.Network.SourcePort.Empty() || s.Network.SourcePort.IsZero())
 	var conn net.Conn
 	if lowport {
 		bind, bindErr := xio.ListenBindHost(s, network)

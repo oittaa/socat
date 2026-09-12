@@ -59,6 +59,7 @@ type AddressDesc struct {
 	Kind        addrconfig.AddressKind
 	Role        addrconfig.AddressRole
 	Family      addrconfig.IPFamily
+	Secure      bool
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
 }
@@ -229,6 +230,7 @@ type AddressRegistration struct {
 	Kind       addrconfig.AddressKind
 	Role       addrconfig.AddressRole
 	Family     addrconfig.IPFamily
+	Secure     bool
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -288,6 +290,7 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 		Kind:       d.Kind,
 		Role:       d.Role,
 		Family:     d.Family,
+		Secure:     d.Secure,
 	}
 }
 

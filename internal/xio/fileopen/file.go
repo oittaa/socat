@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"strings"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -255,7 +254,7 @@ func prepareNamedPIPE(config addrconfig.Address) (*namedPIPE, error) {
 	// Ownership applies to a newly created FIFO immediately, but to an
 	// existing FIFO only after open succeeds.
 	if created {
-		if err := xio.ApplyConfiguredOwner(path, config.Type, nil, config.File); err != nil {
+		if err := xio.ApplyConfiguredOwner(path, config.Facts.Kind, nil, config.File); err != nil {
 			_ = xio.Unlink(path)
 			return nil, err
 		}
@@ -275,7 +274,7 @@ func (p *namedPIPE) applyExistingOwner() error {
 	if p.created {
 		return nil
 	}
-	return xio.ApplyConfiguredOwner(p.path, p.config.Type, nil, p.config.File)
+	return xio.ApplyConfiguredOwner(p.path, p.config.Facts.Kind, nil, p.config.File)
 }
 
 func (p *namedPIPE) removeCreated() {
@@ -530,7 +529,7 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	}
 	// OPEN/FILE/GOPEN apply path ownership after open, before descriptor
 	// options; CREATE ownership is descriptor-owned and ApplyOwner skips it.
-	if err := xio.ApplyConfiguredOwner(path, config.Type, f, config.File); err != nil {
+	if err := xio.ApplyConfiguredOwner(path, config.Facts.Kind, f, config.File); err != nil {
 		return fail(err)
 	}
 	if err := applyConfiguredFileLocks(config.File, f, f); err != nil {
@@ -538,7 +537,7 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	}
 	// Locks after open must complete before late ftruncate/lseek/async.
 	// Applying lifecycle first could mutate the file before a lock failure.
-	if err := xio.ApplyConfiguredFDOptions(f, config.File, namedOpenFDSkip(config.Type)); err != nil {
+	if err := xio.ApplyConfiguredFDOptions(f, config.File, namedOpenFDSkip(config.Facts.Kind)); err != nil {
 		return fail(err)
 	}
 	// trunc= after ApplyFDOptions late ftruncate/lseek/perm-late.
@@ -560,11 +559,9 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	return o, nil
 }
 
-func namedOpenFDSkip(addressType string) xio.FDSkip {
-	switch strings.ToUpper(addressType) {
-	case "CREATE", "CREAT":
+func namedOpenFDSkip(kind addrconfig.AddressKind) xio.FDSkip {
+	if kind == addrconfig.AddressKindCREATE {
 		return xio.FDSkipCREATE
-	default:
-		return xio.FDSkipNamedFile
 	}
+	return xio.FDSkipNamedFile
 }

@@ -28,7 +28,7 @@ func openTCPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
 	host, port := s.Network.Target, s.Network.TargetPort
-	if host.String() == "" || port.Text() == "" {
+	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Honour pf= even when called from TCP4/TCP6 openers.

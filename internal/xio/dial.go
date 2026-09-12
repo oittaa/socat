@@ -72,8 +72,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	spText := SourcePortText(s)
-	lowport := s.Network.LowPort.Value && (spText == "" || spText == "0")
+	lowport := s.Network.LowPort.Value && (s.Network.SourcePort.Empty() || s.Network.SourcePort.IsZero())
 
 	var lastErr error
 	for _, ip := range ips {
@@ -324,11 +323,11 @@ func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
 // skip=true means try next remote.
 func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Address, network string) (laddr *net.TCPAddr, skip bool, err error) {
 	portTarget, hasPort := s.Network.LocalPort()
-	if !s.Network.BindSet && (!hasPort || portTarget.Text() == "" || portTarget.Text() == "0") {
+	if !s.Network.BindSet && (!hasPort || portTarget.Empty() || portTarget.IsZero()) {
 		return nil, false, nil
 	}
 	port := 0
-	if hasPort && portTarget.Text() != "" && portTarget.Text() != "0" {
+	if hasPort && !portTarget.Empty() && !portTarget.IsZero() {
 		port, err = ResolvePort("tcp", portTarget)
 		if err != nil {
 			return nil, false, fmt.Errorf("bind port: %w", err)

@@ -21,8 +21,8 @@ func ApplyConfiguredNamedAttrs(path string, f *os.File, config addrconfig.File) 
 	return applyConfiguredNamed(path, f, config, false)
 }
 
-func ApplyConfiguredOwner(path, addressType string, f *os.File, config addrconfig.File) error {
-	if addressType == "CREATE" || addressType == "CREAT" {
+func ApplyConfiguredOwner(path string, kind addrconfig.AddressKind, f *os.File, config addrconfig.File) error {
+	if kind == addrconfig.AddressKindCREATE {
 		return nil
 	}
 	return applyConfiguredNamed(path, f, config, true)

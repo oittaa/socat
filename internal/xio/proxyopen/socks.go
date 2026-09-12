@@ -258,7 +258,7 @@ func socks5DestFromTarget(target addrconfig.HostTarget, portNum int) (socks5Dest
 }
 
 func socksPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
-	if p.SOCKSPortSet && p.SOCKSPort.Text() != "" {
+	if p.SOCKSPortSet && !p.SOCKSPort.Empty() {
 		return p.SOCKSPort
 	}
 	return addrconfig.PortFromText("1080")

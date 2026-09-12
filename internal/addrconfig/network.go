@@ -32,6 +32,12 @@ const (
 	AddressKindEXEC
 	AddressKindSYSTEM
 	AddressKindSHELL
+	AddressKindUNIX
+	AddressKindABSTRACT
+	AddressKindFile
+	AddressKindCREATE
+	AddressKindPIPE
+	AddressKindGOPEN
 )
 
 // IPFamily is the registry- or pf=-selected internet protocol family.
@@ -116,6 +122,14 @@ func (p PortTarget) Text() string {
 		return strconv.FormatUint(uint64(p.Number), 10)
 	}
 	return ""
+}
+
+func (p PortTarget) Empty() bool {
+	return !p.Numeric && p.Service == ""
+}
+
+func (p PortTarget) IsZero() bool {
+	return p.Numeric && p.Number == 0
 }
 
 // ProtocolFamilyToken is a diagnostic spelling of pf=. Execution uses IPFamily.
@@ -465,6 +479,8 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	case AddressKindSOCKS:
 		return decodeSOCKSPositional(d)
 	case AddressKindEXEC, AddressKindSYSTEM, AddressKindSHELL:
+		return nil
+	case AddressKindUNIX, AddressKindABSTRACT:
 		return nil
 	default:
 		switch n.Role {

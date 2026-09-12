@@ -10,6 +10,8 @@ func init() {
 		kindRaw   = addrconfig.AddressKindRawIP
 		kindSock  = addrconfig.AddressKindSocket
 		kindVSOCK = addrconfig.AddressKindVSOCK
+		kindUnix  = addrconfig.AddressKindUNIX
+		kindAbs   = addrconfig.AddressKindABSTRACT
 		connect   = addrconfig.AddressRoleConnect
 		listen    = addrconfig.AddressRoleListen
 		sendTo    = addrconfig.AddressRoleSendTo
@@ -86,22 +88,22 @@ func init() {
 	unixDgramEnabled := func() bool { return xio.FeatureUNIXDatagram }
 	abstractEnabled := func() bool { return xio.FeatureABSTRACT }
 
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX", Syntax: "UNIX:<filename>", DynamicDesc: xio.UnixGenericHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-CONNECT", Syntax: "UNIX-CONNECT:<filename>", DynamicDesc: xio.UnixConnectHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect, Aliases: []string{"LOCAL"}})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-CLIENT", Syntax: "UNIX-CLIENT:<filename>", DynamicDesc: xio.UnixGenericHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-LISTEN", Syntax: "UNIX-LISTEN:<filename>", DynamicDesc: xio.UnixListenHelp, Opener: openUnixListen, OptionCaps: xio.CapsUNIXListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-L", Syntax: "UNIX-L:<filename>", Desc: "same as UNIX-LISTEN", Opener: openUnixListen, OptionCaps: xio.CapsUNIXListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-SENDTO", Syntax: "UNIX-SENDTO:<filename>", Desc: "UNIX datagram sendto", Enabled: unixDgramEnabled, Opener: openUnixSendto, OptionCaps: xio.CapsUNIXConnect, Aliases: []string{"UNIX-SEND"}})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-RECVFROM", Syntax: "UNIX-RECVFROM:<filename>", Desc: "UNIX datagram recvfrom", Enabled: unixDgramEnabled, Opener: openUnixRecvfrom, OptionCaps: xio.CapsUNIXRecvfrom})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-RECV", Syntax: "UNIX-RECV:<filename>", Desc: "UNIX datagram receive", Enabled: unixDgramEnabled, Opener: openUnixRecv, OptionCaps: xio.CapsUNIXConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-DATAGRAM", Syntax: "UNIX-DATAGRAM:<filename>", Desc: "UNIX datagram with a default write destination; receives from any sender", Enabled: unixDgramEnabled, Opener: openUnixDatagram, OptionCaps: xio.CapsUNIXConnect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-CONNECT", Syntax: "ABSTRACT-CONNECT:<name>", Desc: "Linux abstract UNIX client", Enabled: abstractEnabled, Opener: openAbstractConnect, OptionCaps: xio.CapsAbstract})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-CLIENT", Syntax: "ABSTRACT-CLIENT:<name>", Desc: "same as ABSTRACT-CONNECT", Enabled: abstractEnabled, Opener: openAbstractConnect, OptionCaps: xio.CapsAbstract, Aliases: []string{"ABSTRACT"}})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-LISTEN", Syntax: "ABSTRACT-LISTEN:<name>", Desc: "Linux abstract UNIX server", Enabled: abstractEnabled, Opener: openAbstractListen, OptionCaps: xio.CapsAbstractListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-L", Syntax: "ABSTRACT-L:<name>", Desc: "same as ABSTRACT-LISTEN", Enabled: abstractEnabled, Opener: openAbstractListen, OptionCaps: xio.CapsAbstractListen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-SENDTO", Syntax: "ABSTRACT-SENDTO:<name>", Desc: "Linux abstract UNIX sendto", Enabled: abstractEnabled, Opener: openAbstractSendto, OptionCaps: xio.CapsAbstract})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-RECVFROM", Syntax: "ABSTRACT-RECVFROM:<name>", Desc: "Linux abstract UNIX recvfrom", Enabled: abstractEnabled, Opener: openAbstractRecvfrom, OptionCaps: xio.CapsAbstractRecvfrom})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-RECV", Syntax: "ABSTRACT-RECV:<name>", Desc: "Linux abstract UNIX receive", Enabled: abstractEnabled, Opener: openAbstractRecv, OptionCaps: xio.CapsAbstract})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX", Syntax: "UNIX:<filename>", DynamicDesc: xio.UnixGenericHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect, Kind: kindUnix})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-CONNECT", Syntax: "UNIX-CONNECT:<filename>", DynamicDesc: xio.UnixConnectHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect, Aliases: []string{"LOCAL"}, Kind: kindUnix, Role: connect})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-CLIENT", Syntax: "UNIX-CLIENT:<filename>", DynamicDesc: xio.UnixGenericHelp, Opener: openUnixConnect, OptionCaps: xio.CapsUNIXConnect, Kind: kindUnix})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-LISTEN", Syntax: "UNIX-LISTEN:<filename>", DynamicDesc: xio.UnixListenHelp, Opener: openUnixListen, OptionCaps: xio.CapsUNIXListen, Kind: kindUnix, Role: listen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-L", Syntax: "UNIX-L:<filename>", Desc: "same as UNIX-LISTEN", Opener: openUnixListen, OptionCaps: xio.CapsUNIXListen, Kind: kindUnix, Role: listen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-SENDTO", Syntax: "UNIX-SENDTO:<filename>", Desc: "UNIX datagram sendto", Enabled: unixDgramEnabled, Opener: openUnixSendto, OptionCaps: xio.CapsUNIXConnect, Aliases: []string{"UNIX-SEND"}, Kind: kindUnix, Role: sendTo})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-RECVFROM", Syntax: "UNIX-RECVFROM:<filename>", Desc: "UNIX datagram recvfrom", Enabled: unixDgramEnabled, Opener: openUnixRecvfrom, OptionCaps: xio.CapsUNIXRecvfrom, Kind: kindUnix, Role: recvFrom})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-RECV", Syntax: "UNIX-RECV:<filename>", Desc: "UNIX datagram receive", Enabled: unixDgramEnabled, Opener: openUnixRecv, OptionCaps: xio.CapsUNIXConnect, Kind: kindUnix, Role: recv})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "UNIX-DATAGRAM", Syntax: "UNIX-DATAGRAM:<filename>", Desc: "UNIX datagram with a default write destination; receives from any sender", Enabled: unixDgramEnabled, Opener: openUnixDatagram, OptionCaps: xio.CapsUNIXConnect, Kind: kindUnix, Role: dgram})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-CONNECT", Syntax: "ABSTRACT-CONNECT:<name>", Desc: "Linux abstract UNIX client", Enabled: abstractEnabled, Opener: openAbstractConnect, OptionCaps: xio.CapsAbstract, Kind: kindAbs, Role: connect})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-CLIENT", Syntax: "ABSTRACT-CLIENT:<name>", Desc: "same as ABSTRACT-CONNECT", Enabled: abstractEnabled, Opener: openAbstractConnect, OptionCaps: xio.CapsAbstract, Aliases: []string{"ABSTRACT"}, Kind: kindAbs})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-LISTEN", Syntax: "ABSTRACT-LISTEN:<name>", Desc: "Linux abstract UNIX server", Enabled: abstractEnabled, Opener: openAbstractListen, OptionCaps: xio.CapsAbstractListen, Kind: kindAbs, Role: listen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-L", Syntax: "ABSTRACT-L:<name>", Desc: "same as ABSTRACT-LISTEN", Enabled: abstractEnabled, Opener: openAbstractListen, OptionCaps: xio.CapsAbstractListen, Kind: kindAbs, Role: listen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-SENDTO", Syntax: "ABSTRACT-SENDTO:<name>", Desc: "Linux abstract UNIX sendto", Enabled: abstractEnabled, Opener: openAbstractSendto, OptionCaps: xio.CapsAbstract, Kind: kindAbs, Role: sendTo})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-RECVFROM", Syntax: "ABSTRACT-RECVFROM:<name>", Desc: "Linux abstract UNIX recvfrom", Enabled: abstractEnabled, Opener: openAbstractRecvfrom, OptionCaps: xio.CapsAbstractRecvfrom, Kind: kindAbs, Role: recvFrom})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupUnix, Name: "ABSTRACT-RECV", Syntax: "ABSTRACT-RECV:<name>", Desc: "Linux abstract UNIX receive", Enabled: abstractEnabled, Opener: openAbstractRecv, OptionCaps: xio.CapsAbstract, Kind: kindAbs, Role: recv})
 
 	// Generic socket
 	socketEnabled := func() bool { return xio.FeatureGENERICSOCKET }

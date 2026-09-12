@@ -20,6 +20,7 @@ type Facts struct {
 	Kind   AddressKind
 	Role   AddressRole
 	Family IPFamily
+	Secure bool
 }
 
 // Address is immutable prepared address data.
@@ -173,6 +174,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 				Kind:   facts.Kind,
 				Role:   facts.Role,
 				Family: facts.Family,
+				Secure: facts.Secure,
 			},
 			Common: Common{
 				Retry: Retry{Interval: time.Second},
@@ -201,11 +203,18 @@ func finishDecode(d *decoder) error {
 	resolveLineEnding(d)
 	resolveUnsupportedTLS(d)
 	decodeProcessCommand(&d.Address)
+	if d.Proxy.SOCKSPortSet && d.Proxy.SOCKSPort.Empty() && d.socksPositionalPortSet {
+		d.Proxy.SOCKSPort = d.socksPositionalPort
+	}
 	if d.TLS.WSPath.Set && d.TLS.WSPath.Value == "" && d.wsPositionalPath != "" {
 		d.TLS.WSPath.Value = d.wsPositionalPath
 	}
-	if d.Proxy.SOCKSPortSet && d.Proxy.SOCKSPort.Text() == "" && d.socksPositionalPortSet {
-		d.Proxy.SOCKSPort = d.socksPositionalPort
+	if d.Facts.Kind == AddressKindWebSocket {
+		if !d.TLS.WSPath.Set {
+			d.TLS.WSPath = OptionalString{Set: true, Value: "/"}
+		} else {
+			d.TLS.WSPath.Value = normalizeWSPath(d.TLS.WSPath.Value)
+		}
 	}
 	if d.TLS.MaxVersion != 0 && d.TLS.MinVersion > d.TLS.MaxVersion {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")

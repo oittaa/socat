@@ -25,7 +25,7 @@ func TestCREATEDoesNotApplyODirect(t *testing.T) {
 	if _, err := xio.PrepareSpec(spec); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("PrepareSpec err=%v want not supported", err)
 	}
-	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Kind: addrconfig.AddressKindCREATE})
 	if err != nil {
 		t.Fatal(err)
 	}

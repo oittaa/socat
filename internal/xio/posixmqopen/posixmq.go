@@ -14,13 +14,13 @@ const (
 	mqSend
 )
 
-func kindOf(typ string) mqKind {
-	switch typ {
-	case "POSIXMQ-READ":
+func kindOf(s addrconfig.Address) mqKind {
+	switch s.Facts.Role {
+	case addrconfig.AddressRoleReceive:
 		return mqRead
-	case "POSIXMQ-RECEIVE", "POSIXMQ-RECV":
+	case addrconfig.AddressRoleReceiveFrom:
 		return mqRecv
-	case "POSIXMQ-SEND", "POSIXMQ-WRITE":
+	case addrconfig.AddressRoleSendTo:
 		return mqSend
 	default:
 		return mqBidir

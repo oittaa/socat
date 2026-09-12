@@ -214,3 +214,30 @@ func TestListenBindHostEmptyHostFollowsPassive(t *testing.T) {
 		t.Fatalf("ai-passive=0 empty bind host=%+v", host)
 	}
 }
+
+func TestUDPListenAddressUsesGroupAndRole(t *testing.T) {
+	listen := addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleListen}}
+	if !udpListenAddress(listen) {
+		t.Fatal("UDP listen")
+	}
+	if udpListenAddress(addrconfig.Address{Type: "UDP-LISTEN"}) {
+		t.Fatal("Type string without group/role must not match")
+	}
+	if udpListenAddress(addrconfig.Address{Type: "QUIC-LISTEN", Facts: addrconfig.Facts{Group: GroupQUIC, Role: addrconfig.AddressRoleListen}}) {
+		t.Fatal("QUIC-LISTEN is not UDP-LISTEN")
+	}
+	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleReceiveFrom}}) {
+		t.Fatal("UDP-RECVFROM is not UDP-LISTEN")
+	}
+}
+
+func TestListenPortRejectsEmpty(t *testing.T) {
+	_, err := ListenPort(addrconfig.Address{Type: "TCP-LISTEN", Network: addrconfig.Network{ListenSet: true}})
+	if err == nil {
+		t.Fatal("expected invalid empty port")
+	}
+	port, err := ListenPort(addrconfig.Address{Type: "TCP-LISTEN", Network: addrconfig.Network{ListenSet: true, ListenPort: addrconfig.PortFromText("0")}})
+	if err != nil || !port.IsZero() {
+		t.Fatalf("port 0: %+v err=%v", port, err)
+	}
+}

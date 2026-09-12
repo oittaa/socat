@@ -76,8 +76,8 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (pos
 	if err != nil {
 		return posixMQParams{}, err
 	}
-	kind := kindOf(s.Type)
-	if kind == mqBidir && mode == xio.ModeRDWR && s.Type == "POSIXMQ" {
+	kind := kindOf(s)
+	if kind == mqBidir && mode == xio.ModeRDWR && s.Facts.Role == addrconfig.AddressRoleOther {
 		return posixMQParams{}, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 

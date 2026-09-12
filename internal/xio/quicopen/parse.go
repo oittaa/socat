@@ -23,10 +23,10 @@ func quicTarget(s addrconfig.Address, listen bool) (host, port string, err error
 	if !s.Network.TargetSet {
 		return "", "", fmt.Errorf("%s requires host and port", s.Type)
 	}
-	host, port = s.Network.Target.Original(), s.Network.TargetPort.Text()
-	if host == "" || port == "" {
+	if s.Network.Target.Empty() || s.Network.TargetPort.Empty() {
 		return "", "", fmt.Errorf("%s: invalid host/port", s.Type)
 	}
+	host, port = s.Network.Target.Original(), s.Network.TargetPort.Text()
 	return host, port, nil
 }
 

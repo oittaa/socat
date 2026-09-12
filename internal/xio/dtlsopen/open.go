@@ -29,7 +29,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	}
 	host := s.Network.Target
 	port := s.Network.TargetPort
-	if host.String() == "" || port.Text() == "" {
+	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
 	cfg, err := endpointConfig(ctx, s, host.String(), false)

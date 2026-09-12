@@ -29,7 +29,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	}
 	target, port := s.Network.Target, s.Network.TargetPort
 	host := target.String()
-	if host == "" || port.Text() == "" {
+	if target.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Dual-stack + pf= like TCP-CONNECT.

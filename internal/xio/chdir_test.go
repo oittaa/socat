@@ -11,7 +11,12 @@ import (
 
 func resolveChdirConfig(t *testing.T, spec parse.Spec) addrconfig.Address {
 	t.Helper()
-	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
+	kind := addrconfig.AddressKindOther
+	switch spec.Type {
+	case "CREATE", "CREAT":
+		kind = addrconfig.AddressKindCREATE
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Kind: kind})
 	if err != nil {
 		t.Fatal(err)
 	}

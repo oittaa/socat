@@ -35,7 +35,7 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 
 	config.Params = append([]string(nil), config.Params...)
 	config.Process.Chdir.Value = abs
-	if filesystemAddressParam(config.Type) && len(config.Params) > 0 {
+	if filesystemAddressParam(config) && len(config.Params) > 0 {
 		config.Params[0] = resolveRelativePath(abs, config.Params[0])
 	}
 	resolveOptionalPath(&config.Terminal.Link, abs)
@@ -54,7 +54,7 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 	if config.File.LockSet {
 		config.File.LockPath = resolveRelativePath(abs, config.File.LockPath)
 	}
-	if unixAddressType(config.Type) && config.Network.BindSet {
+	if unixAddressType(config) && config.Network.BindSet {
 		config.Network.Bind = resolveHostPath(abs, config.Network.Bind)
 	}
 	return config, nil
@@ -81,15 +81,15 @@ func resolveRelativePath(dir, path string) string {
 	return filepath.Join(dir, path)
 }
 
-func filesystemAddressParam(typ string) bool {
-	typ = strings.ToUpper(typ)
-	switch typ {
-	case "OPEN", "FILE", "CREATE", "CREAT", "GOPEN", "PIPE", "FIFO", "ECHO":
+func filesystemAddressParam(config addrconfig.Address) bool {
+	switch config.Facts.Kind {
+	case addrconfig.AddressKindFile, addrconfig.AddressKindCREATE, addrconfig.AddressKindPIPE, addrconfig.AddressKindGOPEN, addrconfig.AddressKindUNIX:
 		return true
+	default:
+		return false
 	}
-	return unixAddressType(typ)
 }
 
-func unixAddressType(typ string) bool {
-	return strings.HasPrefix(strings.ToUpper(typ), "UNIX")
+func unixAddressType(config addrconfig.Address) bool {
+	return config.Facts.Kind == addrconfig.AddressKindUNIX
 }

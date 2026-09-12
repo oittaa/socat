@@ -41,12 +41,9 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 	if err != nil {
 		return nil, err
 	}
-	sp := ""
-	if exactPeer {
-		sp = xio.SourcePortText(s)
-	}
+	sourceSpecified := exactPeer && !s.Network.SourcePort.Empty()
 	var laddr *net.UDPAddr
-	if s.Network.LowPort.Value && sp == "" {
+	if s.Network.LowPort.Value && (!sourceSpecified || s.Network.SourcePort.IsZero()) {
 		bind, bindErr := xio.ListenBindHost(s, network)
 		if bindErr != nil {
 			return nil, bindErr
@@ -61,7 +58,7 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 		}
 		return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, berr)
 	}
-	if s.Network.BindSet || sp != "" {
+	if s.Network.BindSet || sourceSpecified {
 		bind, bindErr := xio.ListenBindHost(s, network)
 		if bindErr != nil {
 			return nil, bindErr
