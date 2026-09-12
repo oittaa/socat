@@ -87,6 +87,7 @@ E2E_HARNESS_RACE_REQUIRED ?= \
 	TestWaitTCPListenDetectsEarlyExit \
 	TestWaitTCPListenTimesOutAndCleansUp \
 	TestWaitTCPListenUnrelatedPortOccupation \
+	TestWaitUDPListenDetectsEarlyExit \
 	TestWaitUDPListenDelayedBind \
 	TestPortOccupiedUnexpectedError \
 	TestPortOccupiedBindBusy
