@@ -6,8 +6,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // SocketTimeoutConn applies rcvtimeo/sndtimeo below framed transports
@@ -25,35 +23,8 @@ type SocketTimeoutConn struct {
 	writeDeadline time.Time
 }
 
-func NewSocketTimeoutConn(s parse.Spec, conn net.Conn) (*SocketTimeoutConn, error) {
-	wrapped := &SocketTimeoutConn{Conn: conn}
-	for _, item := range []struct {
-		name string
-		dst  *time.Duration
-	}{
-		{name: "rcvtimeo", dst: &wrapped.readTimeout},
-		{name: "sndtimeo", dst: &wrapped.writeTimeout},
-	} {
-		value := s.OptionValue(item.name, "")
-		if value == "" {
-			continue
-		}
-		d, err := parseTimeval(value)
-		if err != nil || d < 0 {
-			return nil, &socketTimeoutConfigError{name: item.name, value: value}
-		}
-		*item.dst = d
-	}
-	return wrapped, nil
-}
-
-type socketTimeoutConfigError struct {
-	name  string
-	value string
-}
-
-func (e *socketTimeoutConfigError) Error() string {
-	return e.name + ": invalid timeout " + e.value
+func NewSocketTimeoutConn(conn net.Conn, readTimeout, writeTimeout time.Duration) *SocketTimeoutConn {
+	return &SocketTimeoutConn{Conn: conn, readTimeout: readTimeout, writeTimeout: writeTimeout}
 }
 
 // EnableSocketTimeouts starts applying the configured per-operation timeouts.

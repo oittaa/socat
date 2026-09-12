@@ -5,16 +5,16 @@ import (
 	"testing"
 )
 
-func TestCanonicalFacilityDefaultAndNames(t *testing.T) {
-	got, err := CanonicalFacility("")
-	if err != nil || got != DefaultFacility {
-		t.Fatalf("empty: %q %v", got, err)
+func TestParseFacilityDefaultAndNames(t *testing.T) {
+	got, err := ParseFacility("")
+	if err != nil || got != FacilityDaemon {
+		t.Fatalf("empty: %v %v", got, err)
 	}
-	got, err = CanonicalFacility("LOCAL0")
-	if err != nil || got != "local0" {
-		t.Fatalf("LOCAL0: %q %v", got, err)
+	got, err = ParseFacility("LOCAL0")
+	if err != nil || got != FacilityLocal0 {
+		t.Fatalf("LOCAL0: %v %v", got, err)
 	}
-	if _, err := CanonicalFacility("not-a-facility"); err == nil || !strings.Contains(err.Error(), `unknown syslog facility "not-a-facility"`) {
+	if _, err := ParseFacility("not-a-facility"); err == nil || !strings.Contains(err.Error(), `unknown syslog facility "not-a-facility"`) {
 		t.Fatalf("invalid: %v", err)
 	}
 }

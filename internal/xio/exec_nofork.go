@@ -9,8 +9,8 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -25,22 +25,40 @@ import (
 //
 // Phases: prepare command → attach peer (transfer FD ownership) → Start →
 // drop ExtraFiles copies → Wait/reap.
-func runExecNoFork(ctx context.Context, peer relay.Stream, s parse.Spec, g *Global, mode Mode) error {
-	cmd, err := commandForExecSpec(ctx, s)
+func runExecNoFork(ctx context.Context, peer relay.Stream, config addrconfig.Address, g *Global, mode Mode) error {
+	cmd, err := commandForConfiguredExec(ctx, config)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnusedExecPastSocketOptions(s); err != nil {
+	if err := rejectUnusedExecPastSocketOptions(config); err != nil {
 		return err
 	}
-	if err := rejectExecUnsupportedPTYOptions(s); err != nil {
+	if err := rejectExecUnsupportedPTYOptions(config); err != nil {
 		return err
 	}
-	c, err := newExecChild(s, mode, g, cmd)
+	c, err := newExecChild(ctx, config, mode, g, cmd)
 	if err != nil {
 		return err
 	}
 	return c.runNoFork(ctx, peer)
+}
+
+func commandForConfiguredExec(ctx context.Context, config addrconfig.Address) (*exec.Cmd, error) {
+	switch config.Facts.Kind {
+	case addrconfig.AddressKindSHELL:
+		return configuredShellCommand(ctx, config.Process), nil
+	case addrconfig.AddressKindSYSTEM:
+		if !config.Process.HasCommand {
+			return nil, fmt.Errorf("SYSTEM requires command")
+		}
+		return exec.CommandContext(ctx, "/bin/sh", "-c", config.Process.Command), nil // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	default:
+		if len(config.Process.Argv) == 0 {
+			return nil, fmt.Errorf("empty EXEC command")
+		}
+		parts := config.Process.Argv
+		return exec.CommandContext(ctx, parts[0], parts[1:]...), nil // #nosec G204 -- EXEC/SYSTEM/SHELL runs the command from the address line
+	}
 }
 
 // wrapNoForkFDCommand applies the child dup2 helper to a nofork command.
@@ -275,7 +293,7 @@ func (c *execChild) attachNoForkStdio(peer relay.Stream, extra []*os.File) error
 	}
 	c.cmd.Stdin = in
 	c.cmd.Stdout = out
-	if c.spec.BoolOption("stderr") {
+	if c.config.Process.Stderr.Value {
 		c.cmd.Stderr = out
 	} else {
 		c.cmd.Stderr = os.Stderr
@@ -315,15 +333,15 @@ func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
 		if err != nil {
 			return err
 		}
-		if err := applyDashArgv0(c.spec, c.cmd); err != nil {
+		if err := applyConfiguredDashArgv0(c.config.Process.Dash.Value, c.config.Facts.Kind, c.config.Type, c.cmd); err != nil {
 			return err
 		}
-		c.cmd, err = wrapNoForkFDCommand(ctx, c.cmd, c.mode, c.fdin, c.fdout, sameFD, c.spec.BoolOption("stderr"))
+		c.cmd, err = wrapNoForkFDCommand(ctx, c.cmd, c.mode, c.fdin, c.fdout, sameFD, c.config.Process.Stderr.Value)
 		if err != nil {
 			return err
 		}
 	}
-	if err := applyExecProcessAttrs(c.spec, c.cmd, c.g, c.fdRedirect); err != nil {
+	if err := applyExecProcessAttrs(c.config, c.cmd, c.g, c.fdRedirect); err != nil {
 		return err
 	}
 	if err := c.attachNoForkStdio(peer, extra); err != nil {

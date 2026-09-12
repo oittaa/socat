@@ -2,25 +2,38 @@ package xio
 
 import (
 	"context"
+	"fmt"
 	"net"
+	"strconv"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // TCPListenAddress resolves the bind address without creating a socket.
-func TCPListenAddress(ctx context.Context, s parse.Spec, network, port string) (string, error) {
-	host, err := ListenBindHost(s, network, s.OptionValue("bind", ""))
+func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string, port addrconfig.PortTarget) (string, error) {
+	host, err := ListenBindHost(s, network)
 	if err != nil {
 		return "", err
 	}
-	host, err = ResolveIPHost(ctx, s, network, host)
+	ip, err := ResolveIPTarget(ctx, s, network, host)
 	if err != nil {
 		return "", err
 	}
-	return net.JoinHostPort(StripBrackets(host), port), nil
+	n, err := ResolvePort(network, port)
+	if err != nil {
+		return "", err
+	}
+	formatted := host.String()
+	if ip != nil {
+		formatted = FormatIPForNetwork(network, ip)
+	}
+	if formatted == "" {
+		return "", fmt.Errorf("%s: bind requires a host", s.Type)
+	}
+	return net.JoinHostPort(formatted, strconv.Itoa(n)), nil
 }
 
 // ListenTCP binds a prepared address with the requested socket options.
-func ListenTCP(ctx context.Context, s parse.Spec, network, addr string) (net.Listener, error) {
+func ListenTCP(ctx context.Context, s addrconfig.Address, network, addr string) (net.Listener, error) {
 	return ListenStream(ctx, NewTCPListenConfig(s), network, addr, s)
 }

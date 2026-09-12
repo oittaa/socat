@@ -7,14 +7,21 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // RejectUnsupportedListenBacklog rejects a backlog that Winsock cannot apply
 // through Go's listener API.
-func RejectUnsupportedListenBacklog(s parse.Spec) error {
-	if s.HasOption("backlog") {
+func RejectUnsupportedListenBacklog(s addrconfig.Address) error {
+	if s.Network.Backlog.Set {
 		return fmt.Errorf("backlog: not supported on Windows")
+	}
+	return nil
+}
+
+func RejectUnsupportedUnixTightSocklen(s addrconfig.Address) error {
+	if s.Network.UnixTightSocklen.Set {
+		return fmt.Errorf("unix-tightsocklen: not supported on this platform")
 	}
 	return nil
 }
@@ -22,7 +29,7 @@ func RejectUnsupportedListenBacklog(s parse.Spec) error {
 // ListenStream uses the provider-selected Windows backlog. Go always
 // listens with SOMAXCONN (golang/go#39000), and Winsock ignores a later
 // backlog change on an already-listening overlapped socket.
-func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s parse.Spec) (net.Listener, error) {
+func ListenStream(ctx context.Context, lc net.ListenConfig, network, address string, s addrconfig.Address) (net.Listener, error) {
 	if err := RejectUnsupportedListenBacklog(s); err != nil {
 		return nil, err
 	}

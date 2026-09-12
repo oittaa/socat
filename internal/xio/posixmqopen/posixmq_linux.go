@@ -15,7 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -31,15 +31,15 @@ func init() {
 	xio.FeaturePOSIXMQ = true
 }
 
-func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	p, err := parsePOSIXMQ(s, mode)
+func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	p, err := parsePOSIXMQ(ctx, s, mode)
 	if err != nil {
 		return nil, err
 	}
 	if err := posixMQUnlinkAndFlush(p.name, s, g); err != nil {
 		return nil, err
 	}
-	q, err := posixMQOpenQueue(ctx, s, g, p)
+	q, err := posixMQOpenQueue(ctx, g, p, s)
 	if err != nil {
 		return nil, err
 	}
@@ -52,7 +52,7 @@ func openPOSIXMQ(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global
 	oneshot := p.kind == mqRecv
 	nonblock := p.oflag&unix.O_NONBLOCK != 0
 	if p.fork && p.kind == mqSend {
-		return q.wrapSendFork(s, p, nonblock)
+		return q.wrapSendFork(ctx, s, p, nonblock)
 	}
 	if p.fork && oneshot {
 		return q.wrapRecvFork(ctx, s, p)
@@ -71,13 +71,13 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
+func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
 	}
-	kind := kindOf(s.Type)
-	if kind == mqBidir && mode == xio.ModeRDWR && s.Type == "POSIXMQ" {
+	kind := kindOf(s)
+	if kind == mqBidir && mode == xio.ModeRDWR && s.Facts.Role == addrconfig.AddressRoleOther {
 		return posixMQParams{}, fmt.Errorf("keyword \"POSIXMQ\" in bidirectional mode might unwanted flush the queue; use \"POSIXMQ-BIDIRECTIONAL\" to confirm usage")
 	}
 
@@ -86,27 +86,20 @@ func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
 		return posixMQParams{}, err
 	}
 
+	n := s.Network
 	prio := uint32(0)
-	if v := s.OptionValue("mq-prio", ""); v != "" {
-		n, e := strconv.ParseUint(v, 0, 32)
-		if e != nil {
-			return posixMQParams{}, fmt.Errorf("%s: invalid mq-prio %q", s.Type, v)
-		}
-		prio = uint32(n)
+	if n.MQPriority.Set {
+		prio = n.MQPriority.Value
 	}
 
 	oflag := 0
-	optCreat := true
-	if s.HasOption("creat") {
-		optCreat = s.BoolOption("creat")
-	}
-	if optCreat {
+	if !s.File.Create.Set || s.File.Create.Value {
 		oflag |= unix.O_CREAT
 	}
-	if s.BoolOption("excl") {
+	if s.File.Exclusive {
 		oflag |= unix.O_EXCL
 	}
-	if s.HasOption("nonblock") && s.BoolOption("nonblock") {
+	if s.File.Nonblock {
 		oflag |= unix.O_NONBLOCK
 	}
 	switch kind {
@@ -125,27 +118,16 @@ func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
 		}
 	}
 
-	modePerm, err := xio.ParseUnixMode(s, uint32(xio.DefaultCreateMode))
-	if err != nil {
-		return posixMQParams{}, err
-	}
+	modePerm := xio.FileModeToUnix(xio.ConfiguredFileMode(s.File, xio.DefaultCreateMode))
 
 	var attr *mqAttr
-	if s.HasOption("mq-maxmsg") || s.HasOption("mq-msgsize") {
+	if n.MQMaxMessages.Set || n.MQMessageSize.Set {
 		a := mqAttr{}
-		if v := s.OptionValue("mq-maxmsg", ""); v != "" {
-			n, e := strconv.ParseInt(v, 0, 64)
-			if e != nil {
-				return posixMQParams{}, fmt.Errorf("%s: invalid mq-maxmsg %q", s.Type, v)
-			}
-			a.Maxmsg = int(n)
+		if n.MQMaxMessages.Set {
+			a.Maxmsg = int(n.MQMaxMessages.Value)
 		}
-		if v := s.OptionValue("mq-msgsize", ""); v != "" {
-			n, e := strconv.ParseInt(v, 0, 64)
-			if e != nil {
-				return posixMQParams{}, fmt.Errorf("%s: invalid mq-msgsize %q", s.Type, v)
-			}
-			a.Msgsize = int(n)
+		if n.MQMessageSize.Set {
+			a.Msgsize = int(n.MQMessageSize.Value)
 		}
 		if a.Maxmsg == 0 {
 			if n, ok := readProcLong("/proc/sys/fs/mqueue/msg_default"); ok {
@@ -175,15 +157,15 @@ func parsePOSIXMQ(s parse.Spec, mode xio.Mode) (posixMQParams, error) {
 	}, nil
 }
 
-func posixMQUnlinkAndFlush(name string, s parse.Spec, g *xio.Global) error {
-	if s.BoolOption("unlink-early") {
+func posixMQUnlinkAndFlush(name string, config addrconfig.Address, g *xio.Global) error {
+	if config.File.UnlinkEarly.Value {
 		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
 			if g != nil && g.Log != nil {
 				g.Log.Infof("mq_unlink(%q): %s", name, e)
 			}
 		}
 	}
-	if s.BoolOption("mq-flush") {
+	if config.Network.MQFlush.Value {
 		return flushQueue(name)
 	}
 	return nil
@@ -198,10 +180,10 @@ type posixMQQueue struct {
 	unregister  func()
 }
 
-func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams) (*posixMQQueue, error) {
+func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, config addrconfig.Address) (*posixMQQueue, error) {
 	var fd int
-	err := xio.WithUmask(s, func() error {
-		return xio.WithRetry(ctx, s, g, "mq_open", func() error {
+	err := xio.WithConfiguredUmask(config.File, func() error {
+		return xio.WithRetry(ctx, g, config.Common.Retry.Policy(), "mq_open", func() error {
 			var e error
 			fd, e = mqOpen(p.name, p.oflag, p.modePerm, p.attr)
 			if e != nil {
@@ -232,7 +214,7 @@ func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixM
 	q := &posixMQQueue{
 		fd:          fd,
 		msgsize:     msgsize,
-		unlinkClose: s.BoolOption("unlink-close"),
+		unlinkClose: config.File.UnlinkClose.Value,
 		name:        p.name,
 		unregister:  func() {},
 	}
@@ -250,7 +232,7 @@ func posixMQOpenQueue(ctx context.Context, s parse.Spec, g *xio.Global, p posixM
 	return q, nil
 }
 
-func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapSendFork(ctx context.Context, s addrconfig.Address, p posixMQParams, nonblock bool) (*xio.Opened, error) {
 	fd, name, prio, msgsize := q.fd, q.name, p.prio, q.msgsize
 	dial := func(dctx context.Context) (net.Conn, error) {
 		if !nonblock {
@@ -281,7 +263,7 @@ func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool
 	o := &xio.Opened{
 		Kind:        xio.KindDial,
 		MaxChildren: p.maxChildren,
-		Interval:    xio.ParseRetry(s).Interval,
+		Interval:    s.Common.Retry.Policy().Interval,
 		Label:       s.Type,
 		Dial:        dial,
 		WrapDial:    wrap,
@@ -290,7 +272,7 @@ func (q *posixMQQueue) wrapSendFork(s parse.Spec, p posixMQParams, nonblock bool
 	return o, nil
 }
 
-func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQParams) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s addrconfig.Address, p posixMQParams) (*xio.Opened, error) {
 	ln := &mqListener{
 		fd:      q.fd,
 		name:    q.name,
@@ -321,7 +303,7 @@ func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s parse.Spec, p posixMQ
 	return o, nil
 }
 
-func (q *posixMQQueue) wrapStream(ctx context.Context, s parse.Spec, g *xio.Global, p posixMQParams, oneshot, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapStream(ctx context.Context, s addrconfig.Address, g *xio.Global, p posixMQParams, oneshot, nonblock bool) (*xio.Opened, error) {
 	mqs := &mqStream{
 		fd:       q.fd,
 		name:     q.name,

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // tcpwrapConfig holds libwrap / tcpwrappers options for peer checks.
@@ -24,37 +24,33 @@ type tcpwrapConfig struct {
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
 // Any of these enables the filter.
-func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
+func parseTCPWrap(policy addrconfig.Network, g *Global) tcpwrapConfig {
 	cfg := tcpwrapConfig{}
-	// Explicit table paths
-	if s.HasOption("hosts-allow") {
+	if policy.HostsAllow.Set {
 		cfg.enabled = true
 		cfg.allowRequired = true
-		cfg.allow = s.OptionValue("hosts-allow", "")
+		cfg.allow = policy.HostsAllow.Value
 	}
-	if s.HasOption("hosts-deny") {
+	if policy.HostsDeny.Set {
 		cfg.enabled = true
 		cfg.denyRequired = true
-		cfg.deny = s.OptionValue("hosts-deny", "")
+		cfg.deny = policy.HostsDeny.Value
 	}
-	// Directory containing hosts.allow / hosts.deny
-	if etc := s.OptionValue("tcpwrap-etc", ""); etc != "" {
+	if policy.TCPWrapEtc.Set && policy.TCPWrapEtc.Value != "" {
 		cfg.enabled = true
 		if cfg.allow == "" {
-			cfg.allow = filepath.Join(etc, "hosts.allow")
+			cfg.allow = filepath.Join(policy.TCPWrapEtc.Value, "hosts.allow")
 			cfg.allowRequired = true
 		}
 		if cfg.deny == "" {
-			cfg.deny = filepath.Join(etc, "hosts.deny")
+			cfg.deny = filepath.Join(policy.TCPWrapEtc.Value, "hosts.deny")
 			cfg.denyRequired = true
 		}
 	}
-	// Bare tcpwrap / libwrap / wrap / tcpwrappers enables with default tables
-	// and optional daemon name as the option value.
-	if s.HasOption("tcpwrap") {
+	if policy.TCPWrap.Set {
 		cfg.enabled = true
-		if v := s.OptionValue("tcpwrap", ""); v != "" && v != "1" {
-			cfg.daemon = v
+		if policy.TCPWrapDaemon != "" {
+			cfg.daemon = policy.TCPWrapDaemon
 		}
 	}
 	if !cfg.enabled {
@@ -80,10 +76,10 @@ func parseTCPWrap(s parse.Spec, g *Global) tcpwrapConfig {
 // tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.
 // Allow table first; then deny; default permit if neither matches.
 func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
-	return tcpwrapAllowedForSpec(context.Background(), parse.Spec{}, cfg, peer, local)
+	return tcpwrapAllowedWithResolver(context.Background(), nil, cfg, peer, local)
 }
 
-func tcpwrapAllowedForSpec(ctx context.Context, s parse.Spec, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
+func tcpwrapAllowedWithResolver(ctx context.Context, resolver *net.Resolver, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
 	if !cfg.enabled {
 		return nil
 	}
@@ -108,7 +104,7 @@ func tcpwrapAllowedForSpec(ctx context.Context, s parse.Spec, cfg tcpwrapConfig,
 	// Only reverse-lookup when tables may name hosts.
 	clientHost := ""
 	if clientIP != "" && hostsLinesMayNeedHostname(allowLines, denyLines) {
-		clientHost, err = reverseHost(ctx, s, clientIP)
+		clientHost, err = reverseHost(ctx, resolver, clientIP)
 		if err != nil {
 			return err
 		}
@@ -143,7 +139,7 @@ func peerIPOnly(peer net.Addr) (ipStr, bare string) {
 // Without this, systems that map all 127/8 to "localhost" would falsely
 // allow a client that is not localhost. Context cancellation is returned so
 // a shutting-down listener does not treat a canceled lookup as "no name".
-func reverseHost(ctx context.Context, s parse.Spec, ipStr string) (string, error) {
+func reverseHost(ctx context.Context, resolver *net.Resolver, ipStr string) (string, error) {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
 		return "", nil
@@ -151,7 +147,9 @@ func reverseHost(ctx context.Context, s parse.Spec, ipStr string) (string, error
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	resolver := LookupResolver(s)
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
 	names, err := resolver.LookupAddr(ctx, ipStr)
 	if ctx.Err() != nil {
 		return "", ctx.Err()

@@ -21,7 +21,7 @@ func BenchmarkOptionLookups(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		for _, name := range names {
-			_, _ = s.OptionNamed(name)
+			_, _ = optionNamed(s, name)
 		}
 	}
 }

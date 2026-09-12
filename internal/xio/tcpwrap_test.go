@@ -6,16 +6,26 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestTCPWrapExplicitMissingTableFailsClosed(t *testing.T) {
-	missing := filepath.Join(t.TempDir(), "missing.allow")
-	s, err := parse.ParseSpec("TCP4-LISTEN:1234,hosts-allow=" + missing)
+func decodePeerPolicy(t *testing.T, text string) addrconfig.Network {
+	t.Helper()
+	spec, err := parse.ParseSpec(text)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := parseTCPWrap(s, nil)
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Group: "TCP"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config.Network
+}
+
+func TestTCPWrapExplicitMissingTableFailsClosed(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing.allow")
+	cfg := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,hosts-allow="+missing), nil)
 	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
 	if err := tcpwrapAllowed(cfg, peer, nil); err == nil {
 		t.Fatal("explicit missing table unexpectedly permitted the peer")
@@ -46,5 +56,35 @@ func TestTCPWrapMissingDefaultTablesRemainOptional(t *testing.T) {
 	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
 	if err := tcpwrapAllowed(cfg, peer, nil); err != nil {
 		t.Fatalf("missing optional system tables should default permit: %v", err)
+	}
+}
+
+func TestTCPWrapDaemonNameSelectsHostsTable(t *testing.T) {
+	dir := t.TempDir()
+	allow := filepath.Join(dir, "hosts.allow")
+	deny := filepath.Join(dir, "hosts.deny")
+	if err := os.WriteFile(allow, []byte("MyDaemon: 127.0.0.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(deny, []byte("ALL: ALL\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
+	tables := ",hosts-allow=" + allow + ",hosts-deny=" + deny
+
+	named := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap=MyDaemon"+tables), nil)
+	if named.daemon != "MyDaemon" {
+		t.Fatalf("daemon=%q", named.daemon)
+	}
+	if err := tcpwrapAllowed(named, peer, nil); err != nil {
+		t.Fatalf("tcpwrap=MyDaemon: %v", err)
+	}
+
+	bare := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap"+tables), nil)
+	if bare.daemon != "socat" {
+		t.Fatalf("default daemon=%q", bare.daemon)
+	}
+	if err := tcpwrapAllowed(bare, peer, nil); err == nil {
+		t.Fatal("default daemon unexpectedly matched MyDaemon allow rule")
 	}
 }

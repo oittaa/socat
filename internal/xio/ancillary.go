@@ -10,47 +10,46 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
 // NeedAncillary reports whether the address requests control messages on recv.
-// Recv flags use BoolOption: pktinfo=0 does not enable ReadMsg; presence
-// or =1 does.
-func NeedAncillary(s parse.Spec) bool {
+// A last-wins zero value (pktinfo=0) does not enable ReadMsg.
+func NeedAncillary(s addrconfig.Address) bool {
 	return ancillaryRecvRequested(s)
 }
 
 // ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
-// Bare flag → 1; with '=' → integer; =0 disables. Each matching option in
-// s.Options is applied in command-line order (ippktinfo then ip-pktinfo=0
-// is two setsockopt calls).
-func ApplyAncillaryRecvOpts(fd int, s parse.Spec) error {
+// Bare flag → 1; with '=' → integer; =0 disables. Each matching decoded
+// ancillary action is applied in command-line order (ippktinfo then
+// ip-pktinfo=0 is two setsockopt calls).
+func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
 	family, err := socketIPFamily(fd)
 	if err != nil {
 		return err
 	}
-	for _, option := range s.Options {
-		e, ok := lookupIPAncillary(specOptionName(option))
-		if !ok || e.Kind&IPAncillaryRecv == 0 {
+	resolved := family
+	for _, action := range s.Network.Actions {
+		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
+		e, inMatrix := lookupIPAncillary(action.Ancillary)
+		if !inMatrix || e.Kind&IPAncillaryRecv == 0 {
+			continue
+		}
+		if err := applyPreparedIPRecv(fd, e, action.Number, resolved); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family ipFamily) error {
-	n, err := ancillaryRecvOptionInt(option)
-	if err != nil {
-		return fmt.Errorf("%s: %w", e.Canonical, err)
-	}
-	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
+func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) error {
+	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
 	}
-	level, opt, ok := ancillaryRecvSockopt(e.Canonical)
+	level, opt, ok := ancillaryRecvSockopt(e.ID)
 	if !ok {
 		return nil
 	}
@@ -60,39 +59,36 @@ func applyOneIPRecvOpt(fd int, e IPAncillaryEntry, option parse.Option, family i
 	return nil
 }
 
-func ancillaryRecvSockopt(canonical string) (level, opt int, ok bool) {
-	if level, opt, ok := ancillaryRecvSockoptPlatform(canonical); ok {
+func ancillaryRecvSockopt(id addrconfig.AncillaryOption) (level, opt int, ok bool) {
+	if level, opt, ok := ancillaryRecvSockoptPlatform(id); ok {
 		return level, opt, true
 	}
-	switch canonical {
-	case "so-timestamp":
+	switch id {
+	case addrconfig.AncillarySOTimestamp:
 		return unix.SOL_SOCKET, unix.SO_TIMESTAMP, true
-	case "ip-pktinfo":
+	case addrconfig.AncillaryIPPktinfo:
 		return unix.IPPROTO_IP, unix.IP_PKTINFO, true
-	case "ip-recvttl":
+	case addrconfig.AncillaryIPRecvTTL:
 		return unix.IPPROTO_IP, unix.IP_RECVTTL, true
-	case "ip-recvtos":
+	case addrconfig.AncillaryIPRecvTOS:
 		return unix.IPPROTO_IP, unix.IP_RECVTOS, true
-	case "ip-recvopts":
+	case addrconfig.AncillaryIPRecvOpts:
 		return unix.IPPROTO_IP, unix.IP_RECVOPTS, true
-	case "ip-retopts":
-		// Linux IP_RETOPTS is the recv-cmsg flag (same shape as
-		// IP_RECVOPTS). Darwin's IP_RETOPTS is an IP-options blob; the
-		// matrix hides and rejects the name there.
+	case addrconfig.AncillaryIPRetOpts:
 		return unix.IPPROTO_IP, unix.IP_RETOPTS, true
-	case "ipv6-recvpktinfo":
+	case addrconfig.AncillaryIPv6RecvPktinfo:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVPKTINFO, true
-	case "ipv6-recvhoplimit":
+	case addrconfig.AncillaryIPv6RecvHopLimit:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPLIMIT, true
-	case "ipv6-recvtclass":
+	case addrconfig.AncillaryIPv6RecvTclass:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVTCLASS, true
-	case "ipv6-recvdstopts":
+	case addrconfig.AncillaryIPv6RecvDstOpts:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVDSTOPTS, true
-	case "ipv6-recvhopopts":
+	case addrconfig.AncillaryIPv6RecvHopOpts:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVHOPOPTS, true
-	case "ipv6-recvrthdr":
+	case addrconfig.AncillaryIPv6RecvRtHdr:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVRTHDR, true
-	case "ipv6-recvpathmtu":
+	case addrconfig.AncillaryIPv6RecvPathMTU:
 		return unix.IPPROTO_IPV6, unix.IPV6_RECVPATHMTU, true
 	default:
 		return 0, 0, false
@@ -390,7 +386,7 @@ func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []b
 // on a live UDPConn. Send and recv IP/ancillary options apply after
 // socket() (DialControl / ListenControl → ApplyPastSocketPhase) and must
 // not be re-applied here after bind/connect.
-func ApplyUDPConnOpts(c *net.UDPConn, s parse.Spec, _ string) error {
+func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err

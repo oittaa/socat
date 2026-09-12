@@ -3,77 +3,74 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUDPConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPConnectNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"))
 }
-func openUDP4Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPConnectNetwork(ctx, s, mode, g, "udp4")
 }
-func openUDP6Connect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUDP6Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPConnectNetwork(ctx, s, mode, g, "udp6")
 }
 
-func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	if host == "" || port == "" {
+	host := s.Network.Target
+	port := s.Network.TargetPort
+	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
-	stripped := xio.StripBrackets(host)
 	// Select the mapped remote network before resolving bind=. UDP6 to an
 	// A-only hostname with ai-v4mapped switches udp6→udp4; resolving
 	// bind=<A-only-host> on udp6 first fails with "no suitable address".
-	if net.ParseIP(stripped) == nil {
-		netw, netErr := xio.PacketNetworkForHost(ctx, s, network, stripped)
+	if !host.IsLiteral() {
+		netw, netErr := xio.PacketNetworkForHost(ctx, s, network, host)
 		if netErr != nil {
 			return nil, netErr
 		}
 		network = netw
 	}
-	addr := net.JoinHostPort(stripped, port)
-	bind := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	raddr, err := xio.ResolveUDPTarget(ctx, s, network, host, port)
+	if err != nil {
+		return nil, err
+	}
+	lowport := xio.ClientUsesLowport(s)
 	var conn net.Conn
 	if lowport {
-		bind, err = xio.ListenBindHost(s, network, bind)
-		if err != nil {
-			return nil, err
+		bind, bindErr := xio.ListenBindHost(s, network)
+		if bindErr != nil {
+			return nil, bindErr
 		}
-		conn, err = dialUDPLowport(ctx, network, bind, addr, s, g)
+		conn, err = dialUDPLowport(ctx, network, bind, raddr, s, g)
 	} else {
 		var laddr net.Addr
-		if bind != "" || sp != "" {
-			bind, err = xio.ListenBindHost(s, network, bind)
+		if s.Network.BindSet || s.Network.SourcePortSet || s.Network.BindPortSet {
+			bind, bindErr := xio.ListenBindHost(s, network)
+			if bindErr != nil {
+				return nil, bindErr
+			}
+			laddr, err = xio.ResolveUDPTarget(ctx, s, network, bind, xio.ClientLocalPort(s))
 			if err != nil {
 				return nil, err
 			}
-			if sp == "" {
-				sp = "0"
-			}
-			ba, resolveErr := xio.ResolveUDPAddr(ctx, s, network, xio.BindPort(bind, sp))
-			if resolveErr != nil {
-				return nil, resolveErr
-			}
-			laddr = ba
 		}
 		conn, err = dialUDPForSpec(dialRequest{
 			ctx:     ctx,
 			network: network,
 			timeout: xio.ConnectTimeout(s),
-			spec:    s,
-		}, laddr, addr)
+			config:  s,
+		}, laddr, raddr)
 	}
 	if err != nil {
 		return nil, err
@@ -93,16 +90,16 @@ func openUDPConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	return &xio.Opened{Stream: st, Label: "UDP:" + addr}, nil
+	return &xio.Opened{Stream: st, Label: "UDP:" + raddr.String()}, nil
 }
 
-func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.Spec, g *xio.Global) (net.Conn, error) {
+func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTarget, remote *net.UDPAddr, s addrconfig.Address, g *xio.Global) (net.Conn, error) {
 	var conn net.Conn
 	_, err := xio.FirstAvailableLowport(func(port int) error {
 		if g != nil && g.Log != nil {
-			g.Log.Debugf("bind(%s:%d)", bind, port)
+			g.Log.Debugf("bind(%s:%d)", bind.Original(), port)
 		}
-		laddr, err := xio.ResolveUDPAddr(ctx, s, network, xio.BindPort(bind, fmt.Sprintf("%d", port)))
+		laddr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortFromText(fmt.Sprintf("%d", port)))
 		if err != nil {
 			return err
 		}
@@ -110,7 +107,7 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 			ctx:     ctx,
 			network: network,
 			timeout: xio.ConnectTimeout(s),
-			spec:    s,
+			config:  s,
 			g:       g,
 		}, laddr, remote)
 		return err
@@ -121,9 +118,9 @@ func dialUDPLowport(ctx context.Context, network, bind, remote string, s parse.S
 	return conn, nil
 }
 
-func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if n := xio.NetworkFromPF(pf, "udp", ""); n != "" {
+func NetworkUDP(g *xio.Global, s addrconfig.Address, def string) string {
+	if s.Network.ProtocolSet {
+		if n := xio.NetworkFromIPFamily(s.Network.IPFamily, "udp"); n != "" {
 			return n
 		}
 	}
@@ -143,7 +140,7 @@ func NetworkUDP(g *xio.Global, s parse.Spec, def string) string {
 	}
 }
 
-func udpNetworkWithListenDefault(g *xio.Global, s parse.Spec) string {
+func udpNetworkWithListenDefault(g *xio.Global, s addrconfig.Address) string {
 	return xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
 }
 

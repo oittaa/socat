@@ -2,21 +2,26 @@ package xio
 
 import (
 	"fmt"
-
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // RejectUnsupportedTermios fails when a spec requests a termios option on a
 // platform that does not implement termios (Windows). Same shape as
 // RejectUnsupportedIPAncillary: do not accept the option as a silent no-op.
-func RejectUnsupportedTermios(s parse.Spec) error {
+func RejectUnsupportedTermios(s addrconfig.Address) error {
 	if FeatureTERMIOS {
 		return nil
 	}
-	for _, option := range s.Options {
-		if IsTermiosOption(option.OriginalSpelling()) || IsTermiosOption(option.Name) {
-			return fmt.Errorf("%s: option %q is not supported on this platform", s.Type, option.Name)
-		}
+	if len(s.Terminal.Actions) == 0 {
+		return nil
 	}
-	return nil
+	name := s.Terminal.Actions[0].Name
+	if name == "" {
+		name = "termios"
+	}
+	typ := s.Type
+	if typ == "" {
+		typ = "address"
+	}
+	return fmt.Errorf("%s: option %q is not supported on this platform", typ, name)
 }

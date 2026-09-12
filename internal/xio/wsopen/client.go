@@ -7,38 +7,39 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/coder/websocket"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func openWSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+func openWSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
 	return openWSConnectScheme(ctx, s, mode, g, "ws")
 }
 
-func openWSSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openWSSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openWSConnectScheme(ctx, s, mode, g, "wss")
 }
 
-func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
-	host, port, path, err := wsTarget(s, false)
+func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, scheme string) (*xio.Opened, error) {
+	_, _, path, err := wsTarget(s, false)
 	if err != nil {
 		return nil, err
 	}
 	dest := wsDialTarget{
-		Network: xio.ConnectNetworkForType(g, s, host, "tcp"),
+		Network: xio.ConnectNetworkForType(g, s, s.Network.Target, "tcp"),
 		Scheme:  scheme,
-		Host:    host,
-		Port:    port,
+		Host:    s.Network.Target,
+		Port:    s.Network.TargetPort,
 		Path:    path,
 	}
 	u := dest.httpURL()
@@ -46,7 +47,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	var tlsCfg *tls.Config
 	if scheme == "wss" {
-		tlsCfg, err = tlsopen.TLSClientConfig(s, host)
+		tlsCfg, err = tlsopen.TLSClientConfigSettings(s.Type, s.TLS, s.Network.Target.String())
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +55,7 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {
 			nc, e := dialWS(dctx, dest, s, g, tlsCfg, handshakeTimeout)
 			if e != nil {
 				return e
@@ -79,21 +80,25 @@ func openWSConnectScheme(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.G
 type wsDialTarget struct {
 	Network string
 	Scheme  string
-	Host    string
-	Port    string
+	Host    addrconfig.HostTarget
+	Port    addrconfig.PortTarget
 	Path    string
 }
 
 func (t wsDialTarget) httpURL() url.URL {
+	port := t.Port.Text()
+	if t.Port.Numeric {
+		port = strconv.Itoa(int(t.Port.Number))
+	}
 	return url.URL{
 		Scheme: t.Scheme,
-		Host:   net.JoinHostPort(xio.StripBrackets(t.Host), t.Port),
+		Host:   net.JoinHostPort(t.Host.String(), port),
 		Path:   t.Path,
 	}
 }
 
-func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
-	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: dest.Host, Port: dest.Port}, s, g, xio.ConnectTimeout(s), nil)
+func dialWS(ctx context.Context, dest wsDialTarget, s addrconfig.Address, g *xio.Global, tlsCfg *tls.Config, handshakeTimeout time.Duration) (net.Conn, error) {
+	raw, err := xio.DialTCPAll(ctx, xio.DialTarget{Network: dest.Network, Host: s.Network.Target, Port: s.Network.TargetPort}, s, g, xio.ConnectTimeout(s), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -142,11 +147,11 @@ func dialWS(ctx context.Context, dest wsDialTarget, s parse.Spec, g *xio.Global,
 		opts := &websocket.DialOptions{
 			HTTPClient: &http.Client{Transport: tr},
 		}
-		if origin := s.OptionValue("origin", ""); origin != "" {
+		if origin := s.TLS.WSOrigin.Value; origin != "" {
 			opts.HTTPHeader = make(http.Header)
 			opts.HTTPHeader.Set("Origin", origin)
 		}
-		if proto := s.OptionValue("protocol", ""); proto != "" {
+		if proto := s.TLS.WSProtocol.Value; proto != "" {
 			opts.Subprotocols = []string{proto}
 		}
 		c, _, err := websocket.Dial(hctx, rawURL, opts)

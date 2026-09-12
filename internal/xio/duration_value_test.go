@@ -1,22 +1,23 @@
 package xio
 
 import (
+	"strings"
 	"testing"
-	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestParseTimevalWrapsDurationErrors(t *testing.T) {
-	if _, err := parseTimeval(""); err == nil || err.Error() != "empty timeout" {
+func TestParseDurationRejectsEmptyAndRange(t *testing.T) {
+	if _, err := addrconfig.ParseDuration(""); err == nil || !strings.Contains(err.Error(), "empty duration") {
 		t.Fatalf("empty: %v", err)
 	}
-	if _, err := parseTimeval("NaN"); err == nil || err.Error() != "timeout out of range" {
+	if _, err := addrconfig.ParseDuration("NaN"); err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("range: %v", err)
 	}
 }
 
-func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
+func TestPrepareRejectsInvalidRetryInterval(t *testing.T) {
 	for _, raw := range []string{
 		"TCP:127.0.0.1:9,interval=banana",
 		"TCP:127.0.0.1:9,interval=-1",
@@ -26,9 +27,8 @@ func TestParseRetryInvalidIntervalKeepsDefault(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := ParseRetry(s)
-		if p.Interval != time.Second {
-			t.Fatalf("%s interval=%s want 1s", raw, p.Interval)
+		if _, err := PrepareSpec(s); err == nil {
+			t.Fatalf("%s: invalid retry interval accepted", raw)
 		}
 	}
 }

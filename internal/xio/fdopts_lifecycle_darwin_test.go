@@ -14,7 +14,7 @@ import (
 func TestSetupStreamPermOnAnonymousSocketPropagatesFchmodError(t *testing.T) {
 	cli, srv := localTCPPair(t)
 	spec := mustSpec(t, "TCP:127.0.0.1:1,perm=0600")
-	_, err := SetupStream(spec, relay.NetStream{Conn: cli})
+	_, err := SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: cli})
 	if err == nil {
 		t.Fatal("expected fchmod error on anonymous socket descriptor")
 	}

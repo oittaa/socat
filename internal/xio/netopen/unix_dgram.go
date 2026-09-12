@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"os"
@@ -14,27 +15,26 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUnixSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUnixgramSend(ctx, s, mode, g, true)
 }
 
-func openUnixDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUnixgramSend(ctx, s, mode, g, false)
 }
 
-func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, filterPeer bool) (*xio.Opened, error) {
+func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, filterPeer bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
-	remote := unixAddr(s.Params[0])
-	bindPath, err := resolveUnixBind(s)
+	remote := unixAddr(s.Network.SocketPath)
+	bindPath, err := resolveUnixBindConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyNamedAfterBind(bound, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bound, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func openUnixgramSend(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 
 // listenUnixgramUnbound creates an unbound AF_UNIX SOCK_DGRAM socket and
 // applies after-socket then before-bind options.
-func listenUnixgramUnbound(s parse.Spec) (*net.UnixConn, error) {
+func listenUnixgramUnbound(s addrconfig.Address) (*net.UnixConn, error) {
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func listenUnixgramUnbound(s parse.Spec) (*net.UnixConn, error) {
 	return unixConnFromFD(uintptr(fd), "unixgram-unbound")
 }
 
-func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*net.UnixConn, error) {
+func listenUnixgramBound(s addrconfig.Address, laddr *net.UnixAddr, applyUmask bool) (*net.UnixConn, error) {
 	fd, err := syscall.Socket(syscall.AF_UNIX, syscall.SOCK_DGRAM, 0)
 	if err != nil {
 		return nil, err
@@ -102,10 +102,10 @@ func listenUnixgramBound(s parse.Spec, laddr *net.UnixAddr, applyUmask bool) (*n
 		return nil, err
 	}
 	bind := func() error {
-		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(s))
+		return bindUnixPath(int(fd), laddr.Name, unixTightSocklen(s.Network.UnixTightSocklen))
 	}
 	if applyUmask {
-		err = xio.WithUmask(s, bind)
+		err = xio.WithConfiguredUmask(s.File, bind)
 	} else {
 		err = bind()
 	}
@@ -137,23 +137,23 @@ func unixConnFromFD(fd uintptr, name string) (*net.UnixConn, error) {
 
 // openUnixRecvfrom: UNIX-RECVFROM:path — bind, first packet peer for replies.
 // With fork: each datagram is a child session.
-func openUnixRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUnixRecvCommon(ctx, s, mode, g, true)
 }
 
 // openUnixRecv: UNIX-RECV:path — bind, read-only (no reply).
-func openUnixRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openUnixRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUnixRecvCommon(ctx, s, mode, g, false)
 }
 
-func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("%s requires path", s.Type)
 	}
 	if !from && mode == xio.ModeWrite {
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
-	path := unixAddr(s.Params[0])
+	path := unixAddr(s.Network.SocketPath)
 	if err := prepareUnixFilesystemPath(path, s); err != nil {
 		return nil, err
 	}
@@ -167,14 +167,14 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
 	label := s.Type + ":" + path
-	if s.BoolOption("fork") && from {
-		ln := &unixgramListener{c: c, path: path, spec: s, g: g, ctx: ctx}
-		d, terr := xio.RecvTimeoutFromSpec(s)
+	if xio.ForkRequested(s) && from {
+		ln := &unixgramListener{c: c, path: path, config: s, g: g, ctx: ctx, nullEOF: s.Transfer.NullEOF.Value}
+		d, terr := xio.RecvTimeout(s)
 		if terr != nil {
 			life.drop(ln)
 			return nil, terr
@@ -199,7 +199,7 @@ func openUnixRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 
 	if from {
-		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, s.BoolOption("null-eof"))
+		first, peer, err := waitUnixRecvfromPacket(ctx, c, g, s.Transfer.NullEOF.Value)
 		if err != nil {
 			life.drop(c)
 			return nil, err
@@ -309,10 +309,11 @@ func (u *unixRecvStream) NetConn() net.Conn { return u.c }
 type unixgramListener struct {
 	c          *net.UnixConn
 	path       string
-	spec       parse.Spec
+	config     addrconfig.Address
 	g          *xio.Global
 	ctx        context.Context
 	rcvTimeout time.Duration
+	nullEOF    bool
 	writeMu    sync.Mutex
 }
 
@@ -339,7 +340,7 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 			}
 			return nil, err
 		}
-		if xio.IgnoreEmptyDatagram(n, err, l.spec.BoolOption("null-eof")) {
+		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
 			continue
 		}
 		return &unixPacketConn{
@@ -413,37 +414,37 @@ func (u *unixPacketConn) SetWriteDeadline(t time.Time) error {
 }
 
 // openAbstractRecvfrom: bind abstract datagram, one peer packet then reply (like UNIX-RECVFROM).
-func openAbstractRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openAbstractRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-RECVFROM requires name")
 	}
-	path := abstractName(s.Params[0])
+	path := abstractName(s.Network.SocketPath)
 	ps := s
-	ps.Params = []string{path}
+	ps.Network.SocketPath = path
 	// Force abstract path through openUnixRecvCommon without filesystem unlink.
 	return openUnixRecvCommon(ctx, ps, mode, g, true)
 }
 
 // openAbstractRecv: bind abstract datagram, read-only merge of packets.
-func openAbstractRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openAbstractRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-RECV requires name")
 	}
-	path := abstractName(s.Params[0])
+	path := abstractName(s.Network.SocketPath)
 	ps := s
-	ps.Params = []string{path}
+	ps.Network.SocketPath = path
 	return openUnixRecvCommon(ctx, ps, mode, g, false)
 }
 
 // openAbstractSendto implements ABSTRACT-SENDTO[,bind=] datagram send.
-func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if len(s.Params) < 1 || s.Params[0] == "" {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-SENDTO requires name")
 	}
-	target := abstractName(s.Params[0])
+	target := abstractName(s.Network.SocketPath)
 	bindOpt, err := resolveUnixBind(s)
 	if err != nil {
 		return nil, err
@@ -477,10 +478,10 @@ func openAbstractSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio
 	}
 	_ = mode
 	_ = g
-	return &xio.Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Params[0]}, nil
+	return &xio.Opened{Stream: wrapped, Label: "ABSTRACT-SENDTO:" + s.Network.SocketPath}, nil
 }
 
-func applyUnixgramSocketOptions(c *net.UnixConn, s parse.Spec) error {
+func applyUnixgramSocketOptions(c *net.UnixConn, s addrconfig.Address) error {
 	raw, err := c.SyscallConn()
 	if err != nil {
 		return err

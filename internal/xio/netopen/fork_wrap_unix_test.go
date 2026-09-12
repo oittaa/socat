@@ -17,7 +17,7 @@ func TestSocketRecvfromForkHasWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openSocketRecvfrom(context.Background(), spec, xio.ModeRDWR, g)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestSocketListenForkHasWrapDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openSocketListen(context.Background(), spec, xio.ModeRDWR, g)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}

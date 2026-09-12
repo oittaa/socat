@@ -1,8 +1,10 @@
 package proxyopen
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -11,8 +13,9 @@ func TestParseHTTPVersionUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := parseHTTPVersion(s); err == nil {
-		t.Fatal("expected error")
+	_, err = addrconfig.Decode(s, addrconfig.Facts{Type: "PROXY"})
+	if err == nil || !strings.Contains(err.Error(), "http-version") {
+		t.Fatalf("error=%v want http-version", err)
 	}
 }
 
@@ -21,7 +24,7 @@ func TestH2CRequiresVersion2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openProxyConnect(t.Context(), s, 0, nil)
+	_, err = openProxyConnect(t.Context(), mustAddr(t, s), 0, nil)
 	if err == nil {
 		t.Fatal("expected h2c without http-version=2 to fail")
 	}

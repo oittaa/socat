@@ -30,7 +30,12 @@ func startListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, spec stri
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHost := ls.Single.OptionValue("bind", "")
+	wantHost := ""
+	for _, o := range ls.Single.Options {
+		if o.Name == "bind" {
+			wantHost = o.Value
+		}
+	}
 	wantPort := 0
 	if len(ls.Single.Params) > 0 {
 		wantPort, _ = strconv.Atoi(ls.Single.Params[0])

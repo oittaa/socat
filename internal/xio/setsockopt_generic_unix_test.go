@@ -20,13 +20,13 @@ func TestApplyTCPConnOptsSetsockoptIntKeepaliveUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), cli); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
 		t.Fatalf("client SO_KEEPALIVE=%d want enabled", got)
 	}
-	if err := ApplyTCPConnOpts(spec, srv); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), srv); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, srv, soKeepalive); !sockoptFlagOn(got) {
@@ -42,7 +42,7 @@ func TestApplyTCPConnOptsSetsockoptDalanHexUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), cli); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
@@ -56,7 +56,7 @@ func TestApplyTCPConnOptsSetsockoptConnectedAliasUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, cli); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), cli); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
@@ -70,7 +70,7 @@ func TestApplyTCPConnOptsSetsockoptThroughNetConnUnwrapUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), netConnUnwrapper{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, soKeepalive); !sockoptFlagOn(got) {
@@ -88,7 +88,7 @@ func TestApplyUDPConnOptsAppliesSetsockoptUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyUDPConnOpts(c, spec, "udp4"); err != nil {
+	if err := ApplyUDPConnOpts(c, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
 	if got := udpSockoptInt(t, c, soKeepalive); !sockoptFlagOn(got) {
@@ -106,7 +106,7 @@ func TestApplyTCPConnOptsAppliesSetsockoptOnUDPUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, c); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), c); err != nil {
 		t.Fatalf("UDP setsockopt must apply, not no-op: %v", err)
 	}
 	if got := udpSockoptInt(t, c, soKeepalive); !sockoptFlagOn(got) {
@@ -121,7 +121,7 @@ func TestApplySetsockoptKernelRejectedUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyTCPConnOpts(spec, cli)
+	err = ApplyTCPConnOpts(mustDecodeAddress(t, spec), cli)
 	if err == nil {
 		t.Fatal("TCP_MAXSEG=1 must fail the open, not succeed silently")
 	}
@@ -137,7 +137,7 @@ func TestApplyGenericSetsockoptInvalidOptionUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyUDPConnOpts(c, spec, "udp4"); err == nil {
+	if err := ApplyUDPConnOpts(c, mustDecodeAddress(t, spec), "udp4"); err == nil {
 		t.Fatal("invalid level/opt must fail, not succeed silently")
 	}
 }

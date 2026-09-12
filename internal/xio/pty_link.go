@@ -5,18 +5,18 @@ import (
 	"os"
 	"sync"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// CreatePtySlaveLink creates link= / symbolic-link as a symlink to the PTY
-// slave. The returned cleanup unlinks only the symlink this call created.
-func CreatePtySlaveLink(s parse.Spec, slaveName string) (func(), error) {
-	o, ok := s.OptionNamed("link")
-	if !ok {
+// CreateConfiguredPtySlaveLink creates a PTY link from prepared terminal
+// configuration. The link target was decoded before resources were acquired;
+// its filesystem work intentionally remains here.
+func CreateConfiguredPtySlaveLink(config addrconfig.Address, slaveName string) (func(), error) {
+	if !config.Terminal.Link.Set {
 		return func() {}, nil
 	}
-	path := o.Value
-	if !o.Has || path == "" {
+	path := config.Terminal.Link.Value
+	if path == "" {
 		return func() {}, fmt.Errorf("link: path required")
 	}
 	if err := Unlink(path); err != nil && !os.IsNotExist(err) {
@@ -25,7 +25,7 @@ func CreatePtySlaveLink(s parse.Spec, slaveName string) (func(), error) {
 	if err := os.Symlink(slaveName, path); err != nil {
 		return func() {}, fmt.Errorf("link: %w", err)
 	}
-	if s.HasOption("unlink-close") && !s.BoolOption("unlink-close") {
+	if config.File.UnlinkClose.Set && !config.File.UnlinkClose.Value {
 		return func() {}, nil
 	}
 	info, err := os.Lstat(path)

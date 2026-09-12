@@ -51,8 +51,10 @@ func TestApplyKeepAliveConfigErrors(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", tc.spec, err)
 		}
-		tc2 := tcpPairForKeepalive(t)
-		err = ApplyTCPConnOpts(spec, tc2)
+		config, err := decodeAddress(spec)
+		if err == nil {
+			err = ApplyTCPConnOpts(config, tcpPairForKeepalive(t))
+		}
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("%s: err=%v want containing %q", tc.spec, err, tc.want)
 		}
@@ -67,7 +69,7 @@ func TestApplyKeepAliveExplicitDisableWins(t *testing.T) {
 	tc := tcpPairForKeepalive(t)
 	// Explicit keepalive=0 must win over sub-options; net.TCPConn exposes no
 	// getter, so success here means the config path accepted the precedence.
-	if err := ApplyTCPConnOpts(spec, tc); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), tc); err != nil {
 		t.Fatalf("explicit disable: %v", err)
 	}
 }

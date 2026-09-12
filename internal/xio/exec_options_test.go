@@ -33,7 +33,11 @@ func TestShellCommandHonorsShellOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := shellCommand(context.Background(), s, "echo hi", true)
+	prepared, err := PrepareSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := configuredShellCommand(context.Background(), prepared.Config.Process)
 	if cmd.Path != "/bin/sh" {
 		t.Fatalf("path=%q want /bin/sh", cmd.Path)
 	}
@@ -47,10 +51,29 @@ func TestShellCommandEmptyRunsInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := shellCommand(context.Background(), s, "", false)
+	prepared, err := PrepareSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := configuredShellCommand(context.Background(), prepared.Config.Process)
 	if len(cmd.Args) != 1 || cmd.Args[0] != "sh" {
 		t.Fatalf("interactive args=%q want [sh]", cmd.Args)
 	}
+}
+
+func TestEmptyQuotedSYSTEMCommandOpens(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	s, err := parse.ParseSpec(`SYSTEM:""`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := OpenSpec(context.Background(), s, ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
 }
 
 func TestRebuildWithFDHelperPreservesDashArgv0(t *testing.T) {

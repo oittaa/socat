@@ -7,48 +7,38 @@ import (
 	"runtime"
 	"unsafe"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
-// applyGenericIoctlOption issues ioctl(2) after parse finishes. Integer
-// request numbers are the 32-bit C int pattern zero-extended to unsigned
-// ioctl req. Overflow is rejected instead of wrapping (README).
-func applyGenericIoctlOption(fd int, o parse.Option) error {
-	spec, err := parseGenericIoctl(o)
-	if err != nil {
-		return err
-	}
+func applyConfiguredGenericIoctl(fd int, action addrconfig.FileAction) error {
+	request := uint(action.Request)
 	noteLifecycleSyscall("ioctl")
-	switch spec.kind {
-	case ioctlKindVoid:
-		if err := ioctlVoid(fd, spec.req); err != nil {
-			return fmt.Errorf("%s: ioctl(%d, 0x%x, NULL): %w", spec.name, fd, spec.req, err)
+	switch action.Ioctl {
+	case addrconfig.IoctlVoid:
+		if err := ioctlVoid(fd, request); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, NULL): %w", action.Name, fd, request, err)
 		}
-	case ioctlKindInt:
-		if err := unix.IoctlSetInt(fd, spec.req, spec.intVal); err != nil {
-			return fmt.Errorf("%s: ioctl(%d, 0x%x, 0x%x): %w", spec.name, fd, spec.req, spec.intVal, err)
+	case addrconfig.IoctlInt:
+		if err := unix.IoctlSetInt(fd, request, action.Value); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, 0x%x): %w", action.Name, fd, request, action.Value, err)
 		}
-	case ioctlKindIntp:
-		// IoctlSetPointerInt stores int32. C int is 32-bit on linux/darwin;
-		// a Go int pointer would be the wrong width on amd64.
-		if err := unix.IoctlSetPointerInt(fd, spec.req, spec.intVal); err != nil {
-			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", spec.name, fd, spec.req, err)
+	case addrconfig.IoctlIntp:
+		if err := unix.IoctlSetPointerInt(fd, request, action.Value); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, int*): %w", action.Name, fd, request, err)
 		}
-	case ioctlKindBin:
-		if err := ioctlBytes(fd, spec.req, spec.bin); err != nil {
-			return fmt.Errorf("%s: ioctl(%d, 0x%x, bin): %w", spec.name, fd, spec.req, err)
+	case addrconfig.IoctlBin:
+		payload := append([]byte(nil), action.Bytes...)
+		if err := ioctlBytes(fd, request, payload); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, bin): %w", action.Name, fd, request, err)
 		}
-	case ioctlKindString:
-		// Pin a NUL-terminated buffer. IoctlSetString does the same
-		// conversion; doing it here keeps KeepAlive next to SYS_IOCTL
-		// like ioctl-bin.
-		buf := append([]byte(spec.str), 0)
-		if err := ioctlBytes(fd, spec.req, buf); err != nil {
-			return fmt.Errorf("%s: ioctl(%d, 0x%x, string): %w", spec.name, fd, spec.req, err)
+	case addrconfig.IoctlString:
+		data := append([]byte(action.Text), 0)
+		if err := ioctlBytes(fd, request, data); err != nil {
+			return fmt.Errorf("%s: ioctl(%d, 0x%x, string): %w", action.Name, fd, request, err)
 		}
 	default:
-		return fmt.Errorf("unknown ioctl option %q", spec.name)
+		return fmt.Errorf("unknown ioctl option %q", action.Name)
 	}
 	return nil
 }

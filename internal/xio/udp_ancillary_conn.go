@@ -1,9 +1,8 @@
 package xio
 
 import (
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 const AncillaryBufferSize = 1024
@@ -12,7 +11,7 @@ const AncillaryBufferSize = 1024
 // ip-recverr are enabled. Recv ancillary uses ReadMsgUDP so cmsgs are
 // observed. ip-recverr drains MSG_ERRQUEUE on I/O errors for diagnostics
 // and never treats error-queue payload as received data.
-func WrapUDPAncillary(c *net.UDPConn, s parse.Spec, g *Global) net.Conn {
+func WrapUDPAncillary(c *net.UDPConn, s addrconfig.Address, g *Global) net.Conn {
 	if c == nil {
 		return nil
 	}

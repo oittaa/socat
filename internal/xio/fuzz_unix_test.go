@@ -5,6 +5,8 @@ package xio
 import (
 	"bytes"
 	"testing"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func FuzzParseHexOpt(f *testing.F) {
@@ -15,16 +17,16 @@ func FuzzParseHexOpt(f *testing.F) {
 		if len(input) > 4096 {
 			t.Skip("input exceeds 4096 bytes")
 		}
-		a, err1 := ParseHexOpt(input)
-		b, err2 := ParseHexOpt(input)
-		if (err1 == nil) != (err2 == nil) {
-			t.Fatalf("ParseHexOpt error is not deterministic: %v vs %v", err1, err2)
+		a, aInt, err1 := addrconfig.ParseDalan(input, 'i')
+		b, bInt, err2 := addrconfig.ParseDalan(input, 'i')
+		if (err1 == nil) != (err2 == nil) || aInt != bInt {
+			t.Fatalf("ParseDalan is not deterministic: %v/%v vs %v/%v", err1, aInt, err2, bInt)
 		}
 		if err1 != nil {
 			return
 		}
 		if !bytes.Equal(a, b) {
-			t.Fatalf("ParseHexOpt is not deterministic")
+			t.Fatalf("ParseDalan is not deterministic")
 		}
 	})
 }

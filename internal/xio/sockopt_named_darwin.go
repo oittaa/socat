@@ -2,40 +2,38 @@
 
 package xio
 
-import "golang.org/x/sys/unix"
+import (
+	"github.com/oittaa/socat/internal/addrconfig"
+	"golang.org/x/sys/unix"
+)
 
-// lookupNamedPastSocketInt maps a named option to level/opt after socket().
-// Darwin supports TCP_MAXSEG, TCP_NOPUSH, and TCP_NOOPT. Linux-only TCP_*
-// names fail instead of becoming no-ops.
-func lookupNamedPastSocketInt(name string) (level, opt int, ok bool, err error) {
-	switch name {
-	case "so-debug":
+func lookupNamedPastSocketInt(id addrconfig.NamedSocket) (level, opt int, ok bool, err error) {
+	switch id {
+	case addrconfig.NamedSocketDebug:
 		return solSocket, soDebug, true, nil
-	case "so-dontroute":
+	case addrconfig.NamedSocketDontRoute:
 		return solSocket, soDontroute, true, nil
-	case "so-oobinline":
+	case addrconfig.NamedSocketOOBInline:
 		return solSocket, soOobinline, true, nil
-	case "so-rcvlowat":
+	case addrconfig.NamedSocketRcvLowat:
 		return solSocket, unix.SO_RCVLOWAT, true, nil
-	case "so-sndlowat":
+	case addrconfig.NamedSocketSndLowat:
 		return solSocket, unix.SO_SNDLOWAT, true, nil
-	case "tcp-maxseg":
+	case addrconfig.NamedSocketTCPMaxSeg:
 		return unix.IPPROTO_TCP, unix.TCP_MAXSEG, true, nil
-	case "nopush", "tcp-nopush":
+	case addrconfig.NamedSocketNoPush:
 		return unix.IPPROTO_TCP, unix.TCP_NOPUSH, true, nil
-	case "noopt", "tcp-noopt":
+	case addrconfig.NamedSocketNoOpt:
 		return unix.IPPROTO_TCP, unix.TCP_NOOPT, true, nil
-	case "tcp-cork", "tcp-defer-accept", "tcp-linger2", "tcp-quickack", "tcp-syncnt", "tcp-window-clamp",
-		"sctp-nodelay", "sctp-maxseg",
-		"so-priority", "so-passcred", "so-no-check", "so-detach-filter":
-		return 0, 0, true, errNamedOptUnsupported
-	default:
+	case addrconfig.NamedSocketNone:
 		return 0, 0, false, nil
+	default:
+		return 0, 0, true, errNamedOptUnsupported
 	}
 }
 
-func lookupNamedConnectedInt(name string) (level, opt int, ok bool, err error) {
-	if name == "tcp-maxseg-late" {
+func lookupNamedConnectedInt(id addrconfig.NamedSocket) (level, opt int, ok bool, err error) {
+	if id == addrconfig.NamedSocketTCPMaxSegLate {
 		return unix.IPPROTO_TCP, unix.TCP_MAXSEG, true, nil
 	}
 	return 0, 0, false, nil

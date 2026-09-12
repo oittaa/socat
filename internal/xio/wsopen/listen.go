@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"net/http"
 	"path"
@@ -14,33 +15,30 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func openWSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if err := tlsopen.RejectHiddenTLSOnPlaintext(s); err != nil {
+func openWSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if err := tlsopen.RejectHiddenTLSOnPlaintext(s.Type, s.TLS); err != nil {
 		return nil, err
 	}
 	return openWSListenTLS(ctx, s, mode, g, false)
 }
 
-func openWSSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openWSSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openWSListenTLS(ctx, s, mode, g, true)
 }
 
-func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
-	_, port, wpath, err := wsTarget(s, true)
+func openWSListenTLS(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, useTLS bool) (*xio.Opened, error) {
+	_, _, wpath, err := wsTarget(s, true)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.ListenNetwork(g, s)
-	if network == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "tcp"
-	}
-	addr, err := xio.TCPListenAddress(ctx, s, network, port)
+	network = xio.DualStackListenNetwork(s, network)
+	addr, err := xio.TCPListenAddress(ctx, s, network, s.Network.ListenPort)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +49,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	}
 	ln := net.Listener(rawLn)
 	if useTLS {
-		tlsCfg, err := tlsopen.TLSServerConfig(s)
+		tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
 		if err != nil {
 			logx.CloseQuiet(rawLn)
 			return nil, err
@@ -59,8 +57,8 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		ln = tls.NewListener(rawLn, tlsCfg)
 	}
 
-	origin := s.OptionValue("origin", "")
-	proto := s.OptionValue("protocol", "")
+	origin := s.TLS.WSOrigin.Value
+	proto := s.TLS.WSProtocol.Value
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	// Upgrade after peer filter (TCP-level range/sourceport/tcpwrap).
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
@@ -76,7 +74,7 @@ func openWSListenTLS(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 
 	sess := xio.ListenSession{
 		Listener:         ln,
-		Label:            s.Type + ":" + port + wpath,
+		Label:            s.Type + ":" + s.Network.ListenPort.Text() + wpath,
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 		ListeningLog:     fmt.Sprintf("listening on %s (websocket %s)", ln.Addr(), wpath),

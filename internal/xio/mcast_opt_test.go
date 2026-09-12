@@ -1,130 +1,156 @@
 package xio
 
 import (
-	"reflect"
+	"strconv"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestMembershipJoinsCollectsAllInOptionOrder(t *testing.T) {
-	s, err := parse.ParseSpec("UDP6-RECV:1,ip-add-membership=224.0.0.1:lo,ipv6-join-group=[ff02::2]:eth0")
+func decodeUDP(t *testing.T, raw string) addrconfig.Address {
+	t.Helper()
+	s, err := parse.ParseSpec(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := membershipJoins(s)
-	want := []membershipJoin{
-		{family: membershipFamilyIPv4, spec: "224.0.0.1:lo", name: "ip-add-membership"},
-		{family: membershipFamilyIPv6, spec: "[ff02::2]:eth0", name: "ipv6-join-group"},
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("mixed joins=%+v want %+v", got, want)
+	return config
+}
+
+func multicastTestIface(req addrconfig.MulticastRequest) string {
+	if req.InterfaceIsID {
+		return strconv.FormatUint(uint64(req.InterfaceID), 10)
+	}
+	return req.InterfaceName
+}
+
+type testMembershipJoin struct {
+	kind addrconfig.MulticastKind
+	spec string
+	name string
+}
+
+func membershipJoins(config addrconfig.Address) []testMembershipJoin {
+	var out []testMembershipJoin
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionMulticast {
+			continue
+		}
+		req := action.Multicast
+		switch req.Kind {
+		case addrconfig.MulticastJoinIPv4, addrconfig.MulticastJoinIPv6:
+		default:
+			continue
+		}
+		out = append(out, testMembershipJoin{
+			kind: req.Kind,
+			spec: req.Group.String() + ":" + multicastTestIface(req),
+			name: req.Name,
+		})
+	}
+	return out
+}
+
+func TestMembershipJoinsCollectsAllInOptionOrder(t *testing.T) {
+	got := membershipJoins(decodeUDP(t, "UDP6-RECV:1,ip-add-membership=224.0.0.1:lo,ipv6-join-group=[ff02::2]:eth0"))
+	if len(got) != 2 {
+		t.Fatalf("mixed joins=%+v", got)
+	}
+	if got[0].kind != addrconfig.MulticastJoinIPv4 || got[0].name != "ip-add-membership" || got[0].spec != "224.0.0.1:lo" {
+		t.Fatalf("ipv4 join=%+v", got[0])
+	}
+	if got[1].kind != addrconfig.MulticastJoinIPv6 || got[1].name != "ipv6-join-group" || got[1].spec != "ff02::2:eth0" {
+		t.Fatalf("ipv6 join=%+v", got[1])
 	}
 }
 
 func TestMembershipJoinsCollectsRepeatedOptions(t *testing.T) {
-	s, err := parse.ParseSpec("UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo,ipv6-join-group=[ff02::3]:eth0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := membershipJoins(s)
+	got := membershipJoins(decodeUDP(t, "UDP6-RECV:1,ipv6-join-group=[ff02::2]:lo,ipv6-join-group=[ff02::3]:eth0"))
 	if len(got) != 2 {
 		t.Fatalf("repeated joins=%+v", got)
 	}
-	if got[0].spec != "[ff02::2]:lo" || got[1].spec != "[ff02::3]:eth0" {
+	if got[0].spec != "ff02::2:lo" || got[1].spec != "ff02::3:eth0" {
 		t.Fatalf("repeated order=%+v", got)
 	}
-	if got[0].family != membershipFamilyIPv6 || got[1].family != membershipFamilyIPv6 {
+	if got[0].kind != addrconfig.MulticastJoinIPv6 || got[1].kind != addrconfig.MulticastJoinIPv6 {
 		t.Fatalf("repeated family=%+v", got)
 	}
 }
 
 func TestMembershipJoinsRecognizesClassicAliases(t *testing.T) {
-	s, err := parse.ParseSpec("UDP6-RECV:1,join-group=[ff02::2]:lo,add-membership=224.0.0.1:lo,membership=224.0.0.2:eth0,ipv6-add-membership=[ff02::3]:eth1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := membershipJoins(s)
-	wantFam := []membershipFamily{membershipFamilyIPv6, membershipFamilyIPv4, membershipFamilyIPv4, membershipFamilyIPv6}
-	wantSpec := []string{"[ff02::2]:lo", "224.0.0.1:lo", "224.0.0.2:eth0", "[ff02::3]:eth1"}
+	got := membershipJoins(decodeUDP(t, "UDP6-RECV:1,join-group=[ff02::2]:lo,add-membership=224.0.0.1:lo,membership=224.0.0.2:eth0,ipv6-add-membership=[ff02::3]:eth1"))
+	wantKind := []addrconfig.MulticastKind{addrconfig.MulticastJoinIPv6, addrconfig.MulticastJoinIPv4, addrconfig.MulticastJoinIPv4, addrconfig.MulticastJoinIPv6}
+	wantSpec := []string{"ff02::2:lo", "224.0.0.1:lo", "224.0.0.2:eth0", "ff02::3:eth1"}
+	wantName := []string{"ipv6-join-group", "ip-add-membership", "ip-add-membership", "ipv6-join-group"}
 	if len(got) != 4 {
 		t.Fatalf("alias joins=%+v", got)
 	}
-	for i := range wantFam {
-		if got[i].family != wantFam[i] || got[i].spec != wantSpec[i] {
-			t.Fatalf("alias[%d]=%+v want family=%v spec=%q", i, got[i], wantFam[i], wantSpec[i])
+	for i := range wantKind {
+		if got[i].kind != wantKind[i] || got[i].spec != wantSpec[i] || got[i].name != wantName[i] {
+			t.Fatalf("alias[%d]=%+v want kind=%v spec=%q name=%q", i, got[i], wantKind[i], wantSpec[i], wantName[i])
 		}
 	}
 }
 
 func TestMembershipFamilyIgnoresAddressWhenClassifying(t *testing.T) {
-	s, err := parse.ParseSpec("UDP6-RECV:1,ip-add-membership=[ff02::2]:lo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := membershipJoins(s)
-	if len(got) != 1 || got[0].family != membershipFamilyIPv4 {
+	got := membershipJoins(decodeUDP(t, "UDP6-RECV:1,ip-add-membership=[ff02::2]:lo"))
+	if len(got) != 1 || got[0].kind != addrconfig.MulticastJoinIPv4 {
 		t.Fatalf("ip-add-membership must stay IPv4 sockopt family, got %+v", got)
 	}
 
-	s, err = parse.ParseSpec("UDP6-RECV:1,ipv6-join-group=224.0.0.1:lo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got = membershipJoins(s)
-	if len(got) != 1 || got[0].family != membershipFamilyIPv6 {
+	got = membershipJoins(decodeUDP(t, "UDP6-RECV:1,ipv6-join-group=224.0.0.1:lo"))
+	if len(got) != 1 || got[0].kind != addrconfig.MulticastJoinIPv6 {
 		t.Fatalf("ipv6-join-group must stay IPv6 sockopt family, got %+v", got)
 	}
 }
 
-func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
-	o := parse.Option{
-		Name:     "ip-add-membership",
-		Spelling: "ipv6-join-group",
-		Value:    "[ff02::2]:lo",
-		Has:      true,
-	}
-	family, name, ok := membershipFamilyOf(o)
-	if !ok || family != membershipFamilyIPv6 || name != "ipv6-join-group" {
-		t.Fatalf("family=%v name=%q ok=%v", family, name, ok)
-	}
-}
-
 func TestMulticastNamedAliases(t *testing.T) {
-	s, err := parse.ParseSpec("UDP4:localhost:1,mcloop=0,multicast-ttl=9,multicast-if=127.0.0.1,mcloop6=1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string]string{}
-	for _, o := range s.Options {
-		kind, name, ok := multicastNamedOf(o)
-		if !ok {
-			t.Fatalf("unrecognized %+v", o)
+	config := decodeUDP(t, "UDP4:localhost:1,mcloop=0,multicast-ttl=9,multicast-if=127.0.0.1,mcloop6=1")
+	got := map[addrconfig.MulticastKind]addrconfig.MulticastRequest{}
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionMulticast {
+			continue
 		}
-		got[name] = o.Value
-		if name == "ipv6-multicast-loop" && kind != multicastNamedIPv6Loop {
-			t.Fatalf("mcloop6 kind=%v", kind)
-		}
+		got[action.Multicast.Kind] = action.Multicast
 	}
-	if got["ip-multicast-loop"] != "0" || got["ip-multicast-ttl"] != "9" || got["ip-multicast-if"] != "127.0.0.1" || got["ipv6-multicast-loop"] != "1" {
-		t.Fatalf("got=%v", got)
+	if req, ok := got[addrconfig.MulticastLoopIPv4]; !ok || req.Name != "ip-multicast-loop" || req.Value != 0 {
+		t.Fatalf("loop=%+v ok=%v", req, ok)
+	}
+	if req, ok := got[addrconfig.MulticastTTLIPv4]; !ok || req.Name != "ip-multicast-ttl" || req.Value != 9 {
+		t.Fatalf("ttl=%+v ok=%v", req, ok)
+	}
+	if req, ok := got[addrconfig.MulticastInterfaceIPv4]; !ok || req.Name != "ip-multicast-if" || req.InterfaceAddr.String() != "127.0.0.1" {
+		t.Fatalf("if=%+v ok=%v", req, ok)
+	}
+	if req, ok := got[addrconfig.MulticastLoopIPv6]; !ok || req.Name != "ipv6-multicast-loop" || req.Value != 1 {
+		t.Fatalf("mcloop6=%+v ok=%v", req, ok)
 	}
 }
 
 func TestMTUDiscoveryAliases(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		family membershipFamily
+		raw  string
+		name string
 	}{
-		{name: "ip-mtu-discover", family: membershipFamilyIPv4},
-		{name: "mtudiscover", family: membershipFamilyIPv4},
-		{name: "ipmtudiscover", family: membershipFamilyIPv4},
-		{name: "ipv6-mtu-discover", family: membershipFamilyIPv6},
-		{name: "mtudiscover6", family: membershipFamilyIPv6},
+		{raw: "UDP:127.0.0.1:1,ip-mtu-discover=1", name: "ip-mtu-discover"},
+		{raw: "UDP:127.0.0.1:1,mtudiscover=1", name: "ip-mtu-discover"},
+		{raw: "UDP:127.0.0.1:1,ipmtudiscover=1", name: "ip-mtu-discover"},
+		{raw: "UDP6:[::1]:1,ipv6-mtu-discover=1", name: "ipv6-mtu-discover"},
+		{raw: "UDP6:[::1]:1,mtudiscover6=1", name: "ipv6-mtu-discover"},
 	} {
-		family, _, ok := mtuDiscoveryName(tc.name)
-		if !ok || family != tc.family {
-			t.Errorf("mtuDiscoveryName(%q)=(%v,%v), want family %v", tc.name, family, ok, tc.family)
+		config := decodeUDP(t, tc.raw)
+		var got string
+		for _, action := range config.Network.Actions {
+			if action.Kind == addrconfig.SocketActionMTUDiscovery {
+				got = action.Text
+			}
+		}
+		if got != tc.name {
+			t.Errorf("%s: MTU discovery name=%q want %q", tc.raw, got, tc.name)
 		}
 	}
 }

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
@@ -22,7 +22,7 @@ func closeInheritedFD(fd int) error {
 	return unix.Close(fd)
 }
 
-func mirrorInheritedFDFlags(orig int, session *os.File, _ parse.Spec) error {
+func mirrorInheritedFDFlags(orig int, session *os.File, _ addrconfig.File) error {
 	flags, err := unix.FcntlInt(session.Fd(), unix.F_GETFD, 0)
 	if err != nil {
 		return fmt.Errorf("cloexec: %w", err)

@@ -48,7 +48,7 @@ func (r *crThenErrorReader) Read(p []byte) (int, error) {
 
 func TestWindowsTextDescriptorModeRead(t *testing.T) {
 	inner := &descriptorModeTestStream{r: oneByteReader{r: strings.NewReader("a\r\nb\rc\r\n")}}
-	stream, err := applyDescriptorMode(mustSpec(t, "FD:3,text"), inner)
+	stream, err := applyConfiguredDescriptorMode(mustDecodeAddress(t, mustSpec(t, "FD:3,text")), inner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +76,7 @@ func TestWindowsTextDescriptorModePreservesCRWhenPeekFails(t *testing.T) {
 
 func TestWindowsTextDescriptorModeWrite(t *testing.T) {
 	inner := &descriptorModeTestStream{r: strings.NewReader("")}
-	stream, err := applyDescriptorMode(mustSpec(t, "FD:3,o-text"), inner)
+	stream, err := applyConfiguredDescriptorMode(mustDecodeAddress(t, mustSpec(t, "FD:3,o-text")), inner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestWindowsTextDescriptorModeWrite(t *testing.T) {
 
 func TestWindowsBinaryDescriptorModeIsRaw(t *testing.T) {
 	inner := &descriptorModeTestStream{r: strings.NewReader("a\r\n")}
-	stream, err := applyDescriptorMode(mustSpec(t, "FD:3,bin"), inner)
+	stream, err := applyConfiguredDescriptorMode(mustDecodeAddress(t, mustSpec(t, "FD:3,bin")), inner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,10 +113,10 @@ func TestWindowsBinaryDescriptorModeIsRaw(t *testing.T) {
 
 func TestWindowsDescriptorTextModesAreMutuallyExclusive(t *testing.T) {
 	inner := &descriptorModeTestStream{r: strings.NewReader("")}
-	if _, err := applyDescriptorMode(mustSpec(t, "FD:3,binary,text"), inner); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+	if _, err := applyConfiguredDescriptorMode(mustDecodeAddress(t, mustSpec(t, "FD:3,binary,text")), inner); err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
 		t.Fatalf("binary,text error=%v", err)
 	}
-	if _, err := applyDescriptorMode(mustSpec(t, "FD:3,binary,text=0"), inner); err != nil {
+	if _, err := applyConfiguredDescriptorMode(mustDecodeAddress(t, mustSpec(t, "FD:3,binary,text=0")), inner); err != nil {
 		t.Fatalf("disabled text must leave binary mode valid: %v", err)
 	}
 }

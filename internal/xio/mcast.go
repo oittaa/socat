@@ -8,91 +8,25 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
-// parsedMcast is one ip-add-membership / ipv6-join-group value.
-//
-// Documented IPv4 forms:
-//
-//	group:iface-address
-//	group:iface-name
-//	group:iface-index
-//	group:iface-address:iface-name
-//	group:iface-address:iface-index
-//
-// IPv6 is two fields: group plus name or index. The three-field name form
-// is implemented as documented (the C parser SIGSEGVs on some hosts).
-type parsedMcast struct {
-	group     net.IP
-	ifaceAddr net.IP // optional IPv4 interface address (imr_address)
-	token     string // remaining name or index; empty when only ifaceAddr
-}
-
-// parseMcastSpec parses ip-add-membership / ipv6-join-group.
-func parseMcastSpec(spec, optionName string) (parsedMcast, error) {
-	if optionName == "" {
-		optionName = "ip-add-membership"
-	}
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
-		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
-	}
-
-	fields, err := splitMcastFields(spec)
-	if err != nil {
-		return parsedMcast{}, fmt.Errorf("%s: %w", optionName, err)
-	}
-	if len(fields) < 2 {
-		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
-	}
-	if len(fields) > 3 {
-		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
-	}
-
-	group, err := parseMcastGroup(fields[0], optionName)
-	if err != nil {
-		return parsedMcast{}, fmt.Errorf("%s: %w", optionName, err)
-	}
-
-	if len(fields) == 2 {
-		token := strings.TrimSpace(fields[1])
-		if token == "" {
-			return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface, got %q", optionName, spec)
+func resolveMcastHost(target addrconfig.HostTarget, ipv6 bool) (net.IP, error) {
+	if target.IsLiteral() {
+		if target.Literal.Is4() {
+			ip := target.Literal.As4()
+			return net.IP(ip[:]), nil
 		}
-		return parsedMcast{group: group, token: token}, nil
+		ip := target.Literal.As16()
+		return net.IP(ip[:]), nil
 	}
-
-	// Three-field IPv4 form: field 2 is interface address, field 3 is name/index.
-	addrTok := strings.TrimSpace(fields[1])
-	nameTok := strings.TrimSpace(fields[2])
-	if addrTok == "" || nameTok == "" {
-		return parsedMcast{}, fmt.Errorf("%s: expected mcast:iface-address:iface, got %q", optionName, spec)
+	field := strings.TrimSpace(target.Name)
+	if field == "" {
+		return nil, fmt.Errorf("bad group %q", field)
 	}
-	addr, err := resolveMcastIPv4Address(addrTok)
-	if err != nil {
-		return parsedMcast{}, fmt.Errorf("%s: bad interface address %q", optionName, addrTok)
-	}
-	return parsedMcast{group: group, ifaceAddr: addr, token: nameTok}, nil
-}
-
-func parseMcastGroup(field, optionName string) (net.IP, error) {
-	field = strings.TrimSpace(field)
-	if strings.HasPrefix(field, "[") {
-		if !strings.HasSuffix(field, "]") {
-			return nil, fmt.Errorf("bad group %q", field)
-		}
-		field = field[1 : len(field)-1]
-	}
-	if gip := net.ParseIP(field); gip != nil {
-		return gip, nil
-	}
-	// Hostnames are valid. For names, use the family selected by the option spelling.
 	network := "ip4"
-	if family, _, ok := membershipFamilyName(optionName); ok && family == membershipFamilyIPv6 {
-		network = "ip6"
-	} else if family, _, ok := sourceMembershipName(optionName); ok && family == membershipFamilyIPv6 {
+	if ipv6 {
 		network = "ip6"
 	}
 	addr, err := net.ResolveIPAddr(network, field)
@@ -102,106 +36,116 @@ func parseMcastGroup(field, optionName string) (net.IP, error) {
 	return addr.IP, nil
 }
 
-func resolveMcastIPv4Address(field string) (net.IP, error) {
-	addr, err := net.ResolveIPAddr("ip4", strings.TrimSpace(field))
+func resolveMcastIPv4Address(target addrconfig.HostTarget) (net.IP, error) {
+	if target.IsLiteral() {
+		ip := target.IP()
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4, nil
+		}
+		return nil, fmt.Errorf("bad IPv4 address %q", target.Original())
+	}
+	field := strings.TrimSpace(target.Name)
+	if field == "" {
+		return nil, fmt.Errorf("bad IPv4 address %q", field)
+	}
+	addr, err := net.ResolveIPAddr("ip4", field)
 	if err != nil || addr == nil || addr.IP.To4() == nil {
 		return nil, fmt.Errorf("bad IPv4 address %q", field)
 	}
 	return addr.IP.To4(), nil
 }
 
-// splitMcastFields splits on ':' outside '[' ']' (nested brackets).
-// IPv6 groups therefore use the bracketed form, e.g. [ff02::2]:eth0.
-func splitMcastFields(spec string) ([]string, error) {
-	if i := strings.IndexByte(spec, '%'); i > 0 && !strings.Contains(spec, ":") {
-		return []string{spec[:i], spec[i+1:]}, nil
+func resolveMcastInterfaceToken(target addrconfig.HostTarget, optionName string) (uint32, bool, error) {
+	if target.Empty() {
+		return 0, false, nil
 	}
-	var fields []string
-	var b strings.Builder
-	depth := 0
-	for i := 0; i < len(spec); i++ {
-		c := spec[i]
-		switch c {
-		case '[':
-			depth++
-			b.WriteByte(c)
-		case ']':
-			if depth > 0 {
-				depth--
-			}
-			b.WriteByte(c)
-		case ':':
-			if depth == 0 {
-				fields = append(fields, b.String())
-				b.Reset()
-				continue
-			}
-			b.WriteByte(c)
-		default:
-			b.WriteByte(c)
-		}
+	if target.IsLiteral() {
+		return 0, false, fmt.Errorf("%s: expected interface name or index", optionName)
 	}
-	fields = append(fields, b.String())
-	if len(fields) >= 2 {
-		return fields, nil
+	token := strings.TrimSpace(target.Name)
+	if token == "" {
+		return 0, false, nil
 	}
-	return nil, fmt.Errorf("expected mcast:iface, got %q", spec)
+	if idx, ok := parseClassicInterfaceIndex(token); ok {
+		return idx, true, nil
+	}
+	ifi, err := net.InterfaceByName(token)
+	if err != nil {
+		return 0, false, fmt.Errorf("%s: interface %q: %w", optionName, token, err)
+	}
+	idx, ok := Uint32FromInt(ifi.Index)
+	if !ok {
+		return 0, false, fmt.Errorf("%s: interface %q index %d is out of range", optionName, token, ifi.Index)
+	}
+	return idx, true, nil
 }
 
-func applyMembershipJoins(fd int, joins []membershipJoin) error {
-	for _, join := range joins {
-		if err := joinMulticastFD(fd, join); err != nil {
-			return err
+func resolveJoinInterface(req addrconfig.MulticastRequest, name string) (ifaceAddr net.IP, idx uint32, idxSet bool, err error) {
+	if req.ThreeField {
+		ifaceAddr, err = resolveMcastIPv4Address(req.InterfaceAddr)
+		if err != nil {
+			return nil, 0, false, fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.Original())
 		}
 	}
-	return nil
+	if req.InterfaceIsID {
+		return ifaceAddr, req.InterfaceID, true, nil
+	}
+	if req.InterfaceName == "" {
+		return ifaceAddr, 0, false, nil
+	}
+	ifi, nameErr := net.InterfaceByName(req.InterfaceName)
+	if nameErr == nil {
+		idx, ok := Uint32FromInt(ifi.Index)
+		if !ok {
+			return nil, 0, false, fmt.Errorf("%s: interface %q index %d is out of range", name, req.InterfaceName, ifi.Index)
+		}
+		return ifaceAddr, idx, true, nil
+	}
+	if req.Kind == addrconfig.MulticastJoinIPv4 && !req.ThreeField {
+		if addr, addrErr := resolveMcastIPv4Address(addrconfig.HostFromText(req.InterfaceName)); addrErr == nil {
+			return addr, 0, false, nil
+		}
+	}
+	return nil, 0, false, fmt.Errorf("%s: interface %q: %w", name, req.InterfaceName, nameErr)
 }
 
-func joinMulticastFD(fd int, join membershipJoin) error {
-	name := join.optionName()
-	parsed, err := parseMcastSpec(join.spec, name)
+func applyMembershipRequest(fd int, req addrconfig.MulticastRequest) error {
+	name := req.Name
+	ipv6 := req.Kind == addrconfig.MulticastJoinIPv6
+	if name == "" {
+		if ipv6 {
+			name = "ipv6-join-group"
+		} else {
+			name = "ip-add-membership"
+		}
+	}
+	group, err := resolveMcastHost(req.Group, ipv6)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	if !ipv6 && group.To4() == nil {
+		return fmt.Errorf("%s: IPv4 membership requires an IPv4 group, got %s", name, group)
+	}
+	ifaceAddr, idx, idxSet, err := resolveJoinInterface(req, name)
 	if err != nil {
 		return err
 	}
-	if join.family == membershipFamilyIPv4 && parsed.group.To4() == nil {
-		return fmt.Errorf("%s: IPv4 membership requires an IPv4 group, got %s", name, parsed.group)
-	}
-	if join.family == membershipFamilyIPv6 && parsed.fieldsThree() {
-		return fmt.Errorf("%s: three-field form is IPv4-only", name)
-	}
-	if join.family == membershipFamilyIPv6 && parsed.ifaceAddr != nil && parsed.token == "" {
-		return fmt.Errorf("%s: IPv6 membership requires an interface name or index, got address %s", name, parsed.ifaceAddr)
-	}
-
-	idx, idxSet, err := resolveMcastInterface(parsed, name)
-	if err != nil && join.family == membershipFamilyIPv4 && !parsed.fieldsThree() {
-		// Two-field IPv4: try numeric index / if_nametoindex first, then
-		// treat the token as a resolvable IPv4 address.
-		if addr, addrErr := resolveMcastIPv4Address(parsed.token); addrErr == nil {
-			parsed.ifaceAddr = addr
-			parsed.token = ""
-			idx, idxSet, err = 0, false, nil
+	if ipv6 {
+		if !idxSet {
+			return fmt.Errorf("%s: expected interface name or index", name)
 		}
+		return setIPv6MembershipFD(fd, group, idx)
 	}
-	if err != nil {
-		return err
-	}
-	if join.family == membershipFamilyIPv4 {
-		return setIPv4MembershipFD(fd, parsed.group.To4(), parsed.ifaceAddr, idx, idxSet)
-	}
-	if !idxSet {
-		return fmt.Errorf("%s: expected interface name or index", name)
-	}
-	return setIPv6MembershipFD(fd, parsed.group, idx)
+	return setIPv4MembershipFD(fd, group.To4(), ifaceAddr, idx, idxSet)
 }
 
-func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse.Option) error {
-	switch kind {
-	case multicastNamedIf:
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
+func applyMulticastNamedFD(fd int, name string, req addrconfig.MulticastRequest) error {
+	switch req.Kind {
+	case addrconfig.MulticastInterfaceIPv4:
+		if req.InterfaceAddr.Empty() {
 			return fmt.Errorf("%s: expected IPv4 hostname or address", name)
 		}
-		addr, err := resolveMcastIPv4Address(o.Value)
+		addr, err := resolveMcastIPv4Address(req.InterfaceAddr)
 		if err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
@@ -211,26 +155,16 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
-	case multicastNamedLoop, multicastNamedTTL:
-		max := 255
-		if kind == multicastNamedLoop {
-			// ip-multicast-loop[=<bool>] is 0/1; ip-multicast-ttl remains
-			// the full byte option.
-			max = 1
-		}
-		n, err := classicFlagInt(o, max)
-		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
+	case addrconfig.MulticastLoopIPv4, addrconfig.MulticastTTLIPv4:
 		opt := unix.IP_MULTICAST_LOOP
-		if kind == multicastNamedTTL {
+		if req.Kind == addrconfig.MulticastTTLIPv4 {
 			opt = unix.IP_MULTICAST_TTL
 		}
-		if err := setSockoptByte(fd, unix.IPPROTO_IP, opt, byte(n)); err != nil { // #nosec G115 -- classicFlagInt max 255
+		if err := setSockoptByte(fd, unix.IPPROTO_IP, opt, byte(req.Value)); err != nil { // #nosec G115 -- decoder bounds multicast loop/ttl
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
-	case multicastNamedIPv6Loop:
+	case addrconfig.MulticastLoopIPv6:
 		family, err := socketIPFamily(fd)
 		if err != nil {
 			return err
@@ -238,42 +172,13 @@ func applyMulticastNamedFD(fd int, kind multicastNamedKind, name string, o parse
 		if family == ipFamilyV4 {
 			return fmt.Errorf("%s: not supported on IPv4", name)
 		}
-		// ipv6-multicast-loop[=<bool>] is 0/1.
-		n, err := classicFlagInt(o, 1)
-		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		if err := setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MULTICAST_LOOP, n); err != nil {
+		if err := setSockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_MULTICAST_LOOP, req.Value); err != nil {
 			return fmt.Errorf("%s: %w", name, err)
 		}
 		return nil
 	default:
 		return fmt.Errorf("%s: internal error", name)
 	}
-}
-
-func (p parsedMcast) fieldsThree() bool {
-	return p.ifaceAddr != nil && p.token != ""
-}
-
-// resolveMcastInterface: a fully-consumed base-0 integer token is the
-// numeric index (no existence lookup); otherwise InterfaceByName.
-func resolveMcastInterface(p parsedMcast, optionName string) (uint32, bool, error) {
-	if p.token == "" {
-		return 0, false, nil
-	}
-	if idx, ok := parseClassicInterfaceIndex(p.token); ok {
-		return idx, true, nil
-	}
-	ifi, err := net.InterfaceByName(p.token)
-	if err != nil {
-		return 0, false, fmt.Errorf("%s: interface %q: %w", optionName, p.token, err)
-	}
-	idx, ok := Uint32FromInt(ifi.Index)
-	if !ok {
-		return 0, false, fmt.Errorf("%s: interface %q index %d is out of range", optionName, p.token, ifi.Index)
-	}
-	return idx, true, nil
 }
 
 func parseClassicInterfaceIndex(s string) (uint32, bool) {
@@ -309,4 +214,90 @@ func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {
 		return fmt.Errorf("ipv6-join-group: %w", err)
 	}
 	return nil
+}
+
+func applyPreparedMulticast(fd int, req addrconfig.MulticastRequest) error {
+	name := req.Name
+	switch req.Kind {
+	case addrconfig.MulticastJoinIPv4, addrconfig.MulticastJoinIPv6:
+		return applyMembershipRequest(fd, req)
+	case addrconfig.MulticastInterfaceIPv4:
+		if name == "" {
+			name = "ip-multicast-if"
+		}
+		return applyMulticastNamedFD(fd, name, req)
+	case addrconfig.MulticastLoopIPv4:
+		if name == "" {
+			name = "ip-multicast-loop"
+		}
+		return applyMulticastNamedFD(fd, name, req)
+	case addrconfig.MulticastTTLIPv4:
+		if name == "" {
+			name = "ip-multicast-ttl"
+		}
+		return applyMulticastNamedFD(fd, name, req)
+	case addrconfig.MulticastLoopIPv6:
+		if name == "" {
+			name = "ipv6-multicast-loop"
+		}
+		return applyMulticastNamedFD(fd, name, req)
+	case addrconfig.MulticastSourceIPv4, addrconfig.MulticastSourceIPv6:
+		return applyPreparedSourceMulticast(fd, req)
+	default:
+		return fmt.Errorf("%s: internal error", name)
+	}
+}
+
+func applyPreparedSourceMulticast(fd int, req addrconfig.MulticastRequest) error {
+	ipv6 := req.Kind == addrconfig.MulticastSourceIPv6
+	name := req.Name
+	if ipv6 {
+		if name == "" {
+			name = "ipv6-join-source-group"
+		}
+	} else if name == "" {
+		name = "ip-add-source-membership"
+	}
+	group, err := resolveMcastHost(req.Group, ipv6)
+	if err != nil {
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	source, err := resolveMcastHost(req.Source, ipv6)
+	if err != nil {
+		return fmt.Errorf("%s: bad source %q", name, req.Source.String())
+	}
+	if !ipv6 {
+		if group.To4() == nil {
+			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 group, got %s", name, group)
+		}
+		if source.To4() == nil {
+			return fmt.Errorf("%s: IPv4 source membership requires an IPv4 source, got %s", name, source)
+		}
+		iface, err := resolveMcastIPv4Address(req.InterfaceAddr)
+		if err != nil {
+			return fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.Original())
+		}
+		return setIPv4SourceMembershipFD(fd, group.To4(), iface, source.To4())
+	}
+	sockFamily, err := socketIPFamily(fd)
+	if err != nil {
+		return err
+	}
+	if sockFamily == ipFamilyV4 {
+		return fmt.Errorf("%s: not supported on IPv4", name)
+	}
+	if group.To4() != nil {
+		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 group, got %s", name, group)
+	}
+	if source.To4() != nil {
+		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 source, got %s", name, source)
+	}
+	idx, idxSet, err := resolveMcastInterfaceToken(req.InterfaceAddr, name)
+	if err != nil {
+		return err
+	}
+	if !idxSet {
+		return fmt.Errorf("%s: expected interface name or index", name)
+	}
+	return setIPv6SourceMembershipFD(fd, group, idx, source)
 }

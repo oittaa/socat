@@ -25,7 +25,11 @@ func mustSocketSpec(t *testing.T, raw string) parse.Spec {
 }
 
 func TestParseSocketDgramCallOverrides(t *testing.T) {
-	c, err := parseSocketDgramCall(mustSocketSpec(t, "SOCKET-SENDTO:2:2:17:x00007f000001,pf=ip6,socktype=1"))
+	prepared, err := xio.PrepareSpec(mustSocketSpec(t, "SOCKET-SENDTO:2:2:17:x00007f000001,pf=ip6,socktype=1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := socketCallFromConfig(prepared.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +37,11 @@ func TestParseSocketDgramCallOverrides(t *testing.T) {
 		t.Fatalf("got %+v", c)
 	}
 
-	c, err = parseSocketDgramCall(mustSocketSpec(t, "SOCKET-SENDTO::2:0:x00007f000001,so-protocol=17"))
+	prepared, err = xio.PrepareSpec(mustSocketSpec(t, "SOCKET-SENDTO::2:0:x00007f000001,so-protocol=17"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err = socketCallFromConfig(prepared.Config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -43,7 +51,7 @@ func TestParseSocketDgramCallOverrides(t *testing.T) {
 }
 
 func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
-	_, err := openSocketConnect(context.Background(), mustSocketSpec(t, "SOCKET-CONNECT:99:0:x00"), xio.ModeRDWR, nil)
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-CONNECT:99:0:x00"), xio.ModeRDWR, nil)
 	if err == nil {
 		t.Fatal("expected socket() failure")
 	}
@@ -56,7 +64,7 @@ func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
 }
 
 func TestSocketIPv4ShortSockaddrBindIsEINVAL(t *testing.T) {
-	_, err := openSocketListen(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
+	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
 	if err == nil {
 		t.Fatal("short sockaddr_in bind succeeded")
 	}

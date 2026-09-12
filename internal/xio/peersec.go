@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // CloseRefusedPeer closes a rejected accept without RST when the peer already
@@ -34,54 +34,47 @@ func CloseRefusedPeer(c net.Conn) {
 // PeerFilter holds parsed peer policy for one address lifetime.
 type PeerFilter struct {
 	ctx           context.Context
-	spec          parse.Spec
+	resolver      *net.Resolver
 	hasRange      bool
 	rangeMatcher  ipRangeMatcher
 	hasSourcePort bool
-	sourcePort    string
+	sourcePort    addrconfig.PortTarget
 	lowport       bool
 	tcpwrap       tcpwrapConfig
 }
 
-// NewPeerFilter parses peer policy and resolves range= once. Callers must
+// PreparedPeerFilter compiles the prepared peer policy for an opening.
+func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Global) (*PeerFilter, error) {
+	return NewPeerFilter(ctx, config.Network, LookupResolver(config), g)
+}
+
+// NewPeerFilter compiles peer policy and resolves range= once. Callers must
 // construct it before accepting or receiving peers so syntax and lookup
 // errors abort the address instead of leaving a listener that rejects every
 // peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
 // uses it per peer. Long-lived listeners pass the session context so
 // shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, s parse.Spec, g *Global) (*PeerFilter, error) {
+func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, g *Global) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	_, hasRange := s.OptionNamed("range")
-	_, hasSourcePort := s.OptionNamed("sourceport")
 	f := &PeerFilter{
 		ctx:           ctx,
-		spec:          s,
-		hasRange:      hasRange,
-		hasSourcePort: hasSourcePort,
-		sourcePort:    s.OptionValue("sourceport", ""),
-		lowport:       s.BoolOption("lowport"),
-		tcpwrap:       parseTCPWrap(s, g),
+		resolver:      resolver,
+		hasRange:      policy.RangeSet,
+		hasSourcePort: policy.SourcePortSet,
+		sourcePort:    policy.SourcePort,
+		lowport:       policy.LowPort.Value,
+		tcpwrap:       parseTCPWrap(policy, g),
 	}
-	if hasRange {
-		matcher, err := compileIPRange(ctx, s.OptionValue("range", ""), LookupResolver(s))
+	if policy.RangeSet {
+		matcher, err := compileIPRange(ctx, policy.Range, resolver)
 		if err != nil {
 			return nil, err
 		}
 		f.rangeMatcher = matcher
 	}
 	return f, nil
-}
-
-// PeerAllowedG checks a connection with a one-use filter. Long-lived callers
-// should keep a PeerFilter instead.
-func PeerAllowedG(s parse.Spec, conn net.Conn, g *Global) error {
-	f, err := NewPeerFilter(context.Background(), s, g)
-	if err != nil {
-		return err
-	}
-	return f.AllowConn(conn)
 }
 
 func (f *PeerFilter) AllowConn(conn net.Conn) error {
@@ -106,7 +99,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
 		// Still run tcpwrap if enabled (unlikely for unix).
 		if f.tcpwrap.enabled {
-			return tcpwrapAllowedForSpec(ctx, f.spec, f.tcpwrap, remote, local)
+			return tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local)
 		}
 		return nil
 	}
@@ -121,13 +114,8 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	// On listen, sourceport/sp is a peer filter (not bind).
-	if f.hasSourcePort {
-		if portStr == "" {
-			portStr = strconv.Itoa(port)
-		}
-		if f.sourcePort != "" && portStr != f.sourcePort {
-			return fmt.Errorf("refusing connection from %s, sourceport mismatch", remote)
-		}
+	if f.hasSourcePort && !sourcePortMatches(f.sourcePort, port, portStr) {
+		return fmt.Errorf("refusing connection from %s, sourceport mismatch", remote)
 	}
 
 	if f.lowport {
@@ -137,12 +125,25 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	if f.tcpwrap.enabled {
-		if err := tcpwrapAllowedForSpec(ctx, f.spec, f.tcpwrap, remote, local); err != nil {
+		if err := tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func sourcePortMatches(want addrconfig.PortTarget, port int, portStr string) bool {
+	if want.Numeric {
+		return port == int(want.Number)
+	}
+	if want.Service == "" {
+		return true
+	}
+	if portStr == "" {
+		portStr = strconv.Itoa(port)
+	}
+	return portStr == want.Service
 }
 
 func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {
@@ -167,83 +168,28 @@ func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {
 
 type ipRangeMatcher func(net.IP) bool
 
-// ipInRange parses range syntax:
-//
-//	addr/bits          CIDR
-//	addr:netmask       IPv4 (or IPv6 with mask as address)
-//	[ipv6]/bits
-//	xPORTxIP:xPORTxMASK  SOCKET hex (port prefix ignored)
-func ipInRange(ip net.IP, spec string) (bool, error) {
-	return ipInRangeWithResolver(context.Background(), ip, spec, net.DefaultResolver)
-}
-
-func ipInRangeWithResolver(ctx context.Context, ip net.IP, spec string, resolver *net.Resolver) (bool, error) {
-	matcher, err := compileIPRange(ctx, spec, resolver)
-	if err != nil {
-		return false, err
-	}
-	return matcher(ip), nil
-}
-
-func compileIPRange(ctx context.Context, spec string, resolver *net.Resolver) (ipRangeMatcher, error) {
+func compileIPRange(ctx context.Context, spec addrconfig.IPRange, resolver *net.Resolver) (ipRangeMatcher, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	spec = strings.TrimSpace(spec)
-	if spec == "" {
+	switch spec.Form {
+	case addrconfig.RangeNone, addrconfig.RangeAny:
 		return func(net.IP) bool { return true }, nil
-	}
-
-	// CIDR: addr/bits (IPv6 may be bracketed)
-	if strings.Contains(spec, "/") {
-		// Allow [addr]/bits
-		cidr := spec
-		if i := strings.LastIndex(spec, "/"); i > 0 {
-			addrPart := StripBrackets(spec[:i])
-			cidr = addrPart + spec[i:]
+	case addrconfig.RangeCIDR:
+		return compileCIDRMatcher(spec.Prefix), nil
+	case addrconfig.RangeHex:
+		return compileHexSockRange(spec.HexNet, spec.HexMask)
+	case addrconfig.RangeAddrMask:
+		return compileAddrMask(ctx, spec.Host, spec.Mask, resolver)
+	case addrconfig.RangeExact:
+		if spec.Host.IsLiteral() {
+			base := spec.Host.IP()
+			return base.Equal, nil
 		}
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			return nil, fmt.Errorf("range: %w", err)
-		}
-		return network.Contains, nil
-	}
-
-	// SOCKET hex: x0000x7f000000:x0000xffffffff (sockaddr data net:mask)
-	if strings.Contains(spec, "x") || strings.Contains(spec, "X") {
-		if matcher, err, handled := compileHexSockRange(spec); handled {
-			return matcher, err
-		}
-	}
-
-	// addr:mask — split on last ':' that is not part of IPv6 ambiguity carefully.
-	// IPv4 uses a.b.c.d:w.x.y.z. IPv6 range without / usually uses brackets.
-	if strings.HasPrefix(spec, "[") {
-		// [ipv6]:mask — uncommon; try split after ]
-		if end := strings.Index(spec, "]"); end > 0 && end+1 < len(spec) && spec[end+1] == ':' {
-			addrPart := StripBrackets(spec[:end+1])
-			maskPart := spec[end+2:]
-			return compileAddrMask(ctx, addrPart, maskPart, resolver)
-		}
-	}
-
-	// IPv4: a.b.c.d:w.x.y.z or hostname:w.x.y.z.
-	// Prefer last-colon split when the right side looks like an IPv4 mask (three dots).
-	if i := strings.LastIndex(spec, ":"); i > 0 {
-		addrPart := StripBrackets(spec[:i])
-		maskPart := spec[i+1:]
-		if strings.Count(maskPart, ".") == 3 {
-			return compileAddrMask(ctx, addrPart, maskPart, resolver)
-		}
-	}
-
-	// Bare address or hostname = exact host (/32 or /128 after resolve).
-	base := net.ParseIP(StripBrackets(spec))
-	if base == nil {
-		ips, err := rangeLookupIPs(ctx, resolver.LookupIP, StripBrackets(spec))
+		ips, err := rangeLookupIPs(ctx, resolver.LookupIP, StripBrackets(spec.Host.Name))
 		if err != nil {
 			return nil, fmt.Errorf("range: %w", err)
 		}
@@ -255,70 +201,45 @@ func compileIPRange(ctx context.Context, spec string, resolver *net.Resolver) (i
 			}
 			return false
 		}, nil
+	default:
+		return func(net.IP) bool { return true }, nil
 	}
-	return base.Equal, nil
 }
 
-func compileHexSockRange(spec string) (matcher ipRangeMatcher, err error, handled bool) {
-	// Split net:mask on the colon that separates the two hex groups.
-	// Each side typically looks like x0000x7f000000 (port + IPv4) or longer for IPv6.
-	idx := -1
-	// Prefer split after first complete hex group: find ":x" which starts the mask side.
-	if i := strings.Index(strings.ToLower(spec), ":x"); i > 0 {
-		idx = i
-	} else if i := strings.LastIndex(spec, ":"); i > 0 {
-		idx = i
-	}
-	if idx <= 0 {
-		return nil, nil, false
-	}
-	netPart := spec[:idx]
-	maskPart := spec[idx+1:]
-	// Treat X as a hex marker so an uppercase type prefix fails as invalid
-	// hex instead of falling through to hostname lookup.
-	if !strings.ContainsAny(netPart, "xX") || !strings.ContainsAny(maskPart, "xX") {
-		return nil, nil, false
-	}
-	netBytes, nerr := ParseSocatData(netPart)
-	maskBytes, merr := ParseSocatData(maskPart)
-	if nerr != nil || merr != nil {
-		return nil, fmt.Errorf("range: invalid hex sockaddr"), true
-	}
-	if len(netBytes) < 6 || len(maskBytes) < 6 {
-		return nil, fmt.Errorf("range: hex sockaddr too short"), true
-	}
-	// Skip 2-byte port prefix; next 4 bytes are IPv4.
-	// If longer (>= 22 after port+flow), treat as IPv6.
+func compileHexSockRange(netBytes, maskBytes []byte) (ipRangeMatcher, error) {
 	if len(netBytes) >= 2+4+16 {
-		// IPv6: port(2)+flow(4)+addr(16)
 		if len(maskBytes) < 2+4+16 {
-			return nil, fmt.Errorf("range: IPv6 mask too short"), true
+			return nil, fmt.Errorf("range: IPv6 mask too short")
 		}
 		base := net.IP(netBytes[6:22])
 		mask := net.IP(maskBytes[6:22])
-		return maskedIPMatcher([]net.IP{base}, mask), nil, true
+		return maskedIPMatcher([]net.IP{base}, mask), nil
 	}
-	// IPv4
 	base := net.IPv4(netBytes[2], netBytes[3], netBytes[4], netBytes[5])
 	mask := net.IPv4(maskBytes[2], maskBytes[3], maskBytes[4], maskBytes[5])
-	return maskedIPMatcher([]net.IP{base}, mask), nil, true
+	return maskedIPMatcher([]net.IP{base}, mask), nil
 }
 
-func compileAddrMask(ctx context.Context, addrPart, maskPart string, resolver *net.Resolver) (ipRangeMatcher, error) {
-	base := net.ParseIP(StripBrackets(addrPart))
-	bases := []net.IP{base}
-	if base == nil {
-		ips, err := rangeLookupIPs(ctx, resolver.LookupIP, StripBrackets(addrPart))
+func compileAddrMask(ctx context.Context, addr addrconfig.HostTarget, mask netip.Addr, resolver *net.Resolver) (ipRangeMatcher, error) {
+	var bases []net.IP
+	if addr.IsLiteral() {
+		bases = []net.IP{addr.IP()}
+	} else {
+		ips, err := rangeLookupIPs(ctx, resolver.LookupIP, StripBrackets(addr.Name))
 		if err != nil {
-			return nil, fmt.Errorf("range: resolve %s: %w", addrPart, err)
+			return nil, fmt.Errorf("range: resolve %s: %w", addr.Name, err)
 		}
 		bases = ips
 	}
-	maskIP := net.ParseIP(StripBrackets(maskPart))
-	if maskIP == nil {
-		return nil, fmt.Errorf("range: invalid addr:mask %s:%s", addrPart, maskPart)
+	return maskedIPMatcher(bases, net.IP(mask.AsSlice())), nil
+}
+
+func compileCIDRMatcher(prefix netip.Prefix) ipRangeMatcher {
+	n := &net.IPNet{
+		IP:   net.IP(prefix.Addr().AsSlice()),
+		Mask: net.CIDRMask(prefix.Bits(), prefix.Addr().BitLen()),
 	}
-	return maskedIPMatcher(bases, maskIP), nil
+	return n.Contains
 }
 
 func rangeLookupIPs(ctx context.Context, lookup func(context.Context, string, string) ([]net.IP, error), host string) ([]net.IP, error) {

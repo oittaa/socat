@@ -42,7 +42,7 @@ func openBoundUnixConnect(t *testing.T, listen, bind string, extra ...parse.Opti
 		Params:  []string{listen},
 		Options: opts,
 	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixConnect(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

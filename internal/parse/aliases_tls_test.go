@@ -30,7 +30,7 @@ func TestHiddenTLSParseKeepsSpelling(t *testing.T) {
 		t.Fatalf("%+v", o)
 	}
 	s = Spec{Options: []Option{{Name: "fips"}}}
-	if !s.HasOption("openssl-fips") {
+	if !hasOption(s, "openssl-fips") {
 		t.Fatal("constructed Name=fips")
 	}
 	if CanonicalOptionName("fipss") != "fipss" {

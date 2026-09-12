@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -23,19 +23,19 @@ import (
 // SOCKET-SENDTO stays unconnected and only accepts replies from the configured
 // peer. SOCKET-DATAGRAM stays unconnected and accepts any sender unless
 // range/tcpwrap restricts them.
-func openSocketSendto(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketDgram(ctx, s, mode, g, true)
 }
 
-func openSocketDatagram(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketDgram(ctx, s, mode, g, false)
 }
 
-func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, exactPeer bool) (*xio.Opened, error) {
+func openSocketDgram(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, exactPeer bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	c, err := parseSocketDgramCall(s)
+	c, err := socketCallFromConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -58,13 +58,8 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if bind := s.OptionValue("bind", ""); bind != "" {
-		bdata, berr := xio.ParseSocatData(bind)
-		if berr != nil {
-			logx.CloseErr(unix.Close(fd))
-			return nil, berr
-		}
-		bsa, err := packRawSockaddr(c.domain, bdata)
+	if s.Network.RawBindSet {
+		bsa, err := packRawSockaddr(c.domain, s.Network.RawBind)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
@@ -98,23 +93,23 @@ func openSocketDgram(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func openSocketRecv(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketRecvCommon(ctx, s, mode, g, false)
 }
 
-func openSocketRecvfrom(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openSocketRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openSocketRecvCommon(ctx, s, mode, g, true)
 }
 
-func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
+func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, from bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if !from && mode == xio.ModeWrite {
 		return nil, fmt.Errorf("%s is read-only", s.Type)
 	}
-	fork := from && s.BoolOption("fork")
-	c, err := parseSocketDgramCall(s)
+	fork := from && xio.ForkRequested(s)
+	c, err := socketCallFromConfig(s)
 	if err != nil {
 		return nil, err
 	}
@@ -189,13 +184,13 @@ func openSocketRecvCommon(ctx context.Context, s parse.Spec, mode xio.Mode, g *x
 	return &xio.Opened{Stream: st, Label: s.Type}, nil
 }
 
-func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
+func openSocketRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter) (*xio.Opened, error) {
 	_, maxChildren, ferr := xio.ForkLimits(s)
 	if ferr != nil {
 		logx.CloseQuiet(f)
 		return nil, ferr
 	}
-	rcvTimeout, err := xio.RecvTimeoutFromSpec(s)
+	rcvTimeout, err := xio.RecvTimeout(s)
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -206,7 +201,7 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 		ctx:        ctx,
 		filter:     filter,
 		rcvTimeout: rcvTimeout,
-		nullEOF:    s.BoolOption("null-eof"),
+		nullEOF:    s.Transfer.NullEOF.Value,
 	}
 	return &xio.Opened{
 		Kind:           xio.KindListen,
@@ -218,9 +213,9 @@ func openSocketRecvfromFork(ctx context.Context, s parse.Spec, g *xio.Global, f 
 	}, nil
 }
 
-func openSocketRecvfromOneShot(ctx context.Context, s parse.Spec, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
+func openSocketRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
 	buf := make([]byte, dgramBufSize(g))
-	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: s.BoolOption("null-eof")})
+	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: s.Transfer.NullEOF.Value})
 	if err != nil {
 		logx.CloseQuiet(f)
 		return nil, err
@@ -270,15 +265,15 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 	}
 }
 
-func socketIPFilterOrError(ctx context.Context, s parse.Spec, g *xio.Global, domain int) (*xio.PeerFilter, error) {
+func socketIPFilterOrError(ctx context.Context, s addrconfig.Address, g *xio.Global, domain int) (*xio.PeerFilter, error) {
 	if err := socketFilterFamilyOK(s, domain); err != nil {
 		return nil, err
 	}
-	return xio.NewPeerFilter(ctx, s, g)
+	return xio.PreparedPeerFilter(ctx, s, g)
 }
 
-func socketFilterFamilyOK(s parse.Spec, domain int) error {
-	opt := socketFilterOptionName(s)
+func socketFilterFamilyOK(config addrconfig.Address, domain int) error {
+	opt := socketFilterOptionName(config)
 	if opt == "" {
 		return nil
 	}
@@ -288,17 +283,22 @@ func socketFilterFamilyOK(s parse.Spec, domain int) error {
 	return nil
 }
 
-func socketFilterOptionName(s parse.Spec) string {
-	if _, ok := s.OptionNamed("range"); ok {
+func socketFilterOptionName(config addrconfig.Address) string {
+	n := config.Network
+	if n.RangeSet {
 		return "range"
 	}
-	for _, name := range []string{
-		"tcpwrap", "tcpwrap-etc", "tcpwrap-dir",
-		"hosts-allow", "hosts-deny", "allow-table", "deny-table",
-	} {
-		if s.HasOption(name) {
-			return name
-		}
+	if n.TCPWrap.Set {
+		return "tcpwrap"
+	}
+	if n.TCPWrapEtc.Set {
+		return "tcpwrap-etc"
+	}
+	if n.HostsAllow.Set {
+		return "hosts-allow"
+	}
+	if n.HostsDeny.Set {
+		return "hosts-deny"
 	}
 	return ""
 }

@@ -22,7 +22,7 @@ func TestListenUDPJoinsIPv6GroupFromJoinGroupOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
+	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatalf("ipv6-join-group on UDP6-RECV: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestListenUDPJoinsIPv4GroupFromIPAddMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatalf("ip-add-membership on UDP4-RECV: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestListenUDPJoinsIPv4NumericIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, spec)
+	c, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatalf("ip-add-membership numeric index: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestListenUDPJoinsIPv6NumericIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, spec)
+	c, err := listenUDP("udp6", &net.UDPAddr{IP: net.IPv6unspecified, Port: 0}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatalf("ipv6-join-group numeric index: %v", err)
 	}

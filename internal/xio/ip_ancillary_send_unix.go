@@ -32,15 +32,14 @@ func socketIPFamily(fd int) (ipFamily, error) {
 	}
 }
 
-func applyIPOptions(fd int, value string) error {
-	b, err := ParseHexOpt(value)
-	if err != nil {
-		return err
-	}
-	if len(b) == 0 {
+func applyIPOptionsBytes(fd int, extra []byte) error {
+	if len(extra) == 0 {
 		return fmt.Errorf("empty value")
 	}
-	return appendSockoptIPOptions(fd, b)
+	if len(extra) > maxIPOptions {
+		return fmt.Errorf("value exceeds %d bytes", maxIPOptions)
+	}
+	return appendSockoptIPOptions(fd, extra)
 }
 
 func sockoptIPOptions(fd int) ([]byte, error) {

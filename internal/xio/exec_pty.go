@@ -10,30 +10,31 @@ import (
 	"os/exec"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
 // EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
-func rejectExecUnsupportedPTYOptions(s parse.Spec) error {
-	for _, name := range []string{"pty-wait-slave", "pty-interval"} {
-		if o, ok := s.OptionNamed(name); ok {
-			return fmt.Errorf("%s: %s is not supported", s.Type, o.OriginalSpelling())
-		}
+func rejectExecUnsupportedPTYOptions(config addrconfig.Address) error {
+	if config.Terminal.WaitSlave.Set {
+		return fmt.Errorf("%s: %s is not supported", config.Type, "pty-wait-slave")
+	}
+	if config.Terminal.WaitInterval.Set {
+		return fmt.Errorf("%s: %s is not supported", config.Type, "pty-interval")
 	}
 	return nil
 }
 
 // applyExecPtySession applies explicit setsid/ctty requests. TIOCSCTTY cannot
 // succeed without a new session, so ctty alone warns and leaves it unchanged.
-func applyExecPtySession(cmd *exec.Cmd, s parse.Spec, g *Global) {
+func applyExecPtySession(cmd *exec.Cmd, config addrconfig.Process, g *Global) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	cmd.SysProcAttr.Setsid = s.BoolOption("setsid")
-	wantCtty := s.BoolOption("ctty")
+	cmd.SysProcAttr.Setsid = config.SetSID.Value
+	wantCtty := config.CTTY.Value
 	if wantCtty && cmd.SysProcAttr.Setsid {
 		cmd.SysProcAttr.Setctty = true
 		return
@@ -46,32 +47,32 @@ func applyExecPtySession(cmd *exec.Cmd, s parse.Spec, g *Global) {
 
 // openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
 // controlling-terminal attributes, and configures slave termios.
-func openExecPTYPair(cmd *exec.Cmd, s parse.Spec, g *Global) (*os.File, *os.File, func(), error) {
+func openExecPTYPair(cmd *exec.Cmd, config addrconfig.Address, g *Global) (*os.File, *os.File, func(), error) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("EXEC pty: %w", err)
 	}
-	applyExecPtySession(cmd, s, g)
-	if err := ApplyTermios(int(slave.Fd()), s); err != nil {
+	applyExecPtySession(cmd, config.Process, g)
+	if err := ApplyConfiguredTermios(int(slave.Fd()), config.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
 	// Apply master termios before Start. A later TIOCSETA on Darwin's
 	// controller flushes t_outq and can discard already-written child output.
-	if err := ApplyTermios(int(master.Fd()), s); err != nil {
+	if err := ApplyConfiguredTermios(int(master.Fd()), config.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
 	// perm/user/group apply to the PTY slave. Applying them to the master
 	// changes the wrong descriptor and can fail differently across platforms.
-	if err := ApplyNamedAttrs(slave.Name(), s, slave); err != nil {
+	if err := ApplyConfiguredNamedAttrs(slave.Name(), slave, config.File); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
-	unlink, err := CreatePtySlaveLink(s, slave.Name())
+	unlink, err := CreateConfiguredPtySlaveLink(config, slave.Name())
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -89,7 +90,7 @@ func closeExecPTY(master, slave *os.File) {
 // startPtyFDRedirect keeps the PTY slave as ExtraFiles fd 3 and lets the
 // descriptor mapper duplicate it onto fdi/fdo. fdin/fdout do not select pipes.
 func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
-	master, slave, unlink, err := openExecPTYPair(c.cmd, c.spec, c.g)
+	master, slave, unlink, err := openExecPTYPair(c.cmd, c.config, c.g)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
 	if c.mode == ModeWrite {
 		logx.CloseQuiet(slave)
 	}
-	if err := applyPtyMasterLifecycle(c.spec, master); err != nil {
+	if err := applyPtyMasterLifecycle(c.config, master); err != nil {
 		c.killWait()
 		if unlink != nil {
 			unlink()
@@ -135,7 +136,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
 		waitChild = true
 	case ModeRead:
 		done = make(chan struct{})
-		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.spec, done)
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.config.Terminal, done)
 		if rerr != nil {
 			c.killWait()
 			if unlink != nil {
@@ -153,7 +154,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
 		}
 	default:
 		done = make(chan struct{})
-		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.spec, done)
+		r, closeHeldSlave, rerr := execPTYMasterReader(master, slave, c.config.Terminal, done)
 		if rerr != nil {
 			c.killWait()
 			if unlink != nil {
@@ -187,7 +188,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 	switch c.mode {
 	case ModeWrite:
 		// Inherit stdout/stderr; only stdin is the PTY slave.
-		master, slave, u, err := openExecPTYPair(c.cmd, c.spec, c.g)
+		master, slave, u, err := openExecPTYPair(c.cmd, c.config, c.g)
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +196,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 		ptmx = master
 		c.cmd.Stdin = slave
 		c.cmd.Stdout = os.Stdout
-		if c.spec.BoolOption("stderr") {
+		if c.config.Process.Stderr.Value {
 			c.cmd.Stderr = slave
 		}
 		if err := c.start(ctx); err != nil {
@@ -206,7 +207,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 			return nil, err
 		}
 		logx.CloseQuiet(slave)
-		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+		if err := applyPtyMasterLifecycle(c.config, ptmx); err != nil {
 			c.killWait()
 			if unlink != nil {
 				unlink()
@@ -225,7 +226,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 
 	case ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
-		master, slave, u, err := openExecPTYPair(c.cmd, c.spec, c.g)
+		master, slave, u, err := openExecPTYPair(c.cmd, c.config, c.g)
 		if err != nil {
 			return nil, err
 		}
@@ -233,7 +234,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 		ptmx = master
 		c.cmd.Stdin = os.Stdin
 		c.cmd.Stdout = slave
-		if c.spec.BoolOption("stderr") {
+		if c.config.Process.Stderr.Value {
 			c.cmd.Stderr = slave
 		}
 		// Controlling tty is stdout/stderr slave; Setctty needs a child FD.
@@ -249,7 +250,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 			closeExecPTY(master, slave)
 			return nil, err
 		}
-		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+		if err := applyPtyMasterLifecycle(c.config, ptmx); err != nil {
 			c.killWait()
 			if unlink != nil {
 				unlink()
@@ -258,7 +259,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 			return nil, err
 		}
 		done := make(chan struct{})
-		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.spec, done)
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.config.Terminal, done)
 		if rerr != nil {
 			c.killWait()
 			if unlink != nil {
@@ -281,7 +282,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 		if err != nil {
 			return nil, fmt.Errorf("EXEC pty: %w", err)
 		}
-		if err := applyPtyMasterLifecycle(c.spec, ptmx); err != nil {
+		if err := applyPtyMasterLifecycle(c.config, ptmx); err != nil {
 			c.killWait()
 			if unlink != nil {
 				unlink()
@@ -290,7 +291,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 			return nil, err
 		}
 		done := make(chan struct{})
-		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.spec, done)
+		r, closeSlave, rerr := execPTYMasterReader(ptmx, slave, c.config.Terminal, done)
 		if rerr != nil {
 			c.killWait()
 			if unlink != nil {
@@ -321,30 +322,30 @@ func (c *execChild) startOnPTY(ctx context.Context) (*os.File, *os.File, func(),
 		c.cmd.Stdout = slave
 	}
 	// stderr stays on the parent unless option stderr.
-	if c.cmd.Stderr == nil && c.spec.BoolOption("stderr") {
+	if c.cmd.Stderr == nil && c.config.Process.Stderr.Value {
 		c.cmd.Stderr = slave
 	}
-	applyExecPtySession(c.cmd, c.spec, c.g)
+	applyExecPtySession(c.cmd, c.config.Process, c.g)
 	// Ctty is the slave FD number as seen by the child after fd setup.
 	// Go's fork/exec sets controlling tty from Setctty when slave is Stdin.
 
-	if err := ApplyTermios(int(slave.Fd()), c.spec); err != nil {
+	if err := ApplyConfiguredTermios(int(slave.Fd()), c.config.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
 	// Before Start: Darwin TIOCSETA on the controller flushes t_outq.
-	if err := ApplyTermios(int(master.Fd()), c.spec); err != nil {
+	if err := ApplyConfiguredTermios(int(master.Fd()), c.config.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
-	if err := ApplyNamedAttrs(slave.Name(), c.spec, slave); err != nil {
+	if err := ApplyConfiguredNamedAttrs(slave.Name(), slave, c.config.File); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, nil, nil, err
 	}
-	unlink, err := CreatePtySlaveLink(c.spec, slave.Name())
+	unlink, err := CreateConfiguredPtySlaveLink(c.config, slave.Name())
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -372,6 +373,6 @@ func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {
 	return out
 }
 
-func applyPtyMasterLifecycle(s parse.Spec, ptmx *os.File) error {
-	return ApplyFDOptionsSkip(ptmx, s, FDSkipOwner)
+func applyPtyMasterLifecycle(config addrconfig.Address, ptmx *os.File) error {
+	return ApplyConfiguredFDOptions(ptmx, config.File, FDSkipOwner)
 }

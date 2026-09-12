@@ -3,60 +3,14 @@
 package xio
 
 import (
-	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"os"
-	"strings"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
-func optionBoolAny(s parse.Spec, names ...string) (bool, bool) {
-	value, ok := optionValueAny(s, names...)
-	if !ok {
-		return false, false
-	}
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "0", "false", "no", "off":
-		return false, true
-	default:
-		return true, true
-	}
-}
-
-func ApplyFDOptions(f *os.File, s parse.Spec) error {
+func ApplyFDOptions(f *os.File, s addrconfig.Address) error {
 	return ApplyFDOptionsSkip(f, s, FDSkip{})
 }
 
-func ApplyFDOptionsSkip(f *os.File, s parse.Spec, skip FDSkip) error {
-	if enabled, ok := optionBoolAny(s, "o-noatime", "noatime"); ok && enabled {
-		return fmt.Errorf("o-noatime: not supported on this platform")
-	}
-	for _, op := range linuxExtFSFlagOps(s) {
-		if op.enable {
-			return fmt.Errorf("%s: not supported on this platform", op.name)
-		}
-	}
-	if _, ok := optionValueAny(s, "f-setpipe-sz", "pipesz"); ok {
-		return fmt.Errorf("f-setpipe-sz: not supported on this platform")
-	}
+func ApplyFDOptionsSkip(f *os.File, s addrconfig.Address, skip FDSkip) error {
 	return applyFDLifecycleToFile(f, s, skip)
-}
-
-type linuxExtFSFlagOp struct {
-	name   string
-	mask   int
-	enable bool
-}
-
-func linuxExtFSFlagOps(s parse.Spec) []linuxExtFSFlagOp {
-	var out []linuxExtFSFlagOp
-	for _, o := range s.Options {
-		canon := parse.CanonicalOptionName(o.Name)
-		mask, ok := linuxExtFSFlagMasks[canon]
-		if !ok {
-			continue
-		}
-		out = append(out, linuxExtFSFlagOp{name: canon, mask: mask, enable: o.Active()})
-	}
-	return out
 }

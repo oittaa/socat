@@ -2,12 +2,9 @@
 
 package logx
 
-import (
-	"log/syslog"
-	"strings"
-)
+import "log/syslog"
 
-func defaultSyslogDial(tag, facility string) (SyslogWriter, error) {
+func defaultSyslogDial(tag string, facility Facility) (SyslogWriter, error) {
 	w, err := syslog.New(facilityPriority(facility)|syslog.LOG_INFO, tag)
 	if err != nil {
 		return nil, err
@@ -15,45 +12,45 @@ func defaultSyslogDial(tag, facility string) (SyslogWriter, error) {
 	return w, nil
 }
 
-func facilityPriority(name string) syslog.Priority {
-	switch strings.ToLower(name) {
-	case "kern":
+func facilityPriority(facility Facility) syslog.Priority {
+	switch facility {
+	case FacilityKern:
 		return syslog.LOG_KERN
-	case "user":
+	case FacilityUser:
 		return syslog.LOG_USER
-	case "mail":
+	case FacilityMail:
 		return syslog.LOG_MAIL
-	case "auth":
+	case FacilityAuth:
 		return syslog.LOG_AUTH
-	case "syslog":
+	case FacilitySyslog:
 		return syslog.LOG_SYSLOG
-	case "lpr":
+	case FacilityLPR:
 		return syslog.LOG_LPR
-	case "news":
+	case FacilityNews:
 		return syslog.LOG_NEWS
-	case "uucp":
+	case FacilityUUCP:
 		return syslog.LOG_UUCP
-	case "cron":
+	case FacilityCron:
 		return syslog.LOG_CRON
-	case "authpriv":
+	case FacilityAuthpriv:
 		return syslog.LOG_AUTHPRIV
-	case "ftp":
+	case FacilityFTP:
 		return syslog.LOG_FTP
-	case "local0":
+	case FacilityLocal0:
 		return syslog.LOG_LOCAL0
-	case "local1":
+	case FacilityLocal1:
 		return syslog.LOG_LOCAL1
-	case "local2":
+	case FacilityLocal2:
 		return syslog.LOG_LOCAL2
-	case "local3":
+	case FacilityLocal3:
 		return syslog.LOG_LOCAL3
-	case "local4":
+	case FacilityLocal4:
 		return syslog.LOG_LOCAL4
-	case "local5":
+	case FacilityLocal5:
 		return syslog.LOG_LOCAL5
-	case "local6":
+	case FacilityLocal6:
 		return syslog.LOG_LOCAL6
-	case "local7":
+	case FacilityLocal7:
 		return syslog.LOG_LOCAL7
 	default:
 		return syslog.LOG_DAEMON

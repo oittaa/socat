@@ -2,13 +2,13 @@ package quicopen
 
 import (
 	"context"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync/atomic"
 	"time"
 
 	"github.com/quic-go/quic-go"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -19,37 +19,39 @@ import (
 // omitted default) is also a candidate; handshake-timeout=0 disables only
 // that handshake candidate. The earlier positive deadline wins. A zero
 // result means no extra Dial context timeout.
-func quicDialAttemptTimeout(s parse.Spec) time.Duration {
+func quicDialAttemptTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
 	return xio.CombinedConnectHandshakeTimeout(s)
 }
 
-func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host, port, err := quicTarget(s, false)
+func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	host, _, err := quicTarget(s, false)
 	if err != nil {
 		return nil, err
 	}
-	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
-	dest := net.JoinHostPort(xio.StripBrackets(host), port)
-	netw, err := xio.PacketNetworkForHost(ctx, s, network, host)
+	target := s.Network.Target
+	targetPort := s.Network.TargetPort
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, target, "tcp"))
+	dest := net.JoinHostPort(target.String(), targetPort.Text())
+	netw, err := xio.PacketNetworkForHost(ctx, s, network, target)
 	if err != nil {
 		return nil, err
 	}
 	network = netw
 
-	tlsCfg, err := tlsopen.TLSClientConfig(s, host)
+	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, host)
 	if err != nil {
 		return nil, err
 	}
-	setup, err := quicConfig(s, tlsCfg)
+	setup, err := quicConfig(ctx, s, tlsCfg)
 	if err != nil {
 		return nil, err
 	}
 
-	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
-	pc, err := listenQUICClientPacket(ctx, network, bindHost, s.OptionValue("sourceport", ""), s, g)
+	pc, err := listenQUICClientPacket(ctx, network, bindHost, xio.ClientLocalPort(s), s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -59,10 +61,10 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 	// teardown then waits out the drain so tail bytes and the FIN survive.
 	var drain atomic.Bool
 
-	attemptTimeout := quicDialAttemptTimeout(s)
+	attemptTimeout := quicDialAttemptTimeout(ctx, s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
 			// Transport.Dial does path setup and the TLS handshake.
@@ -72,7 +74,7 @@ func openQUICConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Gl
 				cctx, cancel = context.WithTimeout(dctx, attemptTimeout)
 				defer cancel()
 			}
-			raddr, e := xio.ResolveUDPAddr(cctx, s, network, dest)
+			raddr, e := xio.ResolveUDPTarget(cctx, s, network, target, targetPort)
 			if e != nil {
 				return e
 			}

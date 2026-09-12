@@ -10,10 +10,14 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestTimevalFromSpecRejectsInvalidValues(t *testing.T) {
+func TestDecodeRejectsInvalidSocketTimeouts(t *testing.T) {
 	for _, value := range []string{"-1", "banana", "NaN", "1e100"} {
-		if _, err := timevalFromSpec(value); err == nil {
-			t.Errorf("timevalFromSpec(%q) succeeded", value)
+		spec, err := parse.ParseSpec("TCP:127.0.0.1:9,rcvtimeo=" + value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := decodeAddress(spec); err == nil {
+			t.Errorf("rcvtimeo=%q accepted", value)
 		}
 	}
 }
@@ -37,7 +41,11 @@ func TestApplySocketOptionsRejectsNegativeSndbuf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err == nil {
+	config, err := decodeAddress(spec)
+	if err == nil {
+		err = ApplySocketOptions(fd, config)
+	}
+	if err == nil {
 		t.Fatal("expected invalid sndbuf error")
 	}
 }
@@ -100,7 +108,7 @@ func TestApplyTCPConnOptsAppliesSndbufLateThroughNetConnUnwrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTCPConnOpts(spec, netConnUnwrapper{Conn: cli}); err != nil {
+	if err := ApplyTCPConnOpts(mustDecodeAddress(t, spec), netConnUnwrapper{Conn: cli}); err != nil {
 		t.Fatal(err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
@@ -138,7 +146,7 @@ func TestApplyListenOptionsDoesNotApplyBroadcastUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyListenOptions(fd, spec, "udp4"); err != nil {
+	if err := ApplyListenOptions(fd, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatal(err)
 	}
 	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 0 {

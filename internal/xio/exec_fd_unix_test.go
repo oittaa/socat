@@ -260,6 +260,17 @@ func parseNoForkSpec(t *testing.T, spec string) parse.Spec {
 	return s
 }
 
+func runPreparedNoFork(t *testing.T, peer relay.Stream, s parse.Spec, g *Global, mode Mode) {
+	t.Helper()
+	prepared, err := PrepareSpec(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := runExecNoFork(context.Background(), peer, prepared.Config, g, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
 	if !FeatureEXEC {
 		t.Skip("EXEC not enabled")
@@ -267,9 +278,7 @@ func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
 	peer, _, _, _ := noForkPipePeer(t)
 	s := parseNoForkSpec(t, "EXEC:true,nofork,fdin=3,fdout=4")
 	g := &Global{Log: logx.New()}
-	if err := runExecNoFork(context.Background(), peer, s, g, ModeRDWR); err != nil {
-		t.Fatal(err)
-	}
+	runPreparedNoFork(t, peer, s, g, ModeRDWR)
 	if g.ChildExitCode != 0 {
 		t.Fatalf("EXEC:true ChildExitCode=%d want 0 (helper must LookPath the basename)", g.ChildExitCode)
 	}
@@ -286,9 +295,7 @@ func TestRunExecNoForkTargetExit127Unix(t *testing.T) {
 	peer, _, _, _ := noForkPipePeer(t)
 	s := parseNoForkSpec(t, "EXEC:"+script+",nofork,fdin=3,fdout=4")
 	g := &Global{Log: logx.New()}
-	if err := runExecNoFork(context.Background(), peer, s, g, ModeRDWR); err != nil {
-		t.Fatal(err)
-	}
+	runPreparedNoFork(t, peer, s, g, ModeRDWR)
 	if g.ChildExitCode != 127 {
 		t.Fatalf("target exit 127: ChildExitCode=%d want 127", g.ChildExitCode)
 	}
@@ -302,9 +309,7 @@ func TestRunExecNoForkDashRewritesTargetArgv0Unix(t *testing.T) {
 	peer, _, _, _ := noForkPipePeer(t)
 	got := strings.TrimSpace(captureInheritedStdout(t, func() {
 		s := parseNoForkSpec(t, "EXEC:"+bin+",dash,nofork,fdin=3,fdout=4")
-		if err := runExecNoFork(context.Background(), peer, s, nil, ModeRDWR); err != nil {
-			t.Fatal(err)
-		}
+		runPreparedNoFork(t, peer, s, nil, ModeRDWR)
 	}))
 	if got != "x-argv0" {
 		t.Fatalf("nofork dash argv0=%q want x-argv0", got)

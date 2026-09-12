@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testutil"
@@ -110,12 +111,13 @@ func TestUDP4DatagramRecvErrICMPLinux(t *testing.T) {
 	probeStreamRecvErr(t, o.Stream, g, logBuf)
 }
 
-func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, parse.Spec, xio.Mode, *xio.Global) (*xio.Opened, error), g *xio.Global) (*xio.Opened, *net.UDPConn) {
+func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, addrconfig.Address, xio.Mode, *xio.Global) (*xio.Opened, error), g *xio.Global) (*xio.Opened, *net.UDPConn) {
 	t.Helper()
 	parsed, err := parse.ParseSpec(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
+	config := mustAddr(t, parsed)
 	bound := make(chan net.Addr, 1)
 	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
 		select {
@@ -128,7 +130,7 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := open(context.Background(), parsed, xio.ModeRDWR, g)
+		o, err := open(context.Background(), config, xio.ModeRDWR, g)
 		if err != nil {
 			errc <- err
 			return

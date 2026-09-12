@@ -8,7 +8,6 @@ import (
 	"net"
 	"syscall"
 
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
@@ -16,11 +15,7 @@ const maxRecvErrQueue = 32
 
 func recvErrSupported() bool { return true }
 
-func applyRecvErrSockopt(fd int, o parse.Option) error {
-	n, err := ancillaryRecvOptionInt(o)
-	if err != nil {
-		return fmt.Errorf("ip-recverr: %w", err)
-	}
+func applyRecvErrValue(fd int, n int) error {
 	if err := setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR, n); err != nil {
 		return fmt.Errorf("ip-recverr: %w", err)
 	}

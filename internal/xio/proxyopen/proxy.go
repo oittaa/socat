@@ -12,11 +12,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/tlsopen"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -24,98 +23,59 @@ const maxHTTP1ProxyResponseBytes = 64 << 10
 
 // PROXY / PROXY-CONNECT:proxy:targethost:targetport[,proxyport=N][,http-version=1.0|2|3][,resolve]
 // HTTP CONNECT through a proxy. Default is HTTP/1.0.
-func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	// Params: proxyhost, targethost, targetport  (or combined from parser)
-	proxyHost, targetHost, targetPort, err := proxyParams(s)
+func openProxyConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if !s.Proxy.EndpointsSet {
+		return nil, fmt.Errorf("%s requires proxy, host, and port", s.Type)
+	}
+	if err := rejectProxyPlaintextPolicy(s); err != nil {
+		return nil, err
+	}
+	targetPort, err := xio.ResolvePort("tcp", s.Proxy.TargetPort)
+	if err != nil {
+		return nil, fmt.Errorf("PROXY: target port: %w", err)
+	}
+	connectHost, err := resolvePROXYConnectHost(ctx, s, s.Proxy.Target, proxyResolveTarget(s.Proxy))
 	if err != nil {
 		return nil, err
 	}
-	proxyPort := s.OptionValue("proxyport", "8080")
-	if proxyPort == "" {
-		proxyPort = "8080"
-	}
-	major, err := parseHTTPVersion(s)
-	if err != nil {
-		return nil, err
-	}
-	if s.BoolOption("h2c") && major != httpVer2 {
-		return nil, fmt.Errorf("h2c requires http-version=2")
-	}
-	// ignorecr is HTTP/1 CONNECT response parsing only.
-	// HTTP/2 and HTTP/3 have no CRLF status/header reader, so an enabled
-	// ignorecr would be a silent no-op. Reject it instead.
-	if s.BoolOption("ignorecr") && major != httpVer1 {
-		return nil, fmt.Errorf("ignorecr applies only to HTTP/1 CONNECT responses")
-	}
-	if major == httpVer1 || (major == httpVer2 && s.BoolOption("h2c")) {
-		if err := tlsopen.RejectPROXYTLSOnPlaintext(s); err != nil {
-			return nil, err
-		}
-	}
-	ver := s.OptionValue("http-version", "1.0")
-	if ver == "" {
-		ver = "1.0"
-	}
-
-	// proxy-resolve / resolve (default true): put IPv4 in the CONNECT target.
-	// Many proxies expect "CONNECT a.b.c.d:port HTTP/x.y".
-	connectHost := xio.StripBrackets(targetHost)
-	doResolve := true
-	if s.HasOption("proxy-resolve") {
-		doResolve = s.BoolOption("proxy-resolve")
-	} else if s.HasOption("resolve") {
-		doResolve = s.BoolOption("resolve")
-	}
-	if doResolve {
-		if ip := net.ParseIP(connectHost); ip == nil {
-			ips, resolveErr := xio.LookupIP(ctx, s, "ip4", connectHost)
-			if resolveErr != nil {
-				return nil, fmt.Errorf("PROXY: resolve target %s: %w", targetHost, resolveErr)
-			}
-			if len(ips) == 0 {
-				return nil, fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", targetHost)
-			}
-			connectHost = ips[0].String()
-		} else if ip4 := ip.To4(); ip4 != nil {
-			connectHost = ip4.String()
-		}
-	}
+	proxyPort := proxyPortTarget(s.Proxy)
+	major, ver := proxyHTTPVersion(s.Proxy)
 
 	t := proxyTarget{
-		proxyHost:   proxyHost,
+		proxyHost:   s.Proxy.Server,
 		proxyPort:   proxyPort,
-		targetHost:  targetHost,
-		targetPort:  targetPort,
+		targetHost:  s.Proxy.Target,
+		targetPort:  s.Proxy.TargetPort,
 		connectHost: connectHost,
-		label:       "PROXY:" + targetHost + ":" + targetPort,
+		connectPort: targetPort,
+		label:       "PROXY:" + s.Proxy.Target.Original() + ":" + s.Proxy.TargetPort.Text(),
 	}
 	switch major {
-	case httpVer2:
+	case addrconfig.HTTPVersion2:
 		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH2CONNECT(dctx, s, g, t)
 		})
-	case httpVer3:
+	case addrconfig.HTTPVersion3:
 		return openProxyDial(ctx, s, mode, g, t, true, func(dctx context.Context) (net.Conn, error) {
 			return dialH3CONNECT(dctx, s, g, t)
 		})
 	}
 
-	// Honour pf=ip4/ip6 when dialing the proxy host.
-	network := xio.ConnectNetworkForType(g, s, proxyHost, "tcp")
+	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server, "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		e := xio.WithRetry(dctx, s, g, "PROXY-CONNECT", func() error {
-			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: proxyHost, Port: proxyPort}, s, g, timeout, nil)
+		e := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), "PROXY-CONNECT", func() error {
+			c, e := xio.DialTCPAll(dctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPort}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
 			var negotiated net.Conn
 			e = xio.WithHandshakeDeadline(c, handshakeTimeout, func() error {
 				var handshakeErr error
-				negotiated, handshakeErr = proxyHTTP1Handshake(c, s, connectHost, targetPort, ver)
+				negotiated, handshakeErr = proxyHTTP1Handshake(c, s.Proxy, connectHost, targetPort, ver)
 				return handshakeErr
 			})
 			if e != nil {
@@ -131,10 +91,36 @@ func openProxyConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.G
 	return openProxyDial(ctx, s, mode, g, t, false, dialOnce)
 }
 
-func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, version string) (net.Conn, error) {
+func resolvePROXYConnectHost(ctx context.Context, s addrconfig.Address, target addrconfig.HostTarget, doResolve bool) (string, error) {
+	if target.IsLiteral() {
+		ip := target.IP()
+		if ip4 := ip.To4(); ip4 != nil {
+			return ip4.String(), nil
+		}
+		return ip.String(), nil
+	}
+	name := target.String()
+	if !doResolve {
+		return name, nil
+	}
+	ips, err := xio.LookupIP(ctx, s, "ip4", name)
+	if err != nil {
+		return "", fmt.Errorf("PROXY: resolve target %s: %w", target.Original(), err)
+	}
+	if len(ips) == 0 {
+		return "", fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", target.Original())
+	}
+	return ips[0].String(), nil
+}
+
+func proxyCONNECTTarget(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}
+
+func proxyHTTP1Handshake(c net.Conn, proxy addrconfig.Proxy, connectHost string, targetPort int, version string) (net.Conn, error) {
 	// CONNECT host:port HTTP/1.x\r\n[auth]\r\n  (always CRLF, even with ignorecr)
-	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", net.JoinHostPort(connectHost, targetPort), version)
-	auth, err := proxyAuthHeader(s)
+	req := fmt.Sprintf("CONNECT %s HTTP/%s\r\n", proxyCONNECTTarget(connectHost, targetPort), version)
+	auth, err := proxyAuthHeader(proxy)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +134,7 @@ func proxyHTTP1Handshake(c net.Conn, s parse.Spec, connectHost, targetPort, vers
 	// ignorecr is HTTP/1 response parsing: LF ends a line; CR is ignored.
 	// Bare ignorecr or =1 enables; =0 disables (last occurrence wins).
 	// CONNECT requests still use CR+LF.
-	ignoreCR := s.BoolOption("ignorecr")
+	ignoreCR := proxy.IgnoreCR.Value
 	br := bufio.NewReaderSize(c, maxHTTP1ProxyResponseBytes+1)
 	total := 0
 	status, err := readProxyResponseLine(br, &total, ignoreCR)
@@ -206,13 +192,16 @@ func proxyHTTP1BlankLine(line string) bool {
 }
 
 type proxyTarget struct {
-	proxyHost, proxyPort   string
-	targetHost, targetPort string
-	connectHost            string
-	label                  string
+	proxyHost   addrconfig.HostTarget
+	proxyPort   addrconfig.PortTarget
+	targetHost  addrconfig.HostTarget
+	targetPort  addrconfig.PortTarget
+	connectHost string
+	connectPort int
+	label       string
 }
 
-func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
+func openProxyDial(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, t proxyTarget, transportLifecycleApplied bool, dialOnce func(context.Context) (net.Conn, error)) (*xio.Opened, error) {
 	_ = mode
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
 		Label: t.label,
@@ -231,28 +220,22 @@ func openProxyDial(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Glob
 }
 
 // proxyAuthHeader returns "Proxy-authorization: Basic …\r\n" or "".
-func proxyAuthHeader(s parse.Spec) (string, error) {
-	raw, err := proxyAuthString(s)
+func proxyAuthHeader(proxy addrconfig.Proxy) (string, error) {
+	raw, err := proxyAuthString(proxy)
 	if err != nil || raw == "" {
 		return "", err
 	}
 	return "Proxy-authorization: Basic " + base64.StdEncoding.EncodeToString([]byte(raw)) + "\r\n", nil
 }
 
-func proxyAuthString(s parse.Spec) (string, error) {
-	inline := ""
-	if o, ok := s.OptionNamed("proxy-authorization"); ok && o.Has {
-		inline = o.Value
-	}
-	file := ""
-	if o, ok := s.OptionNamed("proxy-authorization-file"); ok && o.Has {
-		file = o.Value
-	}
+func proxyAuthString(proxy addrconfig.Proxy) (string, error) {
+	inline := proxy.Authorization.Value
+	file := proxy.AuthorizationFile.Value
 	if inline != "" && file != "" {
 		return "", fmt.Errorf("only one of options proxy-authorization and proxy-authorization-file allowed")
 	}
 	if file != "" {
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(file) // #nosec G304 -- proxy-authorization-file= must open the path the user gave
 		if err != nil {
 			return "", fmt.Errorf("open(%q, O_RDONLY): %w", file, err)
 		}
@@ -292,29 +275,6 @@ func proxyStatusOK(status string) bool {
 		return false
 	}
 	return code == "200"
-}
-
-func proxyParams(s parse.Spec) (proxy, host, port string, err error) {
-	// PROXY:proxy:host:port → params may be split by our parser
-	p := s.Params
-	if len(p) >= 3 {
-		return p[0], p[1], p[2], nil
-	}
-	if len(p) == 1 {
-		// single string "proxy:host:port" unlikely
-		parts := strings.Split(p[0], ":")
-		if len(parts) >= 3 {
-			return parts[0], parts[1], parts[2], nil
-		}
-	}
-	if len(p) == 2 {
-		// proxyhost, host:port
-		h, pt, e := net.SplitHostPort(p[1])
-		if e == nil {
-			return p[0], h, pt, nil
-		}
-	}
-	return "", "", "", fmt.Errorf("%s requires proxy, host, and port", s.Type)
 }
 
 // prefixConn prepends buffered bytes to the first Read.

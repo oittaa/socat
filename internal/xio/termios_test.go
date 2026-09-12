@@ -7,14 +7,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
 func TestParseWinsz(t *testing.T) {
-	c, r, err := parseWinsz("177:37")
-	if err != nil || c != 177 || r != 37 {
-		t.Fatalf("%d %d %v", c, r, err)
+	spec, err := parse.ParseSpec("PTY,tiocswinsz=177:37")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := config.Terminal.Actions; len(got) != 1 || got[0].Col != 177 || got[0].Row != 37 {
+		t.Fatalf("winsize action=%+v", got)
 	}
 }
 
@@ -37,7 +45,11 @@ func applyTermiosSpec(t *testing.T, fd int, spec string) *unix.Termios {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTermios(fd, s); err != nil {
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredTermios(fd, config.Terminal); err != nil {
 		t.Fatal(err)
 	}
 	tio, err := getTermios(fd)
@@ -79,12 +91,11 @@ func TestApplyTermiosSaneSetsCanonical(t *testing.T) {
 }
 
 func TestApplyTermiosBareVintrIsRejected(t *testing.T) {
-	fd := openPTYSlave(t)
 	s, err := parse.ParseSpec("PTY,vintr")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyTermios(fd, s); err == nil || !strings.Contains(err.Error(), "value required") {
+	if _, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "value required") {
 		t.Fatalf("bare vintr error=%v", err)
 	}
 }
@@ -121,7 +132,7 @@ func TestApplyTermiosSetFlagsAndOrder(t *testing.T) {
 	}
 }
 
-func TestValidateTermiosOptionClassicIntegerDiagnostics(t *testing.T) {
+func TestDecodeTermiosIntegerDiagnostics(t *testing.T) {
 	for _, tc := range []struct {
 		value string
 		want  string
@@ -129,12 +140,20 @@ func TestValidateTermiosOptionClassicIntegerDiagnostics(t *testing.T) {
 		{value: "b19200", want: "missing numerical value"},
 		{value: "19200B", want: "trailing garbage"},
 	} {
-		err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: tc.value, Has: true})
+		spec, err := parse.ParseSpec("PTY,ispeed=" + tc.value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Fatalf("ispeed=%q: err=%v want %q", tc.value, err, tc.want)
 		}
 	}
-	if err := ValidateTermiosOption(parse.Option{Name: "ispeed", Value: "0x2580", Has: true}); err != nil {
+	spec, err := parse.ParseSpec("PTY,ispeed=0x2580")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"}); err != nil {
 		t.Fatalf("base-0 ispeed: %v", err)
 	}
 }
@@ -155,7 +174,7 @@ func TestApplyTermiosCatalogAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.BoolOption("hupcl") || !s.BoolOption("ixoff") {
+	if len(s.Options) != 2 || s.Options[0].Name != "hupcl" || s.Options[1].Name != "ixoff" {
 		t.Fatalf("hup/tandem did not fold: options=%v", s.Options)
 	}
 }
@@ -177,5 +196,35 @@ func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
 				t.Fatalf("ECHO=%v want %v (Lflag=%#x)", got, tc.wantEcho, tio.Lflag)
 			}
 		})
+	}
+}
+
+func TestApplyConfiguredTermiosPreservesActionOrder(t *testing.T) {
+	fd := openPTYSlave(t)
+	spec, err := parse.ParseSpec("PTY,sane,echo=0,vintr=7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "PTY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyConfiguredTermios(fd, config.Terminal); err != nil {
+		t.Fatal(err)
+	}
+	tio, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tio.Lflag&unix.ECHO != 0 || tio.Cc[unix.VINTR] != 7 {
+		t.Fatalf("prepared actions left ECHO=%t VINTR=%d", tio.Lflag&unix.ECHO != 0, tio.Cc[unix.VINTR])
+	}
+}
+
+func TestApplyTermiosB0HangupSpeed(t *testing.T) {
+	fd := openPTYSlave(t)
+	tio := applyTermiosSpec(t, fd, "PTY,b9600,b0")
+	if tio.Ispeed != 0 || tio.Ospeed != 0 {
+		t.Fatalf("b0 speed=%d/%d want hangup 0", tio.Ispeed, tio.Ospeed)
 	}
 }

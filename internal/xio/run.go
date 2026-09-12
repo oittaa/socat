@@ -29,19 +29,45 @@ func channelModes(g *Global) (lMode, rMode Mode) {
 }
 
 func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
+	preparedLeft, err := PrepareChannel(left)
+	if err != nil {
+		return err
+	}
+	preparedRight, err := PrepareChannel(right)
+	if err != nil {
+		return err
+	}
+	return RunPrepared(ctx, preparedLeft, preparedRight, g)
+}
+
+// RunPrepared opens and relays two prepared channels. It retains immutable
+// configuration across accept and fork retry paths.
+func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) error {
 	lMode, _ := channelModes(g)
 
 	// Open left first.
-	lo, err := OpenChannel(ctx, left, lMode, g)
+	lo, err := OpenPreparedChannel(ctx, left, lMode, g)
 	if err != nil {
 		// Preserve "unknown device/address" text.
 		return err
 	}
-	return RunOpened(ctx, lo, right, g)
+	return RunOpenedPrepared(ctx, lo, right, g)
 }
 
 // RunOpened continues Run after the left address is already open. It closes lo.
 func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) error {
+	prepared, err := PrepareChannel(right)
+	if err != nil {
+		if lo != nil {
+			_ = lo.Close()
+		}
+		return err
+	}
+	return RunOpenedPrepared(ctx, lo, prepared, g)
+}
+
+// RunOpenedPrepared continues a run with a prepared right channel.
+func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g *Global) error {
 	if lo == nil {
 		return fmt.Errorf("xio: nil left")
 	}
@@ -58,19 +84,19 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 		// Client CONNECT/TLS-CONNECT with fork.
 		return runConnectFork(ctx, lo, right, rMode, g)
 	case KindExec:
-		if lo.NoForkSpec == nil {
+		if lo.NoForkConfig == nil {
 			return fmt.Errorf("%s: exec nofork without spec", lo.Label)
 		}
 		// Left EXEC,nofork: open right first, then exec on right's stream.
-		ro, err := OpenChannel(ctx, right, rMode, g)
+		ro, err := OpenPreparedChannel(ctx, right, rMode, g)
 		if err != nil {
 			return err
 		}
 		defer func() { _ = ro.Close() }()
-		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkSpec, g, lMode)
+		return runExecNoFork(ctx, ro.EffectiveStream(), *lo.NoForkConfig, g, lMode)
 	}
 
-	ro, err := OpenChannel(ctx, right, rMode, g)
+	ro, err := OpenPreparedChannel(ctx, right, rMode, g)
 	if err != nil {
 		return err
 	}
@@ -78,11 +104,11 @@ func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) 
 
 	switch ro.Kind {
 	case KindExec:
-		if ro.NoForkSpec == nil {
+		if ro.NoForkConfig == nil {
 			return fmt.Errorf("%s: exec nofork without spec", ro.Label)
 		}
 		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
-		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkSpec, g, rMode)
+		return runExecNoFork(ctx, lo.EffectiveStream(), *ro.NoForkConfig, g, rMode)
 	case KindListen:
 		if ro.Listener == nil {
 			return fmt.Errorf("%s: listen fork without listener", ro.Label)
@@ -106,13 +132,13 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 
 // runConnectFork is the CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
-func runConnectFork(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
+func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
 		left, err := streamFromDial(lo, c)
 		if err != nil {
 			return err
 		}
-		ro, err := OpenChannel(cctx, right, rMode, cg)
+		ro, err := OpenPreparedChannel(cctx, right, rMode, cg)
 		if err != nil {
 			return err
 		}
@@ -315,7 +341,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 	}
 }
 
-func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode Mode, g *Global) error {
+func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
 	ln := lo.Listener
 	lg := g.Log
 	lg.Noticef("listening on %s", ln.Addr())
@@ -333,7 +359,7 @@ func runForkListen(ctx context.Context, lo *Opened, right parse.Channel, rMode M
 			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
-		ro, err := OpenChannel(ctx, right, rMode, cg)
+		ro, err := OpenPreparedChannel(ctx, right, rMode, cg)
 		if err != nil {
 			// No "right address:" prefix on the open error.
 			cg.Log.Errorf("%s", err)
@@ -492,129 +518,6 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 
 // DefaultCreateMode is open/creat/mkfifo mode (0666 before umask).
 const DefaultCreateMode os.FileMode = 0o666
-
-// ParseFileMode applies perm= or mode= (octal), else def.
-func ParseFileMode(s parse.Spec, def os.FileMode) (os.FileMode, error) {
-	m, ok, err := explicitFileMode(s)
-	if err != nil {
-		return 0, err
-	}
-	if ok {
-		return m, nil
-	}
-	return def, nil
-}
-
-// explicitFileMode returns perm= or mode= when set (octal).
-func explicitFileMode(s parse.Spec) (os.FileMode, bool, error) {
-	m, ok, err := explicitUnixMode(s)
-	if err != nil || !ok {
-		return 0, ok, err
-	}
-	return UnixModeToFileMode(m), true, nil
-}
-
-// ApplyPerm sets exact permissions on named sockets and PTY slaves after bind.
-// Regular files use perm=/mode= as the open(2) mode instead, so umask still applies.
-func ApplyPerm(path string, s parse.Spec, f *os.File) error {
-	mode, ok, err := explicitFileMode(s)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		return nil
-	}
-	if f != nil {
-		if err := f.Chmod(mode); err != nil {
-			// Some paths (e.g. some PTY slaves) reject fchmod; try path.
-			if path != "" {
-				return os.Chmod(path, mode)
-			}
-			return err
-		}
-		return nil
-	}
-	if path == "" {
-		return nil
-	}
-	return os.Chmod(path, mode)
-}
-
-// ApplyNamedAttrs applies perm/user/group to a filesystem name in
-// command-line order: each perm=/mode= is chmod of the name, each
-// user=/uid=/owner= is chown(uid,-1), each group=/gid= is chown(-1,gid).
-// Order matters for setuid/setgid (`user=,perm=04755` keeps setuid; reverse
-// clears it). Regular files and FIFOs pass perm= to open(2)/mkfifo so umask
-// still applies; do not use ApplyNamedAttrs as create-mode for those.
-func ApplyNamedAttrs(path string, s parse.Spec, f *os.File) error {
-	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
-		case "perm":
-			if err := applyNamedPerm(path, f, o); err != nil {
-				return err
-			}
-		case "user":
-			if err := applyNamedUser(path, f, o); err != nil {
-				return err
-			}
-		case "group":
-			if err := applyNamedGroup(path, f, o); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-func applyNamedPerm(path string, f *os.File, o parse.Option) error {
-	if !o.Has {
-		return fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
-	}
-	mode, err := parseModeT(o.OriginalSpelling(), o.Value)
-	if err != nil {
-		return err
-	}
-	noteLifecycleSyscall("chmod")
-	if path != "" {
-		return os.Chmod(path, mode)
-	}
-	if f != nil {
-		return f.Chmod(mode)
-	}
-	return nil
-}
-
-func applyNamedUser(path string, f *os.File, o parse.Option) error {
-	v, err := requiredLifecycleOptionValue(o)
-	if err != nil {
-		return err
-	}
-	uid, hasU, err := resolveUID(v)
-	if err != nil {
-		return err
-	}
-	if !hasU {
-		return nil
-	}
-	noteLifecycleSyscall("chown")
-	return namedChown(path, f, uid, -1)
-}
-
-func applyNamedGroup(path string, f *os.File, o parse.Option) error {
-	v, err := requiredLifecycleOptionValue(o)
-	if err != nil {
-		return err
-	}
-	gid, hasG, err := resolveGID(v)
-	if err != nil {
-		return err
-	}
-	if !hasG {
-		return nil
-	}
-	noteLifecycleSyscall("chown")
-	return namedChown(path, f, -1, gid)
-}
 
 func namedChown(path string, f *os.File, uid, gid int) error {
 	if path != "" {

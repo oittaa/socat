@@ -42,3 +42,21 @@ func TestCloseOwnedSyslogLeavesParentWriter(t *testing.T) {
 		t.Fatalf("parent syslog=%v", parentRec.msg)
 	}
 }
+
+func TestDialSyslogPassesPreparedFacility(t *testing.T) {
+	var got Facility
+	restore := SetSyslogDial(func(tag string, facility Facility) (SyslogWriter, error) {
+		if tag != "socat" {
+			t.Errorf("tag=%q", tag)
+		}
+		got = facility
+		return &recordedSyslog{}, nil
+	})
+	defer restore()
+	if _, err := DialSyslog("socat", FacilityLocal0); err != nil {
+		t.Fatal(err)
+	}
+	if got != FacilityLocal0 {
+		t.Fatalf("facility=%v want local0", got)
+	}
+}

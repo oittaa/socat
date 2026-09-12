@@ -5,16 +5,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
-	"math"
 	"math/big"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -72,9 +70,9 @@ func firstAvailableLowportFrom(start int, bind func(int) error) (int, error) {
 // TCP listen turns it on. UDP-LISTEN (including UDP-L / UDP4-L / UDP6-L)
 // sets it when fork is on. Other UDP-backed addresses (UDP-RECVFROM,
 // QUIC-LISTEN, …) only set it when reuseaddr is present.
-func reuseaddrListenDefault(s parse.Spec, network string) bool {
-	if udpListenAddress(s.Type) {
-		return s.BoolOption("fork")
+func reuseaddrListenDefault(s addrconfig.Address, network string) bool {
+	if udpListenAddress(s) {
+		return ForkRequested(s)
 	}
 	switch network {
 	case "udp", "udp4", "udp6":
@@ -84,18 +82,10 @@ func reuseaddrListenDefault(s parse.Spec, network string) bool {
 	}
 }
 
-// udpListenAddress reports whether addrType is a UDP listen keyword
-// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not UDP-LISTEN.
-func udpListenAddress(addrType string) bool {
-	if reg, ok := AddressRegistrationForType(addrType); ok {
-		addrType = reg.Name
-	}
-	switch strings.ToUpper(strings.TrimSpace(addrType)) {
-	case "UDP-LISTEN", "UDP-L", "UDP4-LISTEN", "UDP4-L", "UDP6-LISTEN", "UDP6-L":
-		return true
-	default:
-		return false
-	}
+// udpListenAddress reports whether this is a UDP listen address
+// (including UDP-L / UDP4-L / UDP6-L). QUIC-LISTEN is not AddressKindUDP.
+func udpListenAddress(s addrconfig.Address) bool {
+	return s.Facts.Kind == addrconfig.AddressKindUDP && s.Facts.Role == addrconfig.AddressRoleListen
 }
 
 // UDPForkPortReuse reports whether a UDP-LISTEN fork session may share the
@@ -104,29 +94,29 @@ func udpListenAddress(addrType string) bool {
 // port while the parent stays listening. Explicit reuseaddr=0 disables
 // sharing; the first session then takes the listen socket instead of dropping
 // the datagram.
-func UDPForkPortReuse(s parse.Spec) bool {
-	if !udpListenAddress(s.Type) || !s.BoolOption("fork") {
+func UDPForkPortReuse(s addrconfig.Address) bool {
+	if !udpListenAddress(s) || !ForkRequested(s) {
 		return false
 	}
-	if s.HasOption("reuseaddr") {
-		return s.BoolOption("reuseaddr")
+	if s.Network.ReuseAddr.Set {
+		return s.Network.ReuseAddr.Value
 	}
 	return true
 }
 
 // ApplyReuse sets SO_REUSEADDR and optional SO_REUSEPORT on fd.
 // reuseaddrDefault is used when reuseaddr is not present on the spec.
-func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
+func ApplyReuse(fd int, s addrconfig.Address, reuseaddrDefault bool) error {
 	reuse := reuseaddrDefault
-	if s.HasOption("reuseaddr") {
-		reuse = s.BoolOption("reuseaddr")
+	if s.Network.ReuseAddr.Set {
+		reuse = s.Network.ReuseAddr.Value
 	}
 	if reuse {
-		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && s.HasOption("reuseaddr") {
+		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && s.Network.ReuseAddr.Set {
 			return fmt.Errorf("reuseaddr: %w", err)
 		}
 	}
-	if s.BoolOption("reuseport") {
+	if s.Network.ReusePort.Value {
 		if soReuseport == 0 {
 			return fmt.Errorf("reuseport is not supported on this platform")
 		}
@@ -138,7 +128,7 @@ func ApplyReuse(fd int, s parse.Spec, reuseaddrDefault bool) error {
 }
 
 // ApplyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
-func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
+func ApplyReuseAndV6Only(fd int, s addrconfig.Address, network string) error {
 	if err := ApplyReuse(fd, s, reuseaddrListenDefault(s, network)); err != nil {
 		return err
 	}
@@ -147,9 +137,9 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 	default:
 		return nil
 	}
-	if s.HasOption("ipv6-v6only") {
+	if s.Common.IPv6V6Only.Set {
 		v := 0
-		if s.BoolOption("ipv6-v6only") {
+		if s.Common.IPv6V6Only.Value {
 			v = 1
 		}
 		if err := setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v); err != nil {
@@ -167,7 +157,7 @@ func ApplyReuseAndV6Only(fd int, s parse.Spec, network string) error {
 // (reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
 // so-broadcast and other post-socket options live in ApplySocketOptions and
 // must run first (DialControl / ListenControl / listenUDP Control).
-func ApplyListenOptions(fd int, s parse.Spec, network string) error {
+func ApplyListenOptions(fd int, s addrconfig.Address, network string) error {
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {
@@ -182,34 +172,21 @@ func ApplyListenOptions(fd int, s parse.Spec, network string) error {
 // socket(): SOL_SOCKET buffers/broadcast/bindtodevice/so-debug plus named TCP
 // (tcp-cork, tcp-maxseg, …) and Linux SCTP (sctp-nodelay, sctp-maxseg),
 // setsockopt-socket, and ip-ttl/tos on TCP/SCTP.
-func ApplyPastSocketPhase(fd int, s parse.Spec, network string) error {
+func ApplyPastSocketPhase(fd int, s addrconfig.Address, network string) error {
 	noteOptionPhase("PASTSOCKET")
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
 // ApplyPrebindPhase applies generic setsockopt-listen and ip-transparent
 // before bind()/connect(), in command-line order.
-func ApplyPrebindPhase(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if kind, ok := genericSetsockoptKind(o.Name, SockoptPhasePrebind); ok {
-			if err := applyGenericSetsockoptOption(fd, o, kind); err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyTransparentOption(fd, o); matched {
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+func ApplyPrebindPhase(fd int, s addrconfig.Address) error {
+	return applyPreparedSocketPhase(fd, s, socketApplyPrebind, "")
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
 // and net.ListenConfig: ApplyPastSocketPhase after socket(), then
 // ApplyPrebindPhase, then return so connect()/bind() happens after both.
-func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
+func ApplyPastSocketThenPrebind(fd int, s addrconfig.Address, network string) error {
 	if err := ApplyPastSocketPhase(fd, s, network); err != nil {
 		return err
 	}
@@ -218,7 +195,7 @@ func ApplyPastSocketThenPrebind(fd int, s parse.Spec, network string) error {
 
 // ListenControl is a net.ListenConfig.Control that applies
 // ApplyPastSocketPhase then ApplyListenOptions before bind().
-func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn) error {
+func ListenControl(s addrconfig.Address) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
@@ -236,7 +213,7 @@ func ListenControl(s parse.Spec) func(network, address string, c syscall.RawConn
 // IPPROTO_TCP. MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds,
 // getsockopt stays 0) and rejects TCP_MAXSEG (ENOPROTOOPT), so named
 // post-socket options would not have kernel effect. Stay on TCP.
-func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
+func NewTCPListenConfig(s addrconfig.Address) net.ListenConfig {
 	lc := net.ListenConfig{Control: ListenControl(s)}
 	lc.SetMultipathTCP(false)
 	return lc
@@ -246,14 +223,14 @@ func NewTCPListenConfig(s parse.Spec) net.ListenConfig {
 // listeners/dialers and raw SCTP sockets. Fixed SOL_SOCKET, named
 // SOL_SOCKET/TCP/SCTP, generic setsockopt-socket, and IP/ancillary/membership
 // options are applied once in command-line order before bind/connect.
-func ApplyNetworkSocketOptions(fd int, s parse.Spec, network string) error {
-	return applyOrderedPastSocketPhaseOptions(fd, s, network)
+func ApplyNetworkSocketOptions(fd int, s addrconfig.Address, network string) error {
+	return applyPreparedSocketPhase(fd, s, socketApplyPastSocket, network)
 }
 
 // DialControl merges spec-driven socket options with an optional
 // caller-provided Control. Go's Control hook runs after socket() and before
 // connect(), so both post-socket and pre-bind phases go here.
-func DialControl(s parse.Spec, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
+func DialControl(s addrconfig.Address, network string, caller func(string, string, syscall.RawConn) error) func(string, string, syscall.RawConn) error {
 	return func(nw, addr string, c syscall.RawConn) error {
 		optionNetwork := network
 		if optionNetwork == "" {
@@ -291,48 +268,118 @@ func forcedIPv6Network(network string) bool {
 	}
 }
 
-func listenAIPassive(s parse.Spec) bool {
-	if s.HasOption("ai-passive") {
-		return s.BoolOption("ai-passive")
+func listenAIPassive(config addrconfig.Address) bool {
+	if config.Common.Passive.Set {
+		return config.Common.Passive.Value
 	}
 	return true
 }
 
+// BindHost is the prepared bind= host, or empty when the option is absent.
+// An embedded bind=host:port is split at decode; this is the host only.
+func BindHost(config addrconfig.Address) addrconfig.HostTarget {
+	if !config.Network.BindSet {
+		return addrconfig.HostTarget{}
+	}
+	return config.Network.Bind
+}
+
+// ClientLocalPort is the local bind port for connect-side packet sockets:
+// bind=host:port when present, otherwise sourceport=, otherwise 0.
+func ClientLocalPort(config addrconfig.Address) addrconfig.PortTarget {
+	if p, ok := config.Network.LocalPort(); ok {
+		return p
+	}
+	return addrconfig.PortFromText("0")
+}
+
+// ClientUsesLowport is true when outgoing bind should walk 640–1023.
+// An explicit sourceport=, including 0, is that bind port and does not
+// select a reserved port.
+func ClientUsesLowport(s addrconfig.Address) bool {
+	return s.Network.LowPort.Value && s.Network.SourcePort.Empty()
+}
+
+// SourcePortText is the prepared sourceport= value, or empty when absent.
+func SourcePortText(config addrconfig.Address) string {
+	if !config.Network.SourcePortSet {
+		return ""
+	}
+	return config.Network.SourcePort.Text()
+}
+
+// ProtocolFamilyText is the prepared pf= token, or empty when absent.
+func ProtocolFamilyText(config addrconfig.Address) string {
+	return config.Network.ProtocolFamilyToken()
+}
+
+// DualStackListenNetwork maps *6 networks onto dual-stack names when
+// ipv6-v6only=0. Other values keep the caller network.
+func DualStackListenNetwork(config addrconfig.Address, network string) string {
+	if !config.Common.IPv6V6Only.Set || config.Common.IPv6V6Only.Value {
+		return network
+	}
+	switch network {
+	case "tcp6":
+		return "tcp"
+	case "udp6":
+		return "udp"
+	case "sctp6":
+		return "sctp"
+	default:
+		return network
+	}
+}
+
 // ListenBindHost resolves the bind host for listen and local-bind paths.
-// An explicit bind= value is returned unchanged: never rewrite :: to 0.0.0.0.
-// A family wildcard is supplied only when bind is absent.
-// Forced-family combinations that would otherwise fail inside the OS resolver
-// (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
+// An explicit bind= host is returned unchanged: never rewrite :: to 0.0.0.0.
+// A family wildcard is supplied only when bind is absent or the host is empty
+// (bind=:port). Forced-family combinations that would otherwise fail inside the
+// OS resolver (TCP4/UDP4 vs ::, TCP6 vs 0.0.0.0) return a clear error.
 //
 // LISTEN/RECV/bind set getaddrinfo AI_PASSIVE unless ai-passive=0.
 // AI_PASSIVE with an empty node is the wildcard; unset is loopback.
-func ListenBindHost(s parse.Spec, network, bind string) (string, error) {
-	if bind == "" {
-		if listenAIPassive(s) {
-			if forcedIPv4Network(network) {
-				return "0.0.0.0", nil
-			}
-			return "::", nil
-		}
-		if forcedIPv4Network(network) {
-			return "127.0.0.1", nil
-		}
-		return "::1", nil
+func ListenBindHost(s addrconfig.Address, network string) (addrconfig.HostTarget, error) {
+	if !s.Network.BindSet || s.Network.Bind.Empty() {
+		return defaultLocalHost(listenAIPassive(s), forcedIPv4Network(network)), nil
 	}
-	host := StripBrackets(bind)
-	if h, _, err := net.SplitHostPort(bind); err == nil {
-		host = StripBrackets(h)
-	}
-	if ip := net.ParseIP(host); ip != nil {
+	host := s.Network.Bind
+	if ip := host.IP(); ip != nil {
 		is4 := ip.To4() != nil
 		if forcedIPv4Network(network) && !is4 {
-			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+			return addrconfig.HostTarget{}, fmt.Errorf("bind: address family mismatch (%s on %s)", host.Original(), network)
 		}
 		if forcedIPv6Network(network) && is4 {
-			return "", fmt.Errorf("bind: address family mismatch (%s on %s)", bind, network)
+			return addrconfig.HostTarget{}, fmt.Errorf("bind: address family mismatch (%s on %s)", host.Original(), network)
 		}
 	}
-	return bind, nil
+	return host, nil
+}
+
+func defaultLocalHost(passive, ipv4 bool) addrconfig.HostTarget {
+	if passive {
+		if ipv4 {
+			return addrconfig.HostFromText("0.0.0.0")
+		}
+		return addrconfig.HostFromText("::")
+	}
+	if ipv4 {
+		return addrconfig.HostFromText("127.0.0.1")
+	}
+	return addrconfig.HostFromText("::1")
+}
+
+func defaultLocalIP(passive, ipv4 bool) net.IP {
+	if passive {
+		if ipv4 {
+			return net.IPv4zero
+		}
+		return net.IPv6zero
+	}
+	if ipv4 {
+		return net.IPv4(127, 0, 0, 1)
+	}
+	return net.IPv6loopback
 }
 
 func StripBrackets(host string) string {
@@ -346,36 +393,31 @@ func IsAbstract(path string) bool {
 	return len(path) > 0 && (path[0] == 0 || path[0] == '@')
 }
 
-func HostPortParams(s parse.Spec) (host, port string, err error) {
-	if len(s.Params) < 2 {
-		// Maybe host:port as one param was split wrong, or combined
-		if len(s.Params) == 1 {
-			h, p, e := net.SplitHostPort(s.Params[0])
-			if e == nil {
-				return h, p, nil
-			}
-		}
-		return "", "", fmt.Errorf("%s requires host and port", s.Type)
+func ListenPort(s addrconfig.Address) (addrconfig.PortTarget, error) {
+	if !s.Network.ListenSet {
+		return addrconfig.PortTarget{}, fmt.Errorf("%s requires port", s.Type)
 	}
-	return s.Params[0], s.Params[1], nil
+	port := s.Network.ListenPort
+	text := port.Text()
+	if port.Empty() || strings.Trim(text, ":") == "" {
+		return addrconfig.PortTarget{}, fmt.Errorf("%s: invalid port %q", s.Type, text)
+	}
+	return port, nil
 }
 
-func BindPort(bind, sourceport string) string {
-	if strings.Contains(bind, ":") {
-		// might already be host:port or [ipv6]:port
-		if _, _, err := net.SplitHostPort(bind); err == nil {
-			return bind
-		}
+func ListenPortText(s addrconfig.Address) (string, error) {
+	port, err := ListenPort(s)
+	if err != nil {
+		return "", err
 	}
-	return net.JoinHostPort(StripBrackets(bind), sourceport)
+	return port.Text(), nil
 }
 
-func ConnectTimeout(s parse.Spec) time.Duration {
-	v := s.OptionValue("connect-timeout", "")
-	if v == "" {
-		return 0
+func ConnectTimeout(config addrconfig.Address) time.Duration {
+	if config.Common.ConnectTimeout.Set {
+		return config.Common.ConnectTimeout.Value
 	}
-	return ParseTimeval(v)
+	return 0
 }
 
 // pfVersion maps pf= names (and PF_* numbers) to a family.
@@ -420,9 +462,25 @@ func TCPToUDPNetwork(tcpNet string) string {
 	}
 }
 
-func ListenNetwork(g *Global, s parse.Spec) string {
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		if n := NetworkFromPF(pf, "tcp", ""); n != "" {
+func networkFromIPFamily(family addrconfig.IPFamily, proto string) string {
+	switch family {
+	case addrconfig.IPFamilyIPv4:
+		return proto + "4"
+	case addrconfig.IPFamilyIPv6:
+		return proto + "6"
+	default:
+		return ""
+	}
+}
+
+// NetworkFromIPFamily maps a prepared family onto a net package name.
+func NetworkFromIPFamily(family addrconfig.IPFamily, proto string) string {
+	return networkFromIPFamily(family, proto)
+}
+
+func ListenNetwork(g *Global, config addrconfig.Address) string {
+	if config.Network.ProtocolSet {
+		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
 			return n
 		}
 	}
@@ -447,12 +505,11 @@ func ListenNetwork(g *Global, s parse.Spec) string {
 	return "tcp4"
 }
 
-func AcceptTimeout(s parse.Spec) time.Duration {
-	v := s.OptionValue("accept-timeout", "")
-	if v == "" {
-		return 0
+func AcceptTimeout(config addrconfig.Address) time.Duration {
+	if config.Common.AcceptTimeout.Set {
+		return config.Common.AcceptTimeout.Value
 	}
-	return ParseTimeval(v)
+	return 0
 }
 
 func IsTimeoutErr(err error) bool {
@@ -465,20 +522,14 @@ func IsTimeoutErr(err error) bool {
 // family: keepalive toggle, keepidle/keepintvl/keepcnt values.
 // Any sub-option implies enable; an explicit keepalive=0 disables even when
 // sub-options are present. Unset fields keep their platform defaults.
-func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
-	anyOpt := false
-	enable := true
-	for _, n := range []string{"keepalive", "keepidle", "keepintvl", "keepcnt"} {
-		if s.HasOption(n) {
-			anyOpt = true
-			break
-		}
-	}
-	if !anyOpt {
+func applyKeepAliveConfig(config addrconfig.Address, tc *net.TCPConn) error {
+	n := config.Network
+	if !n.KeepAlive.Set && !n.KeepIdle.Set && !n.KeepIntvl.Set && !n.KeepCnt.Set {
 		return nil
 	}
-	if s.HasOption("keepalive") {
-		enable = s.BoolOption("keepalive")
+	enable := true
+	if n.KeepAlive.Set {
+		enable = n.KeepAlive.Value
 	}
 	// Negative values preserve the current OS settings. Zero would replace
 	// omitted fields with Go's defaults (15s/15s/9), which is not what a
@@ -489,37 +540,14 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 		Interval: -1,
 		Count:    -1,
 	}
-
-	durFrom := func(o parse.Option) (time.Duration, error) {
-		d, err := parseTimeval(o.Value)
-		if err != nil {
-			return 0, fmt.Errorf("%s: %w", o.Name, err)
-		}
-		if d <= 0 {
-			return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
-		}
-		return d, nil
+	if n.KeepIdle.Set {
+		cfg.Idle = n.KeepIdle.Value
 	}
-	if o, ok := s.OptionNamed("keepidle"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		d, err := durFrom(o)
-		if err != nil {
-			return err
-		}
-		cfg.Idle = d
+	if n.KeepIntvl.Set {
+		cfg.Interval = n.KeepIntvl.Value
 	}
-	if o, ok := s.OptionNamed("keepintvl"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		d, err := durFrom(o)
-		if err != nil {
-			return err
-		}
-		cfg.Interval = d
-	}
-	if o, ok := s.OptionNamed("keepcnt"); ok && o.Has && strings.TrimSpace(o.Value) != "" {
-		n, err := ParseIntAny(o.Value)
-		if err != nil || n <= 0 {
-			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
-		}
-		cfg.Count = n
+	if n.KeepCnt.Set {
+		cfg.Count = n.KeepCnt.Value
 	}
 	if err := tc.SetKeepAliveConfig(cfg); err != nil {
 		return fmt.Errorf("keepalive: %w", err)
@@ -535,16 +563,15 @@ func applyKeepAliveConfig(s parse.Spec, tc *net.TCPConn) error {
 // Non-TCP connections that expose a socket fd still get generic setsockopt
 // and named connected TCP opts; a present option is never ignored because
 // the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
-func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
+func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
 	noteOptionPhase("CONNECTED")
 	c = unwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {
 		if err := applyKeepAliveConfig(s, tc); err != nil {
 			return err
 		}
-		if s.HasOption("nodelay") {
-			enabled := s.BoolOption("nodelay")
-			if err := tc.SetNoDelay(enabled); err != nil {
+		if s.Network.NoDelay.Set {
+			if err := tc.SetNoDelay(s.Network.NoDelay.Value); err != nil {
 				return fmt.Errorf("nodelay: %w", err)
 			}
 		}
@@ -560,116 +587,20 @@ func ApplyTCPConnOpts(s parse.Spec, c net.Conn) error {
 	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }
 
-func ParsePositiveInt(v string) (int, error) {
-	n, err := ParseIntAny(v)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid")
+func FirstHost(s addrconfig.Address) addrconfig.HostTarget {
+	if s.Network.TargetSet {
+		return s.Network.Target
 	}
-	return n, nil
+	return addrconfig.HostTarget{}
 }
 
-func ParseIntAny(v string) (int, error) {
-	n, err := strconv.ParseInt(strings.TrimSpace(v), 0, 64)
-	if err != nil {
-		return 0, err
+// RecvTimeout returns the prepared so-rcvtimeo / rcvtimeo duration.
+// An omitted value means unlimited.
+func RecvTimeout(config addrconfig.Address) (time.Duration, error) {
+	if config.Common.ReadTimeout.Set {
+		return config.Common.ReadTimeout.Value, nil
 	}
-	if n > math.MaxInt || n < math.MinInt {
-		return 0, fmt.Errorf("out of range")
-	}
-	return int(n), nil
-}
-
-// ParseSizeT parses an unsigned size. An optional minus sign is converted
-// modulo 2^64, so readbytes=-1 means the largest possible limit rather than
-// a parse failure.
-func ParseSizeT(v string) (uint64, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, fmt.Errorf("empty value")
-	}
-	negative := v[0] == '-'
-	if negative || v[0] == '+' {
-		v = v[1:]
-		if v == "" {
-			return 0, fmt.Errorf("invalid value")
-		}
-	}
-	n, err := strconv.ParseUint(v, 0, 64)
-	if err != nil {
-		return 0, err
-	}
-	if negative {
-		return -n, nil
-	}
-	return n, nil
-}
-
-func FirstHost(s parse.Spec) string {
-	if len(s.Params) > 0 {
-		return s.Params[0]
-	}
-	return ""
-}
-
-var (
-	// ErrEmptyDuration is returned by ParseDurationValue for an empty or
-	// whitespace-only input.
-	ErrEmptyDuration = errors.New("empty duration value")
-	// ErrDurationOutOfRange is returned for NaN, infinity, or a value that
-	// cannot be represented as time.Duration.
-	ErrDurationOutOfRange = errors.New("duration out of range")
-)
-
-// ParseDurationValue parses trimmed floating-point seconds or Go duration
-// syntax. Empty, NaN, infinity, and overflow are errors.
-func ParseDurationValue(v string) (time.Duration, error) {
-	v = strings.TrimSpace(v)
-	if v == "" {
-		return 0, ErrEmptyDuration
-	}
-	f, err := strconv.ParseFloat(v, 64)
-	if err == nil {
-		secondsLimit := float64(math.MaxInt64) / float64(time.Second)
-		if math.IsNaN(f) || math.IsInf(f, 0) || f > secondsLimit || f < -secondsLimit {
-			return 0, ErrDurationOutOfRange
-		}
-		return time.Duration(f * float64(time.Second)), nil
-	}
-	return time.ParseDuration(v)
-}
-
-func parseTimeval(v string) (time.Duration, error) {
-	d, err := ParseDurationValue(v)
-	if err != nil {
-		switch {
-		case errors.Is(err, ErrEmptyDuration):
-			return 0, fmt.Errorf("empty timeout")
-		case errors.Is(err, ErrDurationOutOfRange):
-			return 0, fmt.Errorf("timeout out of range")
-		default:
-			return 0, err
-		}
-	}
-	return d, nil
-}
-
-func ParseTimeval(v string) time.Duration {
-	d, _ := parseTimeval(v)
-	return d
-}
-
-// RecvTimeoutFromSpec parses so-rcvtimeo / rcvtimeo. An empty value means
-// unlimited; a present but invalid value is an error.
-func RecvTimeoutFromSpec(s parse.Spec) (time.Duration, error) {
-	v := s.OptionValue("rcvtimeo", "")
-	if v == "" {
-		return 0, nil
-	}
-	d, err := parseTimeval(v)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("rcvtimeo: invalid timeout %q", v)
-	}
-	return d, nil
+	return 0, nil
 }
 
 // RecvOneCtx performs one datagram read through read in a goroutine so that

@@ -2,11 +2,35 @@ package xio
 
 import (
 	"errors"
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
+
+func ParsePositiveInt(v string) (int, error) {
+	n, err := ParseIntAny(v)
+	if err != nil || n <= 0 {
+		return 0, fmt.Errorf("invalid")
+	}
+	return n, nil
+}
+
+func ParseIntAny(v string) (int, error) {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 0, 64)
+	if err != nil {
+		return 0, err
+	}
+	if n > math.MaxInt || n < math.MinInt {
+		return 0, fmt.Errorf("out of range")
+	}
+	return int(n), nil
+}
 
 func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
 	var tried []int
@@ -95,12 +119,12 @@ func TestParseSizeTMatchesUnsignedClassicParsing(t *testing.T) {
 		{value: "0x10", want: 16},
 		{value: "-1", want: ^uint64(0)},
 	} {
-		got, err := ParseSizeT(tc.value)
+		got, err := addrconfig.ParseSizeT(tc.value)
 		if err != nil || got != tc.want {
 			t.Errorf("ParseSizeT(%q)=%d,%v want %d", tc.value, got, err, tc.want)
 		}
 	}
-	if _, err := ParseSizeT("10junk"); err == nil {
+	if _, err := addrconfig.ParseSizeT("10junk"); err == nil {
 		t.Fatal("ParseSizeT accepted trailing junk")
 	}
 }
@@ -110,7 +134,7 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := RecvTimeoutFromSpec(ok)
+	d, err := RecvTimeout(mustDecodeAddress(t, ok))
 	if err != nil || d != 0 {
 		t.Fatalf("empty rcvtimeo d=%s err=%v", d, err)
 	}
@@ -118,7 +142,105 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RecvTimeoutFromSpec(bad); err == nil {
+	if _, err := decodeAddress(bad); err == nil {
 		t.Fatal("expected rcvtimeo parse error")
+	}
+}
+
+func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
+	s, err := parse.ParseSpec("TCP6-LISTEN:9,bind=[::1],sourceport=080,pf=ip6,ipv6-v6only=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := decodeAddress(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := BindHost(config); got.Original() != "[::1]" {
+		t.Fatalf("bind=%q", got.Original())
+	}
+	if got := SourcePortText(config); got != "080" {
+		t.Fatalf("sourceport=%q", got)
+	}
+	if got := ProtocolFamilyText(config); got != "ip6" {
+		t.Fatalf("pf=%q", got)
+	}
+	if got := DualStackListenNetwork(config, "tcp6"); got != "tcp" {
+		t.Fatalf("dual-stack network=%s", got)
+	}
+
+	s, err = parse.ParseSpec("TCP6-LISTEN:9,ipv6-v6only=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err = decodeAddress(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := DualStackListenNetwork(config, "tcp6"); got != "tcp6" {
+		t.Fatalf("v6only network=%s", got)
+	}
+}
+
+func decodeRole(t *testing.T, raw string, role addrconfig.AddressRole, family addrconfig.IPFamily) addrconfig.Address {
+	t.Helper()
+	spec, err := parse.ParseSpec(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type, Role: role, Family: family})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
+}
+
+func TestListenBindHostEmptyHostFollowsPassive(t *testing.T) {
+	config := decodeRole(t, "TCP4:127.0.0.1:9,bind=:1234", addrconfig.AddressRoleConnect, addrconfig.IPFamilyIPv4)
+	host, err := ListenBindHost(config, "tcp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !host.IsLiteral() || host.String() != "0.0.0.0" {
+		t.Fatalf("passive empty bind host=%+v", host)
+	}
+
+	config = decodeRole(t, "TCP4:127.0.0.1:9,bind=:0,ai-passive=0", addrconfig.AddressRoleConnect, addrconfig.IPFamilyIPv4)
+	host, err = ListenBindHost(config, "tcp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !host.IsLiteral() || host.String() != "127.0.0.1" {
+		t.Fatalf("ai-passive=0 empty bind host=%+v", host)
+	}
+}
+
+func TestUDPListenAddressUsesKindAndRole(t *testing.T) {
+	listen := addrconfig.Address{Facts: addrconfig.Facts{Kind: addrconfig.AddressKindUDP, Role: addrconfig.AddressRoleListen}}
+	if !udpListenAddress(listen) {
+		t.Fatal("UDP listen")
+	}
+	if udpListenAddress(addrconfig.Address{Type: "UDP-LISTEN"}) {
+		t.Fatal("Type string without kind/role must not match")
+	}
+	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Group: GroupUDP, Role: addrconfig.AddressRoleListen}}) {
+		t.Fatal("help GroupUDP must not select UDP-LISTEN")
+	}
+	if udpListenAddress(addrconfig.Address{Type: "QUIC-LISTEN", Facts: addrconfig.Facts{Group: GroupQUIC, Role: addrconfig.AddressRoleListen}}) {
+		t.Fatal("QUIC-LISTEN is not UDP-LISTEN")
+	}
+	if udpListenAddress(addrconfig.Address{Facts: addrconfig.Facts{Kind: addrconfig.AddressKindUDP, Role: addrconfig.AddressRoleReceiveFrom}}) {
+		t.Fatal("UDP-RECVFROM is not UDP-LISTEN")
+	}
+}
+
+func TestListenPortRejectsEmpty(t *testing.T) {
+	_, err := ListenPort(addrconfig.Address{Type: "TCP-LISTEN", Network: addrconfig.Network{ListenSet: true}})
+	if err == nil {
+		t.Fatal("expected invalid empty port")
+	}
+	port, err := ListenPort(addrconfig.Address{Type: "TCP-LISTEN", Network: addrconfig.Network{ListenSet: true, ListenPort: addrconfig.PortFromText("0")}})
+	if err != nil || !port.IsZero() {
+		t.Fatalf("port 0: %+v err=%v", port, err)
 	}
 }

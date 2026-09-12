@@ -11,7 +11,7 @@ func TestWSTargetConnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestWSTargetPathOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, path, err := wsTarget(s, false)
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestWSTargetListen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, path, err := wsTarget(s, true)
+	_, port, path, err := wsTarget(mustAddr(t, s), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,19 +48,12 @@ func TestWSTargetListen(t *testing.T) {
 	}
 }
 
-func TestWSScheme(t *testing.T) {
-	s, _ := parse.ParseSpec("WSS:h:443")
-	if wsScheme(s) != "wss" {
-		t.Fatal(wsScheme(s))
-	}
-}
-
 func TestWSTargetDefaultPath(t *testing.T) {
 	s, err := parse.ParseSpec("WS:127.0.0.1:80")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, path, err := wsTarget(s, false)
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +67,7 @@ func TestWSTargetExtraParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +81,7 @@ func TestWSTargetListenExtraParams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, port, path, err := wsTarget(s, true)
+	_, port, path, err := wsTarget(mustAddr(t, s), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +95,7 @@ func TestWSTargetIPv6(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	host, port, path, err := wsTarget(s, false)
+	host, port, path, err := wsTarget(mustAddr(t, s), false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,12 +104,62 @@ func TestWSTargetIPv6(t *testing.T) {
 	}
 }
 
+func TestWSTargetEmptyPathKeepsPositional(t *testing.T) {
+	s, err := parse.ParseSpec("WS:127.0.0.1:8080/service,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err := wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/service" {
+		t.Fatalf("path=%q want /service", path)
+	}
+
+	s, err = parse.ParseSpec("WS-LISTEN:8080/echo,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/echo" {
+		t.Fatalf("listen path=%q want /echo", path)
+	}
+
+	s, err = parse.ParseSpec("WS:127.0.0.1:8080/service,path=/foo,path=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/service" {
+		t.Fatalf("path=/foo,path= got %q want /service", path)
+	}
+
+	s, err = parse.ParseSpec("WS:127.0.0.1:8080/service,path=,path=/foo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, path, err = wsTarget(mustAddr(t, s), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != "/foo" {
+		t.Fatalf("path=,path=/foo got %q want /foo", path)
+	}
+}
+
 func TestWSTargetListenRequiresPort(t *testing.T) {
 	s, err := parse.ParseSpec("WS-LISTEN")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(s, true); err == nil {
+	if _, _, _, err := wsTarget(mustAddr(t, s), true); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -126,7 +169,7 @@ func TestWSTargetConnectRequiresHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(s, false); err == nil {
+	if _, _, _, err := wsTarget(mustAddr(t, s), false); err == nil {
 		t.Fatal("expected error")
 	}
 }

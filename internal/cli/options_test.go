@@ -80,13 +80,19 @@ func TestFSFlagOptionsRejectNonBoolValues(t *testing.T) {
 }
 
 func TestAddressDurationUsesCLIUnits(t *testing.T) {
-	o := parse.Option{Name: "connect-timeout", Value: "0.25", Has: true}
-	if err := validateAddressOptionValue(o); err != nil {
+	if err := validateParsed(t, "TCP:127.0.0.1:1,connect-timeout=0.25"); err != nil {
 		t.Fatal(err)
 	}
-	d, err := parseDuration(o.Value)
+	d, err := parseDuration("0.25")
 	if err != nil || d != 250*time.Millisecond {
 		t.Fatalf("duration=%v err=%v", d, err)
+	}
+}
+
+func TestResNSAddrRejectsIPv6AtCLI(t *testing.T) {
+	err := validateParsed(t, "TCP:127.0.0.1:1,res-nsaddr=[::1]:53")
+	if err == nil || !strings.Contains(err.Error(), "IPv6") {
+		t.Fatalf("error=%v want IPv6 nameserver rejection", err)
 	}
 }
 
@@ -161,5 +167,13 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 	err := validateSpecOptions(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
+	}
+}
+
+func TestINTERFACELoIsAcceptedAtCLI(t *testing.T) {
+	for _, spec := range []string{"INTERFACE:lo", "IF:lo"} {
+		if err := validateParsed(t, spec); err != nil {
+			t.Errorf("%s: %v", spec, err)
+		}
 	}
 }

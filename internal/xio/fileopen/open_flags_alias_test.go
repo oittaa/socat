@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -13,7 +14,11 @@ func TestOpenFlagsZeroAfterAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	flags, err := OpenFlags(spec, xio.ModeRead)
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "OPEN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flags, err := ConfiguredOpenFlags(config.File, xio.ModeRead)
 	if err != nil {
 		t.Fatal(err)
 	}

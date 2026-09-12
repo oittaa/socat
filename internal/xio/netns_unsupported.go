@@ -2,15 +2,11 @@
 
 package xio
 
-import (
-	"fmt"
-
-	"github.com/oittaa/socat/internal/parse"
-)
+import "fmt"
 
 // WithNetNS is a no-op unless netns= is set (Linux only).
-func WithNetNS(s parse.Spec, g *Global, fn func() error) error {
-	if _, ok := netnsName(s); !ok {
+func WithNetNS(name string, g *Global, fn func() error) error {
+	if name == "" {
 		return fn()
 	}
 	warnNetNSExperimental(g)

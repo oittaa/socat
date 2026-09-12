@@ -50,7 +50,10 @@ func TestUDPForkInvalidRcvtimeoFailsOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openUDP4Listen(context.Background(), spec, xio.ModeRDWR, g)
+	config, err := tryAddr(spec)
+	if err == nil {
+		_, err = openUDP4Listen(context.Background(), config, xio.ModeRDWR, g)
+	}
 	if err == nil {
 		t.Fatal("expected rcvtimeo error")
 	}
@@ -100,7 +103,7 @@ func parseUDPSpec(t *testing.T, raw string) parse.Spec {
 
 func listenUDPOnPort(t *testing.T, spec parse.Spec, port int) (*net.UDPConn, error) {
 	t.Helper()
-	return listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, spec)
+	return listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, mustAddr(t, spec))
 }
 
 func TestUDPSecondBindWithoutReuseaddrFails(t *testing.T) {
@@ -170,7 +173,7 @@ func TestUDPRecvFromConnSetupStreamSetsockopt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := xio.SetupStream(spec, &udpRecvFromConn{uc: c}); err != nil {
+	if _, err := xio.SetupStream(mustAddr(t, spec), &udpRecvFromConn{uc: c}); err != nil {
 		t.Fatalf("SetupStream on UDP session wrapper must not fail after raw apply: %v", err)
 	}
 }
@@ -181,15 +184,11 @@ func TestUDPListenMalformedRangeFailsOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	o, err := openUDP4Listen(context.Background(), spec, xio.ModeRDWR, &xio.Global{BlockSize: 8192, Log: logx.New()})
-	if o != nil {
-		_ = o.Close()
-		t.Fatal("UDP-LISTEN opened with uppercase hex range")
-	}
+	_, err = xio.PrepareSpec(spec)
 	if elapsed := time.Since(start); elapsed > time.Second {
-		t.Fatalf("malformed range took %v; want immediate open failure", elapsed)
+		t.Fatalf("malformed range took %v; want immediate prepare failure", elapsed)
 	}
 	if err == nil || !strings.Contains(err.Error(), "invalid hex") {
-		t.Fatalf("openUDP4Listen err=%v want invalid hex", err)
+		t.Fatalf("PrepareSpec err=%v want invalid hex", err)
 	}
 }

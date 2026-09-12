@@ -4,10 +4,11 @@ package xio
 
 import (
 	"fmt"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
-func applyRouterAlertFD(_ int, o parse.Option) error {
-	return fmt.Errorf("%s: not supported on this platform", optionSpelling(o))
+func applyRouterAlertValue(_ int, _ int, spelling string) error {
+	if spelling == "" {
+		spelling = "ip-router-alert"
+	}
+	return fmt.Errorf("%s: not supported on this platform", spelling)
 }

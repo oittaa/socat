@@ -2,35 +2,32 @@ package xio
 
 import (
 	"fmt"
-	"strings"
 	"syscall"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // SocketTypeOption reads socktype / so-type. When the option is absent it
 // returns def (typically syscall.SOCK_STREAM) and explicit=false.
-func SocketTypeOption(s parse.Spec, def int) (typ int, explicit bool, err error) {
-	o, ok := s.OptionNamed("socktype")
-	if !ok {
+func SocketTypeOption(s addrconfig.Address, def int) (typ int, explicit bool, err error) {
+	return ConfiguredSocketType(s, s.Type, def)
+}
+
+// ConfiguredSocketType returns the prepared socktype, or def when unset.
+func ConfiguredSocketType(config addrconfig.Address, addressType string, def int) (typ int, explicit bool, err error) {
+	if !config.Network.SocketType.Set {
 		return def, false, nil
 	}
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, true, fmt.Errorf("%s: option %q requires a socket type number", s.Type, o.Name)
-	}
-	n, err := ParseIntAny(o.Value)
-	if err != nil {
-		return 0, true, fmt.Errorf("%s: invalid %s=%q", s.Type, o.Name, o.Value)
-	}
+	n := config.Network.SocketType.Value
 	switch n {
 	case syscall.SOCK_STREAM, syscall.SOCK_DGRAM:
 		return n, true, nil
 	case syscall.SOCK_SEQPACKET:
 		if !FeatureUNIXSeqpacket {
-			return 0, true, fmt.Errorf("%s: %s=%d (SOCK_SEQPACKET) is not supported on this platform", s.Type, o.Name, n)
+			return 0, true, fmt.Errorf("%s: %s=%d (SOCK_SEQPACKET) is not supported on this platform", addressType, "socktype", n)
 		}
 		return n, true, nil
 	default:
-		return 0, true, fmt.Errorf("%s: unsupported %s=%d", s.Type, o.Name, n)
+		return 0, true, fmt.Errorf("%s: unsupported socktype=%d", addressType, n)
 	}
 }

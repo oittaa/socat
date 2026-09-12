@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -17,7 +17,7 @@ type namedEarly struct {
 	mode   os.FileMode
 }
 
-func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
+func namedOpenEarly(path string, config addrconfig.File) (namedEarly, error) {
 	var n namedEarly
 	fi, err := os.Stat(path)
 	if err != nil {
@@ -29,7 +29,7 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 		n.mode = fi.Mode()
 	}
 
-	if n.exists && s.BoolOption("unlink-early") {
+	if n.exists && config.UnlinkEarly.Value {
 		if err := unlinkNamed(path); err != nil {
 			return n, err
 		}
@@ -37,7 +37,7 @@ func namedOpenEarly(path string, s parse.Spec) (namedEarly, error) {
 	}
 
 	if n.exists {
-		if err := xio.ApplyNamedPreopen(path, s); err != nil {
+		if err := xio.ApplyConfiguredNamedPreopen(path, config); err != nil {
 			return n, err
 		}
 	}
@@ -54,9 +54,9 @@ func unlinkNamed(path string) error {
 
 // applyNamedUnlinkLate is unlink-late immediately after open. ENOENT is
 // ignored; any other Unlink error aborts.
-func applyNamedUnlinkLate(path string, s parse.Spec) error {
+func applyNamedUnlinkLate(path string, config addrconfig.File) error {
 	// unlink-late=0 does not delete (documented boolean; presence is not enough).
-	if !s.BoolOption("unlink-late") {
+	if !config.UnlinkLate.Value {
 		return nil
 	}
 	return unlinkNamed(path)
@@ -72,12 +72,12 @@ type namedUnlinkGuard struct {
 	unreg   func()
 }
 
-func namedAfterOpen(path string, s parse.Spec) (namedUnlinkGuard, error) {
-	if err := applyNamedUnlinkLate(path, s); err != nil {
+func namedAfterOpen(path string, config addrconfig.File) (namedUnlinkGuard, error) {
+	if err := applyNamedUnlinkLate(path, config); err != nil {
 		return namedUnlinkGuard{unreg: func() {}}, err
 	}
 	g := namedUnlinkGuard{path: path, unreg: func() {}}
-	if s.BoolOption("unlink-close") {
+	if config.UnlinkClose.Value {
 		g.closeOn = true
 		g.unreg = xio.RegisterUnlinkPath(path)
 	}

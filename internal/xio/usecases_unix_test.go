@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,50 @@ func lookPath(t *testing.T, name string) string {
 		t.Skipf("%s not on PATH", name)
 	}
 	return p
+}
+
+func unixChdirWorkDirs(t *testing.T) (work, chdirDir, listen string) {
+	t.Helper()
+	listen = testutil.UnixSocketPath(t, "server.sock")
+	chdirDir = filepath.Dir(listen)
+	work = filepath.Dir(testutil.UnixSocketPath(t, "work.sock"))
+	t.Chdir(work)
+	return work, chdirDir, listen
+}
+
+func assertBindInChdirDir(t *testing.T, work, chdirDir, bindName string) {
+	t.Helper()
+	want := filepath.Join(chdirDir, bindName)
+	if _, err := os.Lstat(want); err != nil {
+		t.Fatalf("bind path missing in chdir directory %q: %v", want, err)
+	}
+	if _, err := os.Lstat(filepath.Join(work, bindName)); err == nil {
+		t.Fatalf("bind path %q created in original working directory", bindName)
+	}
+}
+
+func TestGOPENUnixBindFollowsChdir(t *testing.T) {
+	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
+		t.Skip("UNIX sockets not enabled")
+	}
+	work, chdirDir, listen := unixChdirWorkDirs(t)
+	ctx, g := testCtx(t), testGlobal()
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+listen+",unlink-early,fork")
+	cli := openClient(t, ctx, g, "GOPEN:server.sock,bind=client.sock,unlink-close=0,chdir="+chdirDir)
+	assertBindInChdirDir(t, work, chdirDir, "client.sock")
+	echoLive(t, streamOf(t, cli), []byte("gopen-chdir-bind"))
+}
+
+func TestUNIXConnectIPLiteralBindFollowsChdir(t *testing.T) {
+	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
+		t.Skip("UNIX sockets not enabled")
+	}
+	work, chdirDir, listen := unixChdirWorkDirs(t)
+	ctx, g := testCtx(t), testGlobal()
+	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+listen+",unlink-early,fork")
+	cli := openClient(t, ctx, g, "UNIX-CONNECT:server.sock,bind=127.0.0.1,unlink-close=0,chdir="+chdirDir)
+	assertBindInChdirDir(t, work, chdirDir, "127.0.0.1")
+	echoLive(t, streamOf(t, cli), []byte("unix-chdir-ip-bind"))
 }
 
 func TestUNIXListenPIPEEcho(t *testing.T) {

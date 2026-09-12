@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
@@ -72,9 +73,9 @@ func echoViaSOCKS5(t *testing.T, spec string) {
 	defer cancel()
 	var o *xio.Opened
 	if s.Type == "SOCKS5-LISTEN" || s.Type == "SOCKS5-BIND" {
-		o, err = openSOCKS5Listen(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS5Listen(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	} else {
-		o, err = openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS5Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -122,9 +123,9 @@ func echoViaSOCKS4(t *testing.T, spec string, socks4a bool) {
 	defer cancel()
 	var o *xio.Opened
 	if socks4a {
-		o, err = openSOCKS4AConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS4AConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	} else {
-		o, err = openSOCKS4Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err = openSOCKS4Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	}
 	if err != nil {
 		t.Fatal(err)
@@ -199,19 +200,19 @@ func TestSOCKS5ListenEcho(t *testing.T) {
 func TestSOCKSUserEnvironmentFallback(t *testing.T) {
 	t.Setenv("LOGNAME", "log-user")
 	t.Setenv("USER", "fallback-user")
-	if got := socksUser(parse.Spec{}); got != "log-user" {
+	if got := socksUser(addrconfig.Proxy{}); got != "log-user" {
 		t.Fatalf("LOGNAME fallback=%q", got)
 	}
 	t.Setenv("LOGNAME", "")
-	if got := socksUser(parse.Spec{}); got != "fallback-user" {
+	if got := socksUser(addrconfig.Proxy{}); got != "fallback-user" {
 		t.Fatalf("USER fallback=%q", got)
 	}
-	s := parse.Spec{Options: []parse.Option{{Name: "socksuser", Value: "option-user", Has: true}}}
-	if got := socksUser(s); got != "option-user" {
+	option := addrconfig.Proxy{SOCKSUser: addrconfig.OptionalString{Set: true, Value: "option-user"}}
+	if got := socksUser(option); got != "option-user" {
 		t.Fatalf("option=%q", got)
 	}
 	t.Setenv("USER", "")
-	if got := socksUser(parse.Spec{}); got != "anonymous" {
+	if got := socksUser(addrconfig.Proxy{}); got != "anonymous" {
 		t.Fatalf("default=%q", got)
 	}
 }
@@ -318,7 +319,7 @@ func echoViaSOCKS5Auth(t *testing.T, spec, wantUser, wantPass string) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openSOCKS5Connect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openSOCKS5Connect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,4 +345,40 @@ func TestSOCKS5UserPassClassic604(t *testing.T) {
 
 func TestSOCKS5PassOnlyFallsBackToAnonymous(t *testing.T) {
 	echoViaSOCKS5Auth(t, "SOCKS5-CONNECT:127.0.0.1:127.0.0.1:80,sockspass=p", "anonymous", "p")
+}
+
+func TestSOCKSDestBytesFromTypedHost(t *testing.T) {
+	dest, err := socks5DestFromTarget(addrconfig.HostFromText("192.0.2.1"), 443)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest.AddrType != 1 || dest.Port != 443 || string(dest.Addr) != string([]byte{192, 0, 2, 1}) {
+		t.Fatalf("ipv4 dest=%+v", dest)
+	}
+
+	dest, err = socks5DestFromTarget(addrconfig.HostFromText("2001:db8::1"), 80)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want6 := addrconfig.HostFromText("2001:db8::1").IP().To16()
+	if dest.AddrType != 4 || dest.Port != 80 || string(dest.Addr) != string(want6) {
+		t.Fatalf("ipv6 dest=%+v", dest)
+	}
+
+	dest, err = socks5DestFromTarget(addrconfig.HostFromText("example.test"), 9)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dest.AddrType != 3 || dest.Port != 9 || dest.Addr[0] != byte(len("example.test")) ||
+		string(dest.Addr[1:]) != "example.test" {
+		t.Fatalf("domain dest=%+v", dest)
+	}
+
+	ip4, err := socks4DestIP(t.Context(), addrconfig.Address{}, addrconfig.HostFromText("192.0.2.10"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ip4 != [4]byte{192, 0, 2, 10} {
+		t.Fatalf("socks4 ip=%v", ip4)
+	}
 }

@@ -6,105 +6,10 @@ import (
 	"net"
 	"net/netip"
 	"sort"
-	"strconv"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
-
-const defaultDNSPort = 53
-
-// ParseResNSAddr validates res-nsaddr and returns a dialable host:port.
-// Accepts an IPv4 address or hostname plus an optional port. IPv6
-// nameserver literals are rejected.
-func ParseResNSAddr(value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("res-nsaddr: nameserver address is empty")
-	}
-
-	host, port, err := splitResNSAddr(value)
-	if err != nil {
-		return "", err
-	}
-	if err := validateResNSHost(host); err != nil {
-		return "", err
-	}
-
-	portNum := defaultDNSPort
-	if port != "" {
-		portNum, err = strconv.Atoi(port)
-		if err != nil {
-			portNum, err = net.LookupPort("udp", port)
-		}
-		if err != nil || portNum < 0 || portNum > 65535 {
-			return "", fmt.Errorf("res-nsaddr: invalid DNS port %q", port)
-		}
-		if portNum == 0 {
-			portNum = defaultDNSPort
-		}
-	}
-	return net.JoinHostPort(host, strconv.Itoa(portNum)), nil
-}
-
-func splitResNSAddr(value string) (host, port string, err error) {
-	if strings.HasPrefix(value, "[") {
-		end := strings.IndexByte(value, ']')
-		if end < 0 {
-			return "", "", fmt.Errorf("res-nsaddr: missing closing bracket in %q", value)
-		}
-		host = value[1:end]
-		switch rest := value[end+1:]; {
-		case rest == "":
-			return host, "", nil
-		case strings.HasPrefix(rest, ":") && len(rest) > 1:
-			return host, rest[1:], nil
-		default:
-			return "", "", fmt.Errorf("res-nsaddr: invalid bracketed nameserver %q", value)
-		}
-	}
-
-	if addr, parseErr := netip.ParseAddr(value); parseErr == nil {
-		return addr.String(), "", nil
-	}
-	if strings.Count(value, ":") == 1 {
-		host, port, err = net.SplitHostPort(value)
-		if err != nil || host == "" || port == "" {
-			return "", "", fmt.Errorf("res-nsaddr: invalid nameserver %q (want ipv4[:port] or hostname[:port])", value)
-		}
-		return host, port, nil
-	}
-	if strings.Contains(value, ":") {
-		return "", "", fmt.Errorf("res-nsaddr: IPv6 nameserver is not supported (classic TYPE_IP4SOCK)")
-	}
-	return value, "", nil
-}
-
-func validateResNSHost(host string) error {
-	if addr, err := netip.ParseAddr(host); err == nil {
-		if !addr.Is4() {
-			return fmt.Errorf("res-nsaddr: IPv6 nameserver is not supported (classic TYPE_IP4SOCK)")
-		}
-		return nil
-	}
-
-	name := strings.TrimSuffix(host, ".")
-	if name == "" || len(name) > 253 {
-		return fmt.Errorf("res-nsaddr: invalid nameserver host %q", host)
-	}
-	for _, label := range strings.Split(name, ".") {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return fmt.Errorf("res-nsaddr: invalid nameserver host %q", host)
-		}
-		for _, c := range label {
-			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') &&
-				(c < '0' || c > '9') && c != '-' && c != '_' {
-				return fmt.Errorf("res-nsaddr: invalid nameserver host %q", host)
-			}
-		}
-	}
-	return nil
-}
 
 // IPHint is the net.Resolver.LookupIP network for a connect/listen network
 // ("tcp4"/"udp6"/"sctp" → "ip4"/"ip6"/"ip").
@@ -205,20 +110,20 @@ func MatchLocalPacketAddr(network string, laddr net.Addr) (net.Addr, error) {
 
 // LookupDialIP resolves host for network. Literals keep network. Hostnames
 // may switch *6 to *4 after AI_V4MAPPED (README Intentional differences).
-func LookupDialIP(ctx context.Context, s parse.Spec, network, host string) (string, net.IP, error) {
-	host = StripBrackets(host)
-	if host == "" {
+func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, error) {
+	if host.IsLiteral() {
+		return network, host.IP(), nil
+	}
+	name := host.String()
+	if name == "" {
 		return network, nil, nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return network, ip, nil
-	}
-	ips, err := LookupIP(ctx, s, IPHint(network), host)
+	ips, err := LookupIP(ctx, s, IPHint(network), name)
 	if err != nil {
 		return "", nil, err
 	}
 	if len(ips) == 0 {
-		return "", nil, fmt.Errorf("resolve %s: no addresses", host)
+		return "", nil, fmt.Errorf("resolve %s: no addresses", name)
 	}
 	ip := ips[0]
 	return DialNetwork(network, ip), ip, nil
@@ -227,7 +132,7 @@ func LookupDialIP(ctx context.Context, s parse.Spec, network, host string) (stri
 // PacketNetworkForHost returns the packet/dial network for a hostname lookup.
 // QUIC and PROXY HTTP/3 call this before binding UDP so an AI_V4MAPPED result
 // can switch udp6 to udp4. Literals keep network.
-func PacketNetworkForHost(ctx context.Context, s parse.Spec, network, host string) (string, error) {
+func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, error) {
 	netw, _, err := LookupDialIP(ctx, s, network, host)
 	return netw, err
 }
@@ -248,25 +153,25 @@ func ipv4MappedAddrs(ips []net.IP) []net.IP {
 	return out
 }
 
-func v4mappedEnabled(s parse.Spec) bool {
+func v4mappedEnabled(config addrconfig.Address) bool {
 	// Off unless ai-v4mapped is set truthily. The man page says IPv6
 	// addresses default it to 1; remaining off unless requested keeps
 	// drop-in runtime parity.
-	return s.HasOption("ai-v4mapped") && s.BoolOption("ai-v4mapped")
+	return config.Common.V4Mapped.Value
 }
 
-func addrconfigEnabled(s parse.Spec, hint string) bool {
+func addrconfigEnabled(config addrconfig.Address, hint string) bool {
 	// AI_ADDRCONFIG defaults on when the resolver has no address-family
 	// hint. ai-addrconfig=0 clears it; a present truthy value sets it for
 	// any hint.
-	if s.HasOption("ai-addrconfig") {
-		return s.BoolOption("ai-addrconfig")
+	if config.Common.AddrConfig.Set {
+		return config.Common.AddrConfig.Value
 	}
 	return hint == "ip"
 }
 
-func applyAIAddrConfig(s parse.Spec, hint string, ips []net.IP) []net.IP {
-	if addrconfigEnabled(s, hint) {
+func applyAIAddrConfig(config addrconfig.Address, hint string, ips []net.IP) []net.IP {
+	if addrconfigEnabled(config, hint) {
 		return filterAIAddrConfig(ips)
 	}
 	return ips
@@ -300,7 +205,7 @@ func ipv6Only(addrs []net.IP) []net.IP {
 //
 // IPv4-mapped results are dialed as AF_INET: Go unmaps ::ffff: addresses
 // (README Intentional differences / ai-v4mapped dial family).
-func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, error) {
+func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]net.IP, error) {
 	host = StripBrackets(host)
 	if host == "" {
 		return nil, nil
@@ -315,10 +220,8 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 	}
 
 	resolver := LookupResolver(s)
-	var (
-		ips []net.IP
-		err error
-	)
+	var ips []net.IP
+	var err error
 	if hint == "ip6" && v4mappedEnabled(s) {
 		ips, err = lookupIPv6Mapped(ctx, s, resolver, host)
 	} else {
@@ -336,13 +239,13 @@ func LookupIP(ctx context.Context, s parse.Spec, hint, host string) ([]net.IP, e
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("lookup %s: no addresses", host)
 	}
-	if hint == "ip" && s.BoolOption("ai-passive") && len(ips) > 1 {
+	if hint == "ip" && s.Common.Passive.Value && len(ips) > 1 {
 		preferIPv6First(ips)
 	}
 	return ips, nil
 }
 
-func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver, host string) ([]net.IP, error) {
+func lookupIPv6Mapped(ctx context.Context, config addrconfig.Address, resolver *net.Resolver, host string) ([]net.IP, error) {
 	v6, err6 := resolver.LookupIP(ctx, "ip6", host)
 	if err6 != nil {
 		v6 = nil
@@ -351,14 +254,14 @@ func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver,
 		// resolver cannot duplicate mapped results when we append A records.
 		v6 = ipv6Only(v6)
 	}
-	wantAll := s.BoolOption("ai-all")
+	wantAll := config.Common.AddrInfoAll.Value
 	if !wantAll && len(v6) > 0 {
-		return finishMappedLookup(s, host, v6)
+		return finishMappedLookup(config, host, v6)
 	}
 	v4, err4 := resolver.LookupIP(ctx, "ip4", host)
 	if err4 != nil {
 		if len(v6) > 0 {
-			return finishMappedLookup(s, host, v6)
+			return finishMappedLookup(config, host, v6)
 		}
 		if err6 != nil {
 			return nil, err6
@@ -372,54 +275,70 @@ func lookupIPv6Mapped(ctx context.Context, s parse.Spec, resolver *net.Resolver,
 	} else {
 		ips = mapped
 	}
-	return finishMappedLookup(s, host, ips)
+	return finishMappedLookup(config, host, ips)
 }
 
-func finishMappedLookup(s parse.Spec, host string, ips []net.IP) ([]net.IP, error) {
-	ips = applyAIAddrConfig(s, "ip6", ips)
+func finishMappedLookup(config addrconfig.Address, host string, ips []net.IP) ([]net.IP, error) {
+	ips = applyAIAddrConfig(config, "ip6", ips)
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("lookup %s: no addresses", host)
 	}
 	return ips, nil
 }
 
-// ResolveIPHost resolves one host with the resolver scoped to s. Literals are
-// returned without a lookup, preserving the no-DNS literal fast path.
-func ResolveIPHost(ctx context.Context, s parse.Spec, network, host string) (string, error) {
-	host = StripBrackets(host)
-	if host == "" {
-		return host, nil
+// ResolveIPTarget resolves one host with the resolver scoped to s. Literals
+// skip DNS.
+func ResolveIPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (net.IP, error) {
+	if host.IsLiteral() {
+		return host.IP(), nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return FormatIPForNetwork(network, ip), nil
+	name := host.String()
+	if name == "" {
+		return nil, nil
 	}
-	if strings.Contains(host, "%") {
-		if addr, err := netip.ParseAddr(host); err == nil {
-			return addr.String(), nil
+	if strings.Contains(name, "%") {
+		if addr, err := netip.ParseAddr(name); err == nil {
+			return addr.AsSlice(), nil
 		}
 	}
-
 	hint := IPHint(network)
-	ips, err := LookupIP(ctx, s, hint, host)
+	ips, err := LookupIP(ctx, s, hint, name)
 	if err != nil {
-		return "", fmt.Errorf("resolve %s: %w", host, err)
+		return nil, fmt.Errorf("resolve %s: %w", name, err)
 	}
 	if len(ips) == 0 {
-		return "", fmt.Errorf("resolve %s: no addresses", host)
+		return nil, fmt.Errorf("resolve %s: no addresses", name)
 	}
-	return FormatIPForNetwork(network, ips[0]), nil
+	return ips[0], nil
 }
 
-// ResolveUDPAddr is net.ResolveUDPAddr with per-address DNS selection and
-// context cancellation. Literal addresses never reach the selected DNS server.
-func ResolveUDPAddr(ctx context.Context, s parse.Spec, network, address string) (*net.UDPAddr, error) {
-	host, port, err := net.SplitHostPort(address)
+// ResolveUDPTarget resolves a typed host and port. Literal IPs never reach
+// DNS; numeric ports are not parsed again.
+func ResolveUDPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget, port addrconfig.PortTarget) (*net.UDPAddr, error) {
+	n, err := ResolvePort(network, port)
 	if err != nil {
 		return nil, err
 	}
-	resolved, err := ResolveIPHost(ctx, s, network, host)
+	if host.IsLiteral() {
+		return udpAddrFromHost(network, host, n), nil
+	}
+	_, ip, err := LookupDialIP(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}
-	return net.ResolveUDPAddr(network, net.JoinHostPort(resolved, port))
+	if ip == nil {
+		return &net.UDPAddr{Port: n}, nil
+	}
+	return udpAddrFromIP(network, ip, n, ""), nil
+}
+
+func udpAddrFromHost(network string, host addrconfig.HostTarget, port int) *net.UDPAddr {
+	return udpAddrFromIP(network, host.IP(), port, host.Literal.Zone())
+}
+
+func udpAddrFromIP(network string, ip net.IP, port int, zone string) *net.UDPAddr {
+	if ip4 := ip.To4(); ip4 != nil && strings.HasSuffix(network, "4") {
+		ip = ip4
+	}
+	return &net.UDPAddr{IP: ip, Port: port, Zone: zone}
 }

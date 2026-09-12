@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // maxIPOptions is the accumulated IP_OPTIONS byte cap (getsockopt buffer
@@ -16,122 +16,8 @@ const maxIPOptions = 256
 // via ApplyPastSocketPhase (DialControl / ListenControl, including raw IP).
 // This send-only helper remains for leftover callers such as
 // ApplyIPSendOptsToPacketConn.
-func ApplyIPSendOpts(fd int, s parse.Spec, network string) error {
+func ApplyIPSendOpts(fd int, s addrconfig.Address, network string) error {
 	return applyClassicIPSendOpts(fd, s, ipFamilyFromNetwork(network))
-}
-
-// applyOrderedPastSocketPhaseOptions applies every post-socket() action
-// option in one pass over Spec.Options, after socket() and before
-// bind/connect: fixed SOL_SOCKET options (broadcast, sndbuf/rcvbuf,
-// bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP options,
-// FIOSETOWN/SIOCSPGRP owner ioctls, generic setsockopt-socket, and
-// IP/ancillary/membership options. Occurrences keep original command-line
-// order, including when a generic option targets the same kernel setting
-// as a named option.
-func applyOrderedPastSocketPhaseOptions(fd int, s parse.Spec, network string) error {
-	applyIP := ipSendAppliesToNetwork(network)
-	family := ipFamilyFromNetwork(network)
-	familyResolved := family != ipFamilyUnknown
-	for _, option := range s.Options {
-		if matched, err := applyFixedPastSocketOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyNamedPastSocketSockopt(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyOwnerIoctlOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if kind, ok := genericSetsockoptKind(option.Name, SockoptPhasePastSocket); ok {
-			if err := applyGenericSetsockoptOption(fd, option, kind); err != nil {
-				return err
-			}
-			continue
-		}
-		if !applyIP {
-			continue
-		}
-		if matched, err := applyMembershipOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applySourceMembershipOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyMulticastNamedOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyFreebindOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyMTUDiscoveryOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyRecvErrOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyGetOnlyIPOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		if matched, err := applyRouterAlertOption(fd, option); matched {
-			if err != nil {
-				return err
-			}
-			continue
-		}
-		e, ok := lookupIPAncillary(specOptionName(option))
-		if !ok {
-			continue
-		}
-		if !familyResolved {
-			got, err := socketIPFamily(fd)
-			if err != nil {
-				return err
-			}
-			family = got
-			familyResolved = true
-		}
-		switch {
-		case e.Kind&IPAncillarySend != 0:
-			if err := applyOneIPSendOpt(fd, e, option, family); err != nil {
-				return err
-			}
-		case e.Kind&IPAncillaryRecv != 0:
-			if err := applyOneIPRecvOpt(fd, e, option, family); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
 }
 
 func ipSendAppliesToNetwork(network string) bool {
@@ -149,13 +35,6 @@ func ipSendAppliesToNetwork(network string) bool {
 	}
 }
 
-func specOptionName(o parse.Option) string {
-	if o.Name != "" {
-		return o.Name
-	}
-	return o.OriginalSpelling()
-}
-
 func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 	if family != ipFamilyUnknown {
 		return family, nil
@@ -170,95 +49,93 @@ func resolveApplyIPFamily(fd int, family ipFamily) (ipFamily, error) {
 // uses IP_HDRINCL on raw IPv4 only (bare flag → 1). ttl=1,ip-ttl=64 is two
 // setsockopt calls, not last-wins. An earlier kernel-invalid value still
 // fails even if a later value is valid.
-func applyClassicIPSendOpts(fd int, s parse.Spec, family ipFamily) error {
+func applyClassicIPSendOpts(fd int, s addrconfig.Address, family ipFamily) error {
 	got, err := resolveApplyIPFamily(fd, family)
 	if err != nil {
 		return err
 	}
-	family = got
-	for _, option := range s.Options {
-		e, ok := lookupIPAncillary(specOptionName(option))
-		if !ok || e.Kind&IPAncillarySend == 0 {
+	resolved := got
+	for _, action := range s.Network.Actions {
+		if action.Kind != addrconfig.SocketActionAncillary {
 			continue
 		}
-		if err := applyOneIPSendOpt(fd, e, option, family); err != nil {
+		e, inMatrix := lookupIPAncillary(action.Ancillary)
+		if !inMatrix || e.Kind&IPAncillarySend == 0 {
+			continue
+		}
+		if err := applyPreparedIPSend(fd, e, action, resolved); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func applyOneIPSendOpt(fd int, e IPAncillaryEntry, option parse.Option, family ipFamily) error {
-	if err := rejectIPAncillaryApply(e.Canonical, family); err != nil {
-		return err
-	}
-	if e.Canonical == "ip-options" {
-		if !option.Has {
-			return nil
-		}
-		v := strings.TrimSpace(option.Value)
-		if v == "" {
-			return nil
-		}
-		// Each occurrence appends; stop on error.
-		if err := applyIPOptions(fd, v); err != nil {
-			return fmt.Errorf("ip-options: %w", err)
-		}
+func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFamily, familyResolved *bool) error {
+	e, ok := lookupIPAncillary(action.Ancillary)
+	if !ok {
 		return nil
 	}
-	if e.Canonical == "ip-hdrincl" {
-		// Bare flag → 1.
-		n := 1
-		if option.Has {
-			v := strings.TrimSpace(option.Value)
-			if v != "" {
-				parsed, err := ParseIntAny(v)
-				if err != nil {
-					return fmt.Errorf("%s: %w", e.Canonical, err)
-				}
-				n = parsed
-			}
+	if familyResolved != nil && !*familyResolved {
+		got, err := socketIPFamily(fd)
+		if err != nil {
+			return err
 		}
-		if err := applyIPHdrincl(fd, n); err != nil {
-			return fmt.Errorf("%s: %w", e.Canonical, err)
-		}
-		return nil
+		*family = got
+		*familyResolved = true
 	}
-	if !option.Has || strings.TrimSpace(option.Value) == "" {
-		return nil
+	resolved := ipFamilyUnknown
+	if family != nil {
+		resolved = *family
 	}
-	n, err := ParseIntAny(option.Value)
-	if err != nil {
-		return fmt.Errorf("%s: %w", e.Canonical, err)
-	}
-	switch e.Canonical {
-	case "ip-ttl":
-		err = setSockoptInt(fd, ipLevelIP, ipOptTTL, n)
-	case "ip-tos":
-		err = setSockoptInt(fd, ipLevelIP, ipOptTOS, n)
-	case "ipv6-unicast-hops":
-		err = setSockoptInt(fd, ipLevelIPv6, ipOptUnicastHops, n)
-	case "ipv6-tclass":
-		err = applyIPv6Tclass(fd, n)
+	switch {
+	case e.Kind&IPAncillarySend != 0:
+		return applyPreparedIPSend(fd, e, action, resolved)
+	case e.Kind&IPAncillaryRecv != 0:
+		return applyPreparedIPRecv(fd, e, action.Number, resolved)
 	default:
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %w", e.Canonical, err)
-	}
-	return nil
 }
 
-// ParseHexOpt parses ip-options= dalan data. Default type is 'i', so x0102
-// is two hex bytes while an unprefixed 1 is one native C int; treating the
-// leading x as optional silently changes values.
-func ParseHexOpt(v string) ([]byte, error) {
-	data, _, err := ParseDalan(strings.TrimSpace(v), 'i')
-	if err != nil {
-		return nil, err
+func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAction, family ipFamily) error {
+	if err := rejectIPAncillaryApply(e, family); err != nil {
+		return err
 	}
-	if len(data) > maxIPOptions {
-		return nil, fmt.Errorf("value exceeds %d bytes", maxIPOptions)
+	switch e.ID {
+	case addrconfig.AncillaryIPOptions:
+		if len(action.Value.Bytes) == 0 {
+			return nil
+		}
+		if err := applyIPOptionsBytes(fd, append([]byte(nil), action.Value.Bytes...)); err != nil {
+			return fmt.Errorf("ip-options: %w", err)
+		}
+		return nil
+	case addrconfig.AncillaryIPHdrincl:
+		if err := applyIPHdrincl(fd, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		return nil
+	case addrconfig.AncillaryIPTTL:
+		if err := setSockoptInt(fd, ipLevelIP, ipOptTTL, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		return nil
+	case addrconfig.AncillaryIPTOS:
+		if err := setSockoptInt(fd, ipLevelIP, ipOptTOS, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		return nil
+	case addrconfig.AncillaryIPv6UnicastHops:
+		if err := setSockoptInt(fd, ipLevelIPv6, ipOptUnicastHops, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		return nil
+	case addrconfig.AncillaryIPv6Tclass:
+		if err := applyIPv6Tclass(fd, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", e.Canonical, err)
+		}
+		return nil
+	default:
+		return nil
 	}
-	return data, nil
 }

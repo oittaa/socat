@@ -6,6 +6,8 @@ import (
 	"net"
 	"strconv"
 	"testing"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 // TestPROXYHTTP1ConnectEcho covers the default PROXY address (HTTP/1.0 CONNECT).
@@ -62,4 +64,27 @@ func mockHTTP1CONNECTEcho(t *testing.T, ln net.Listener) {
 		return
 	}
 	_, _ = io.Copy(c, c)
+}
+
+func TestPROXYConnectTargetFromTypedLiteral(t *testing.T) {
+	host, err := resolvePROXYConnectHost(t.Context(), addrconfig.Address{}, addrconfig.HostFromText("192.0.2.1"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "192.0.2.1" {
+		t.Fatalf("ipv4 host=%q", host)
+	}
+	if got := proxyCONNECTTarget(host, 443); got != "192.0.2.1:443" {
+		t.Fatalf("ipv4 CONNECT=%q", got)
+	}
+	host, err = resolvePROXYConnectHost(t.Context(), addrconfig.Address{}, addrconfig.HostFromText("::1"), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if host != "::1" {
+		t.Fatalf("ipv6 host=%q", host)
+	}
+	if got := proxyCONNECTTarget(host, 443); got != "[::1]:443" {
+		t.Fatalf("ipv6 CONNECT=%q", got)
+	}
 }

@@ -3,6 +3,8 @@ package xio
 import (
 	"bytes"
 	"testing"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func FuzzParseSocatData(f *testing.F) {
@@ -17,8 +19,8 @@ func FuzzParseSocatData(f *testing.F) {
 		if len(input) > 4096 {
 			t.Skip("input exceeds 4096 bytes")
 		}
-		first, err := ParseSocatData(input)
-		second, err2 := ParseSocatData(input)
+		first, err := addrconfig.ParseSocatData(input)
+		second, err2 := addrconfig.ParseSocatData(input)
 		if (err == nil) != (err2 == nil) {
 			t.Fatalf("ParseSocatData error is not deterministic: %v vs %v", err, err2)
 		}
@@ -31,7 +33,7 @@ func FuzzParseSocatData(f *testing.F) {
 	})
 }
 
-func FuzzParseTimeval(f *testing.F) {
+func FuzzParseDurationValue(f *testing.F) {
 	for _, seed := range []string{"", "0", "1", "0.25", "250ms", "-1", "NaN", "+Inf", "1e100", "banana"} {
 		f.Add(seed)
 	}
@@ -39,10 +41,10 @@ func FuzzParseTimeval(f *testing.F) {
 		if len(input) > 4096 {
 			t.Skip("input exceeds 4096 bytes")
 		}
-		a := ParseTimeval(input)
-		b := ParseTimeval(input)
-		if a != b {
-			t.Fatalf("ParseTimeval is not deterministic: %v vs %v", a, b)
+		a, err1 := addrconfig.ParseDuration(input)
+		b, err2 := addrconfig.ParseDuration(input)
+		if (err1 == nil) != (err2 == nil) || a != b {
+			t.Fatalf("ParseDuration is not deterministic: %v/%v vs %v/%v", a, err1, b, err2)
 		}
 	})
 }

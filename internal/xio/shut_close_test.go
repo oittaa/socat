@@ -21,7 +21,7 @@ func (*closeCountingStream) StreamProps() relay.Props { return relay.NoProps() }
 
 func TestShutCloseFullyClosesOnce(t *testing.T) {
 	inner := &closeCountingStream{}
-	stream, err := SetupStream(parse.Spec{Options: []parse.Option{{Name: "shut-close"}}}, inner)
+	stream, err := SetupStream(mustDecodeAddress(t, parse.Spec{Options: []parse.Option{{Name: "shut-close"}}}), inner)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,11 +11,15 @@ func TestParseAcceptFDNumSharesParser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := parseFDNum(spec)
+	n, err := parseFDNum(mustAddr(t, spec))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n != 32 {
 		t.Fatalf("fd=%d want 32", n)
+	}
+	config := mustAddr(t, spec)
+	if !config.File.FDSet || config.File.FD != 32 {
+		t.Fatalf("prepared FD=%+v", config.File)
 	}
 }

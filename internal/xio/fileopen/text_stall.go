@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"os"
 	"strings"
@@ -11,12 +12,11 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // TEXT:<string> — input is the string (parser escapes); output goes to stdout.
-func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+func openTEXT(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if len(s.Params) < 1 {
 		return nil, fmt.Errorf("TEXT requires string parameter")
 	}
@@ -52,7 +52,7 @@ func openTEXT(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*x
 // Fill the write-end pipe so poll/select never marks it writable
 // (backpressure). The read side is a pipe whose write end is never
 // written. Closing the FDs (idle -T, process exit) unblocks I/O.
-func openSTALL(_ context.Context, s parse.Spec, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
+func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if !xio.FeatureSTALL {
 		return nil, fmt.Errorf("STALL is not supported on this platform")
 	}

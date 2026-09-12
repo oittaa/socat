@@ -3,13 +3,13 @@
 package netopen
 
 import (
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func udpForkUsesPacketDispatch(parse.Spec) bool { return true }
+func udpForkUsesPacketDispatch(addrconfig.Address) bool { return true }
 
 func udpForkSharesListenSocket() bool { return true }
 

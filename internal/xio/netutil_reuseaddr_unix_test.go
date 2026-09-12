@@ -42,7 +42,7 @@ func TestTCPListenSetsReuseaddrByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +62,7 @@ func TestUDPListenOmitsReuseaddrByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +82,7 @@ func TestUDPListenForkSetsReuseaddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestUDPRecvfromForkOmitsReuseaddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

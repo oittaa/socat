@@ -6,12 +6,12 @@ import (
 	"io"
 	"os"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 )
 
-func execPTYMasterReader(master, slave *os.File, s parse.Spec, _ <-chan struct{}) (io.Reader, func(), error) {
+func execPTYMasterReader(master, slave *os.File, config addrconfig.Terminal, _ <-chan struct{}) (io.Reader, func(), error) {
 	logx.CloseQuiet(slave)
-	r, err := ptyMasterReader(master, s)
+	r, err := configuredPTYMasterReader(master, config)
 	return r, nil, err
 }

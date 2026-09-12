@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -49,22 +49,10 @@ func inheritedFDStream(f *os.File, orig int, closeOrig bool) relay.Stream {
 	}
 }
 
-// specWithoutEndClose copies s without end-close. SetupStream treats that
+// configWithoutEndClose copies s without end-close. WrapOpened treats that
 // option as "keep the peer FD open" (EXEC reuse). FD uses the opposite
 // meaning: close the inherited descriptor on EOF.
-func specWithoutEndClose(s parse.Spec) parse.Spec {
-	opts := make([]parse.Option, 0, len(s.Options))
-	changed := false
-	for _, o := range s.Options {
-		if parse.CanonicalOptionName(o.Name) == "end-close" {
-			changed = true
-			continue
-		}
-		opts = append(opts, o)
-	}
-	if !changed {
-		return s
-	}
-	s.Options = opts
+func configWithoutEndClose(s addrconfig.Address) addrconfig.Address {
+	s.Transfer.EndClose = addrconfig.OptionalBool{}
 	return s
 }

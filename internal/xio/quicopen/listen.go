@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync"
 	"time"
@@ -11,36 +12,32 @@ import (
 	"github.com/quic-go/quic-go"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func openQUICListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	_, port, err := quicTarget(s, true)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "udp"
-	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
-	if err != nil {
-		return nil, err
-	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
-
-	tlsCfg, err := tlsopen.TLSServerConfig(s)
-	if err != nil {
-		return nil, err
-	}
-	qcfg, err := quicConfig(s, tlsCfg)
+	network = xio.DualStackListenNetwork(s, network)
+	host, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
 
-	pc, err := listenPacket(ctx, network, addr, s)
+	tlsCfg, err := tlsopen.TLSServerConfigSettings(s.Type, s.TLS)
+	if err != nil {
+		return nil, err
+	}
+	qcfg, err := quicConfig(ctx, s, tlsCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	pc, err := listenPacket(ctx, network, host, s.Network.ListenPort, s)
 	if err != nil {
 		return nil, err
 	}
@@ -65,27 +62,27 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
-func quicHandshakeIdleTimeout(s parse.Spec) time.Duration {
+func quicHandshakeIdleTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
 	return xio.QUICHandshakeIdleTimeout(s)
 }
 
-func quicConfig(s parse.Spec, tlsCfg *tls.Config) (quicSetup, error) {
-	quicTLS, err := withALPN(tlsCfg, s)
+func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (quicSetup, error) {
+	quicTLS, err := withALPN(tlsCfg, alpnProto(s.TLS))
 	if err != nil {
 		return quicSetup{}, err
 	}
 	// HandshakeIdleTimeout is the handshake-timeout extra (no C equivalent).
 	// Do not reuse connect-timeout as the QUIC handshake idle bound.
 	// handshake-timeout=0 must not become quic-go's 5s default.
-	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(s)}
+	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(ctx, s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 
-func listenPacket(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
-	return xio.ListenPacketWithOptions(ctx, network, addr, s)
+func listenPacket(ctx context.Context, network string, host addrconfig.HostTarget, port addrconfig.PortTarget, s addrconfig.Address) (net.PacketConn, error) {
+	return xio.ListenPacketWithOptions(ctx, network, host, port, s)
 }
 
-func listenQUICClientPacket(ctx context.Context, network, bindHost, sourceport string, s parse.Spec, g *xio.Global) (net.PacketConn, error) {
+func listenQUICClientPacket(ctx context.Context, network string, bindHost addrconfig.HostTarget, sourceport addrconfig.PortTarget, s addrconfig.Address, g *xio.Global) (net.PacketConn, error) {
 	return xio.ListenClientPacket(ctx, network, bindHost, sourceport, s, g)
 }
 

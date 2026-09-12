@@ -5,39 +5,24 @@ package xio
 import (
 	"fmt"
 
-	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
 
-func applyFreebindFD(fd int, o parse.Option) error {
-	n, err := classicFlagInt(o, -1)
-	if err != nil {
-		return fmt.Errorf("ip-freebind: %w", err)
-	}
+func applyFreebindValue(fd int, n int) error {
 	if err := setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_FREEBIND, n); err != nil {
 		return fmt.Errorf("ip-freebind: %w", err)
 	}
 	return nil
 }
 
-func applyTransparentFD(fd int, o parse.Option) error {
-	n, err := classicFlagInt(o, 1)
-	if err != nil {
-		return fmt.Errorf("ip-transparent: %w", err)
-	}
-	// Requires CAP_NET_ADMIN or CAP_NET_RAW; the kernel error is reported,
-	// not swallowed.
+func applyTransparentValue(fd int, n int) error {
 	if err := setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_TRANSPARENT, n); err != nil {
 		return fmt.Errorf("ip-transparent: %w", err)
 	}
 	return nil
 }
 
-func applyMTUDiscoveryFD(fd int, family membershipFamily, name string, o parse.Option) error {
-	n, err := classicFlagInt(o, 2)
-	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
-	}
+func applyMTUDiscoveryValue(fd int, family membershipFamily, name string, n int) error {
 	level, opt := unix.IPPROTO_IP, unix.IP_MTU_DISCOVER
 	if family == membershipFamilyIPv6 {
 		level, opt = unix.IPPROTO_IPV6, unix.IPV6_MTU_DISCOVER

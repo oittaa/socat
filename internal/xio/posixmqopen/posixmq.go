@@ -2,8 +2,7 @@ package posixmqopen
 
 import (
 	"fmt"
-
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 type mqKind int
@@ -15,25 +14,22 @@ const (
 	mqSend
 )
 
-func kindOf(typ string) mqKind {
-	switch typ {
-	case "POSIXMQ-READ":
+func kindOf(s addrconfig.Address) mqKind {
+	switch s.Facts.Role {
+	case addrconfig.AddressRoleReceive:
 		return mqRead
-	case "POSIXMQ-RECEIVE", "POSIXMQ-RECV":
+	case addrconfig.AddressRoleReceiveFrom:
 		return mqRecv
-	case "POSIXMQ-SEND", "POSIXMQ-WRITE":
+	case addrconfig.AddressRoleSendTo:
 		return mqSend
 	default:
 		return mqBidir
 	}
 }
 
-func queueName(s parse.Spec) (string, error) {
-	if len(s.Params) > 1 {
-		return "", fmt.Errorf("too many parameters (%d instead of 1)", len(s.Params))
-	}
-	if len(s.Params) != 1 || s.Params[0] == "" {
+func queueName(s addrconfig.Address) (string, error) {
+	if s.Network.MQName == "" {
 		return "", fmt.Errorf("%s: requires a queue name", s.Type)
 	}
-	return s.Params[0], nil
+	return s.Network.MQName, nil
 }

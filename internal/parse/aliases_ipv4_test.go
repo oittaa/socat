@@ -25,7 +25,7 @@ func TestGetOnlyIPv4ParseKeepsSpelling(t *testing.T) {
 		t.Fatalf("%+v", o)
 	}
 	s = Spec{Options: []Option{{Name: "ipmtu"}}}
-	if !s.HasOption("ip-mtu") {
+	if !hasOption(s, "ip-mtu") {
 		t.Fatal("constructed Name=ipmtu")
 	}
 	if CanonicalOptionName("ip-mtu-discover") != "ip-mtu-discover" {

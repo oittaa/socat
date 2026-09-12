@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"math"
 	"net"
 	"os"
@@ -15,7 +16,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -24,7 +24,7 @@ func init() {
 	xio.FeatureVSOCK = true
 }
 
-func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (net.Listener, error) {
+func listenVSOCK(_ context.Context, port uint32, s addrconfig.Address, g *xio.Global) (net.Listener, error) {
 	cid := uint32(unix.VMADDR_CID_ANY)
 	bind, set, err := parseVsockBindOption(s, false)
 	if err != nil {
@@ -74,7 +74,7 @@ func listenVSOCK(_ context.Context, port uint32, s parse.Spec, g *xio.Global) (n
 	return newVsockListener(fd, addr)
 }
 
-func vsockSocket(s parse.Spec) (int, error) {
+func vsockSocket(s addrconfig.Address) (int, error) {
 	args, err := parseVsockSocketArgs(s)
 	if err != nil {
 		return -1, err
@@ -87,7 +87,7 @@ func vsockSocket(s parse.Spec) (int, error) {
 }
 
 func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
-	args, err := parseVsockSocketArgs(req.spec)
+	args, err := parseVsockSocketArgs(req.config)
 	if err != nil {
 		return nil, err
 	}
@@ -95,15 +95,15 @@ func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("vsock socket: %w", err)
 	}
-	if err := xio.ApplyReuse(fd, req.spec, false); err != nil {
+	if err := xio.ApplyReuse(fd, req.config, false); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyNetworkSocketOptions(fd, req.spec, "vsock"); err != nil {
+	if err := xio.ApplyNetworkSocketOptions(fd, req.config, "vsock"); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, req.spec, xio.SockoptPhasePrebind); err != nil {
+	if err := xio.ApplyGenericSetsockopt(fd, req.config, xio.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -113,7 +113,7 @@ func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
 			return nil, err
 		}
 	}
-	bind, set, err := parseVsockBindOption(req.spec, true)
+	bind, set, err := parseVsockBindOption(req.config, true)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err

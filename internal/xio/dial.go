@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sort"
 	"strconv"
@@ -11,8 +12,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // Linux AF_* values used in "opening connection to AF=N …" logs.
@@ -24,8 +23,8 @@ const (
 // DialTarget is a TCP or SCTP connect destination.
 type DialTarget struct {
 	Network string // "tcp", "tcp4", "tcp6", or the SCTP equivalents
-	Host    string
-	Port    string // numeric or /etc/services name
+	Host    addrconfig.HostTarget
+	Port    addrconfig.PortTarget
 }
 
 // dialCall is the shared context for one TCP connect attempt.
@@ -59,13 +58,13 @@ func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
 // DialTCPAll resolves dest.Host and tries each address in order.
 // dest.Network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt.
-func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
-	host := StripBrackets(dest.Host)
-	portNum, err := ResolvePortNum(dest.Network, dest.Port)
+func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+	host := StripBrackets(dest.Host.String())
+	portNum, err := ResolvePort(dest.Network, dest.Port)
 	if err != nil {
 		return nil, err
 	}
-	ips, err := resolveConnectIPs(ctx, dest.Network, host, s, g)
+	ips, err := resolveDialIPs(ctx, dest, s, g)
 	if err != nil {
 		return nil, err
 	}
@@ -73,9 +72,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
-	bindOpt := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	lowport := ClientUsesLowport(s)
 
 	var lastErr error
 	for _, ip := range ips {
@@ -86,7 +83,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port))
 		}
 
-		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, dest.Network)
+		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -126,9 +123,67 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s parse.Spec, g *Global, t
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port)
+		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port.Text())
 	}
 	return nil, lastErr
+}
+
+func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global) ([]net.IP, error) {
+	return resolveDialIPs(ctx, dest, s, g)
+}
+
+func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global) ([]net.IP, error) {
+	network := connectIPNetwork(dest.Network)
+	host := StripBrackets(dest.Host.Original())
+	if dest.Host.IsLiteral() {
+		ip := dest.Host.IP()
+		if ip == nil {
+			return nil, fmt.Errorf("no addresses for %s", dest.Host.String())
+		}
+		if err := rejectConnectIPFamily(network, host, ip); err != nil {
+			return nil, err
+		}
+		return []net.IP{ip}, nil
+	}
+	return resolveConnectIPs(ctx, network, host, s, g)
+}
+
+func connectIPNetwork(network string) string {
+	switch network {
+	case "sctp4":
+		return "tcp4"
+	case "sctp6":
+		return "tcp6"
+	case "sctp":
+		return "tcp"
+	default:
+		return network
+	}
+}
+
+func rejectConnectIPFamily(network, host string, ip net.IP) error {
+	switch network {
+	case "tcp4":
+		if ip.To4() == nil {
+			return fmt.Errorf("address %s: not IPv4", host)
+		}
+	case "tcp6":
+		if ip.To4() != nil {
+			return fmt.Errorf("address %s: not IPv6", host)
+		}
+	}
+	return nil
+}
+
+// ResolvePort uses a prepared port. Numeric values are not looked up again.
+func ResolvePort(network string, port addrconfig.PortTarget) (int, error) {
+	if port.Numeric {
+		return int(port.Number), nil
+	}
+	if port.Service == "" {
+		return 0, fmt.Errorf("empty port")
+	}
+	return ResolvePortNum(network, port.Service)
 }
 
 // resolvePortNum accepts a numeric port or /etc/services name (TCP:host:http).
@@ -156,20 +211,6 @@ func ResolvePortNum(network, port string) (int, error) {
 	return net.LookupPort(proto, port)
 }
 
-// ResolveConnectIPs returns remote IPs in try order.
-// network may be tcp/tcp4/tcp6 or sctp/sctp4/sctp6 (SCTP uses the TCP hint).
-func ResolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
-	switch network {
-	case "sctp4":
-		network = "tcp4"
-	case "sctp6":
-		network = "tcp6"
-	case "sctp":
-		network = "tcp"
-	}
-	return resolveConnectIPs(ctx, network, host, s, g)
-}
-
 func formatTCPAddr(network string, ip net.IP, port int) string {
 	host := FormatIPForNetwork(network, ip)
 	return net.JoinHostPort(host, strconv.Itoa(port))
@@ -187,18 +228,11 @@ func afForNetwork(network string, ip net.IP) int {
 }
 
 // resolveConnectIPs returns remote IPs in try order.
-func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, g *Global) ([]net.IP, error) {
+func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
 	// Literal IP: single address, no DNS.
 	if ip := net.ParseIP(host); ip != nil {
-		switch network {
-		case "tcp4":
-			if ip.To4() == nil {
-				return nil, fmt.Errorf("address %s: not IPv4", host)
-			}
-		case "tcp6":
-			if ip.To4() != nil {
-				return nil, fmt.Errorf("address %s: not IPv6", host)
-			}
+		if err := rejectConnectIPFamily(network, host, ip); err != nil {
+			return nil, err
 		}
 		return []net.IP{ip}, nil
 	}
@@ -213,7 +247,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s parse.Spec, 
 	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
 	// IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
-		if s.BoolOption("ai-passive") {
+		if s.Common.Passive.Value {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
@@ -286,71 +320,49 @@ func localIPFamiliesFromAddrs(addrs []net.Addr) (v4, v6 bool) {
 }
 
 // BindTCPAddrForRemote picks a local TCPAddr matching remote's family.
-// bindOpt may be host, [ipv6], or host:port / [ipv6]:port (bind=).
-// sourceport is used when bind has no port. skip=true means try next remote.
-func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s parse.Spec, bindOpt, sourceport, network string) (laddr *net.TCPAddr, skip bool, err error) {
-	if bindOpt == "" && (sourceport == "" || sourceport == "0") {
+// skip=true means try next remote.
+func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Address, network string) (laddr *net.TCPAddr, skip bool, err error) {
+	portTarget, hasPort := s.Network.LocalPort()
+	if !s.Network.BindSet && (!hasPort || portTarget.Empty() || portTarget.IsZero()) {
 		return nil, false, nil
 	}
-	bindHost, BindPort := "", "0"
-	if sourceport != "" {
-		BindPort = sourceport
-	}
-	if bindOpt != "" {
-		// Prefer SplitHostPort so bind=127.0.0.1:0 and bind=[::1]:123 work.
-		if h, p, e := net.SplitHostPort(bindOpt); e == nil {
-			bindHost, BindPort = h, p
-		} else {
-			bindHost = StripBrackets(bindOpt)
-		}
-	}
 	port := 0
-	if BindPort != "" && BindPort != "0" {
-		port, err = ResolvePortNum("tcp", BindPort)
+	if hasPort && !portTarget.Empty() && !portTarget.IsZero() {
+		port, err = ResolvePort("tcp", portTarget)
 		if err != nil {
 			return nil, false, fmt.Errorf("bind port: %w", err)
 		}
-	} else if BindPort == "0" || BindPort == "" {
-		port = 0
 	}
 	want4 := WantIPv4(network, remote)
 
-	if bindHost == "" {
-		// sourceport only: wildcard of matching family, or loopback when
-		// ai-passive=0.
-		if listenAIPassive(s) {
-			if want4 {
-				return &net.TCPAddr{IP: net.IPv4zero, Port: port}, false, nil
-			}
-			return &net.TCPAddr{IP: net.IPv6zero, Port: port}, false, nil
-		}
-		if want4 {
-			return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}, false, nil
-		}
-		return &net.TCPAddr{IP: net.IPv6loopback, Port: port}, false, nil
+	if !s.Network.BindSet || s.Network.Bind.Empty() {
+		// sourceport only, or bind=:port with an empty node: wildcard of
+		// matching family, or loopback when ai-passive=0. Do not look up
+		// an empty hostname.
+		return &net.TCPAddr{IP: defaultLocalIP(listenAIPassive(s), want4), Port: port}, false, nil
 	}
 
-	bindHost = StripBrackets(bindHost)
-	if ip := net.ParseIP(bindHost); ip != nil {
+	bind := s.Network.Bind
+	if bind.IsLiteral() {
+		ip := bind.IP()
 		// Forced-IPv4 resolves bind= as AF_INET; an IPv6 wildcard
 		// does not become 0.0.0.0. Skip this remote and try the next.
 		if (ip.To4() != nil) != want4 {
 			return nil, true, nil
 		}
-		return &net.TCPAddr{IP: ip, Port: port}, false, nil
+		return &net.TCPAddr{IP: ip, Port: port, Zone: bind.Literal.Zone()}, false, nil
 	}
 
-	// Hostname: resolve and pick first address matching remote family.
+	bindHost := bind.String()
 	hint := "ip6"
 	if want4 {
 		hint = "ip4"
 	}
 	ips, err := LookupIP(ctx, s, hint, bindHost)
 	if err != nil {
-		// Fallback: full lookup then filter
 		all, err2 := LookupIP(ctx, s, "ip", bindHost)
 		if err2 != nil {
-			return nil, false, fmt.Errorf("bind %s: %w", bindOpt, err)
+			return nil, false, fmt.Errorf("bind %s: %w", bind.Original(), err)
 		}
 		for _, ip := range all {
 			if WantIPv4(network, ip) == want4 {
@@ -400,27 +412,28 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 }
 
 // ConnectNetworkForType picks dial network for a CONNECT address type.
-// TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" (try both,
-// ordered by -4/-6). pf= still forces a family.
-func ConnectNetworkForType(g *Global, s parse.Spec, host, forced string) string {
-	if forced == "tcp4" || forced == "tcp6" {
-		// Still honour pf= override if present
-		if pf := s.OptionValue("pf", ""); pf != "" {
-			return NetworkFromPF(pf, "tcp", forced)
+// TCP4/TCP6 force a family; generic TCP uses dual-stack "tcp" for names
+// (try both, ordered by -4/-6). IPv4 and IPv4-mapped literals use tcp4.
+// pf= still forces a family. host is the TCP peer (connect target or proxy
+// server), already prepared; it is not parsed again.
+func ConnectNetworkForType(_ *Global, config addrconfig.Address, host addrconfig.HostTarget, forced string) string {
+	if config.Network.ProtocolSet {
+		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
+			return n
 		}
+	}
+	if forced == "tcp4" || forced == "tcp6" {
 		return forced
 	}
-	if pf := s.OptionValue("pf", ""); pf != "" {
-		return NetworkFromPF(pf, "tcp", "tcp")
+	if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
+		return n
 	}
-	h := StripBrackets(host)
-	if ip := net.ParseIP(h); ip != nil {
-		if ip.To4() != nil {
-			return "tcp4"
-		}
+	if host.IsIPv4Literal() {
+		return "tcp4"
+	}
+	if host.IsLiteral() {
 		return "tcp6"
 	}
-	// Generic TCP: dual-stack resolve; -4/-6 only reorder.
 	return "tcp"
 }
 

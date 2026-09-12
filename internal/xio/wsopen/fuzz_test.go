@@ -3,6 +3,7 @@ package wsopen
 import (
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -28,7 +29,11 @@ func FuzzWSTarget(f *testing.F) {
 		if err != nil {
 			return
 		}
-		_, _, _, _ = wsTarget(s, false)
-		_, _, _, _ = wsTarget(s, true)
+		config, err := addrconfig.Decode(s, addrconfig.Facts{Type: s.Type})
+		if err != nil {
+			return
+		}
+		_, _, _, _ = wsTarget(config, false)
+		_, _, _, _ = wsTarget(config, true)
 	})
 }

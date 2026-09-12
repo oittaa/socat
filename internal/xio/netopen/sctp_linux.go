@@ -6,13 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"os"
 	"syscall"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -21,18 +21,17 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (net.Listener, error) {
-	portNum, err := xio.ResolvePortNum(network, port)
+func listenSCTP(ctx context.Context, network string, ip net.IP, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
+	portNum, err := xio.ResolvePort(network, port)
 	if err != nil {
 		return nil, err
 	}
-	ip := net.ParseIP(xio.StripBrackets(host))
 	family := unix.AF_INET
 	switch network {
 	case "sctp6":
 		family = unix.AF_INET6
 		if ip != nil && xio.WantIPv4(network, ip) {
-			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", ip, network)
 		}
 		if ip == nil {
 			ip = net.IPv6zero
@@ -44,7 +43,7 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 		}
 	default:
 		if ip != nil && ip.To4() == nil {
-			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", host, network)
+			return nil, fmt.Errorf("bind: address family mismatch (%s on %s)", ip, network)
 		}
 		if ip == nil {
 			ip = net.IPv4zero
@@ -75,13 +74,13 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 		if network == "sctp" {
 			v6only = 0
 		}
-		if s.HasOption("ipv6-v6only") {
+		if s.Common.IPv6V6Only.Set {
 			v6only = 0
-			if s.BoolOption("ipv6-v6only") {
+			if s.Common.IPv6V6Only.Value {
 				v6only = 1
 			}
 		}
-		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && s.HasOption("ipv6-v6only") {
+		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, v6only); err != nil && s.Common.IPv6V6Only.Set {
 			_ = unix.Close(fd)
 			return nil, fmt.Errorf("ipv6-v6only: %w", err)
 		}
@@ -107,22 +106,20 @@ func listenSCTP(_ context.Context, network, host, port string, s parse.Spec) (ne
 	return &rawListener{fd: fd, domain: family}, nil
 }
 
-func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
-	host := xio.StripBrackets(dest.Host)
-	portNum, err := xio.ResolvePortNum(dest.Network, dest.Port)
+func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address, g *xio.Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+	host := xio.StripBrackets(dest.Host.String())
+	portNum, err := xio.ResolvePort(dest.Network, dest.Port)
 	if err != nil {
 		return nil, err
 	}
-	ips, err := xio.ResolveConnectIPs(ctx, dest.Network, host, s, g)
+	ips, err := xio.ResolveDialIPs(ctx, dest, s, g)
 	if err != nil {
 		return nil, err
 	}
 	if len(ips) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
-	bindOpt := s.OptionValue("bind", "")
-	sp := s.OptionValue("sourceport", "")
-	lowport := s.BoolOption("lowport") && (sp == "" || sp == "0")
+	lowport := xio.ClientUsesLowport(s)
 	var lastErr error
 	for _, ip := range ips {
 		af := 2
@@ -132,7 +129,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 		if g != nil && g.Log != nil {
 			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(dest.Network, ip), fmt.Sprintf("%d", portNum)))
 		}
-		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, bindOpt, sp, dest.Network)
+		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
 			if g != nil && g.Log != nil {
@@ -171,7 +168,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s parse.Spec, g *xio.
 		return c, nil
 	}
 	if lastErr == nil {
-		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port)
+		lastErr = fmt.Errorf("connect %s:%s failed", host, dest.Port.Text())
 	}
 	return nil, lastErr
 }

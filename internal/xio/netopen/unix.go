@@ -10,28 +10,31 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 const unixTempChars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 // resolveUnixBind returns bind= or a unique unix-bind-tempname path.
-func resolveUnixBind(s parse.Spec) (string, error) {
-	hasTemp := s.HasOption("unix-bind-tempname")
-	hasBind := s.HasOption("bind")
+func resolveUnixBind(s addrconfig.Address) (string, error) {
+	return resolveUnixBindConfig(s)
+}
+
+func resolveUnixBindConfig(config addrconfig.Address) (string, error) {
+	hasTemp := config.Network.UnixBindTempname.Set
+	hasBind := config.Network.BindSet
 	if hasTemp && hasBind {
 		return "", fmt.Errorf("do not use both options bind and unix-bind-tempname")
 	}
 	if !hasTemp {
-		return s.OptionValue("bind", ""), nil
+		return xio.BindHost(config).Original(), nil
 	}
-	o, _ := s.OptionNamed("unix-bind-tempname")
-	pat := ""
-	if o.Has && o.Value != "" && o.Value != "1" {
-		pat = o.Value
+	pat := config.Network.UnixBindTempname.Value
+	if pat == "" || pat == "1" {
+		pat = ""
 	}
 	return unixTempnam(pat)
 }
@@ -66,17 +69,17 @@ func unixTempnam(pattern string) (string, error) {
 	return "", fmt.Errorf("unix-bind-tempname: no free name")
 }
 
-func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("UNIX-CONNECT requires path")
 	}
-	path := unixAddr(s.Params[0])
+	path := unixAddr(s.Network.SocketPath)
 	bindPath, err := resolveUnixBind(s)
 	if err != nil {
 		return nil, err
 	}
 	if bindPath != "" {
-		if strings.HasPrefix(strings.ToUpper(s.Type), "ABSTRACT") {
+		if s.Facts.Kind == addrconfig.AddressKindABSTRACT {
 			bindPath = abstractName(bindPath)
 		} else {
 			bindPath = unixAddr(bindPath)
@@ -87,13 +90,13 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	if err != nil {
 		return nil, err
 	}
-	req := dialRequest{ctx: ctx, spec: s, g: g, timeout: xio.ConnectTimeout(s)}
+	req := dialRequest{ctx: ctx, config: s, g: g, timeout: xio.ConnectTimeout(s)}
 	if network == "unixgram" {
 		return openUnixDgramClient(req, path, bindPath, true)
 	}
 
 	networks := []string{network}
-	autodetect := !explicitType && genericUnixClient(s.Type)
+	autodetect := !explicitType && genericUnixClient(s)
 	if autodetect {
 		if seqpacket, ok := unixSeqpacketNetwork(); ok {
 			networks = append(networks, seqpacket)
@@ -130,7 +133,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	// successful bind. Same helper as datagram; ABSTRACT / unlink-close=0 skip
 	// the unlink.
 	life := trackUnixBind(bindPath, s)
-	if err := xio.ApplyNamedAfterBind(bindPath, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, s, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}
@@ -148,7 +151,7 @@ func openUnixConnect(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Globa
 	return o, nil
 }
 
-func unixSocketNetwork(s parse.Spec) (network string, explicit bool, err error) {
+func unixSocketNetwork(s addrconfig.Address) (network string, explicit bool, err error) {
 	typ, explicit, err := xio.SocketTypeOption(s, syscall.SOCK_STREAM)
 	if err != nil {
 		return "", explicit, err
@@ -168,10 +171,10 @@ func unixSocketNetwork(s parse.Spec) (network string, explicit bool, err error) 
 	}
 }
 
-func genericUnixClient(typ string) bool {
-	switch strings.ToUpper(typ) {
-	case "UNIX", "UNIX-CLIENT", "ABSTRACT-CLIENT":
-		return true
+func genericUnixClient(s addrconfig.Address) bool {
+	switch s.Facts.Kind {
+	case addrconfig.AddressKindUNIX, addrconfig.AddressKindABSTRACT:
+		return s.Facts.Role == addrconfig.AddressRoleOther
 	default:
 		return false
 	}
@@ -183,11 +186,11 @@ func dialUnixNetwork(req dialRequest, path, bindPath string) (net.Conn, error) {
 
 // prepareUnixClientBind runs before a client bind=. unlink-early removes the
 // name; otherwise an existing entry is left for bind(2) to fail with EADDRINUSE.
-func prepareUnixClientBind(path string, s parse.Spec) error {
+func prepareUnixClientBind(path string, config addrconfig.Address) error {
 	if path == "" || xio.IsAbstract(path) {
 		return nil
 	}
-	if !s.BoolOption("unlink-early") {
+	if !config.File.UnlinkEarly.Value {
 		return nil
 	}
 	if err := xio.Unlink(path); err != nil && !os.IsNotExist(err) {
@@ -246,8 +249,9 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bindPath, req.spec)
-	if err := xio.ApplyNamedAfterBind(bindPath, req.spec, nil); err != nil {
+	config := req.config
+	life := trackUnixBind(bindPath, config)
+	if err := xio.ApplyConfiguredNamedAfterBind(bindPath, config, nil); err != nil {
 		life.drop(conn)
 		return nil, err
 	}
@@ -263,7 +267,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 		req.g.PeerAddr = path
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
-		if err := applyUnixgramSocketOptions(uc, req.spec); err != nil {
+		if err := applyUnixgramSocketOptions(uc, req.config); err != nil {
 			life.drop(conn)
 			return nil, err
 		}
@@ -272,7 +276,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	if emptyIsEOF {
 		st = xio.WrapMessageEOF(st)
 	}
-	st, err = xio.WrapOpened(req.spec, st)
+	st, err = xio.WrapOpened(req.config, st)
 	if err != nil {
 		life.drop(conn)
 		return nil, err
@@ -299,16 +303,16 @@ func unixAddr(path string) string {
 }
 
 // openAbstractConnect: ABSTRACT-CONNECT / ABSTRACT-CLIENT stream connect.
-func openAbstractConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openAbstractConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-CONNECT requires name")
 	}
-	name := s.Params[0]
+	name := s.Network.SocketPath
 	if !xio.IsAbstract(name) {
 		name = "@" + name
 	}
 	ps := s
-	ps.Params = []string{name}
+	ps.Network.SocketPath = name
 	return openUnixConnect(ctx, ps, mode, g)
 }
 

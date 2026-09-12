@@ -4,34 +4,11 @@ package xio
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"strings"
 	"syscall"
 	"time"
-
-	"github.com/oittaa/socat/internal/parse"
 )
-
-// SitoutEIO is PTY sitout-eio. Omitted or 0: EIO on the PTY master is EOF
-// (login closed the slave). Positive timeval: poll 10ms loops for
-// 100*sec + ceil(usec/10000) ticks, then return the EIO. The last tick
-// sleeps without another Read.
-func SitoutEIO(s parse.Spec) (time.Duration, error) {
-	if !s.HasOption("sitout-eio") {
-		return 0, nil
-	}
-	o, _ := s.OptionNamed("sitout-eio")
-	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, fmt.Errorf("sitout-eio: option requires a value")
-	}
-	d, err := parseTimeval(o.Value)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("sitout-eio: invalid timeval %q", o.Value)
-	}
-	return d, nil
-}
 
 func wrapSitoutEIORead(r io.Reader, d time.Duration) io.Reader {
 	return &sitoutEIOReader{r: r, d: d}

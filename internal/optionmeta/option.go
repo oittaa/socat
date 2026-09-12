@@ -9,7 +9,6 @@ type Option struct {
 	ParserAliases   []string // Fold during parsing; omitted from help.
 	PublicAliases   []string // Appear in help; do not fold during parsing.
 	Desc            string
-	Value           ValueKind
 	Scope           AddressScope
 	Advertise       AdvertiseOn
 	Hidden          bool

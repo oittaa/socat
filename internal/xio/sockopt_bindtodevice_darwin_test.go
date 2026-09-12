@@ -21,7 +21,7 @@ func TestBindToDeviceUnsupportedOffLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("error=%v want not supported", err)
 	}

@@ -3,22 +3,22 @@ package netopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openUnixListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		// Fail fast: testaddrs uses UNIX-LISTEN::::: probes.
 		return nil, fmt.Errorf("UNIX-LISTEN requires path")
 	}
-	path := s.Params[0]
-	if s.HasOption("bind") {
+	path := s.Network.SocketPath
+	if s.Network.BindSet {
 		// bind= on UNIX-LISTEN is invalid (must not bind twice).
 		return nil, fmt.Errorf("option \"bind\" with UNIX-LISTEN is not supported")
 	}
@@ -41,14 +41,14 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 
 	// Go's UnixListener unlinks the path on Close by default. Match
 	// unlink-close: default true; unlink-close=0 keeps the filesystem entry.
-	doUnlink := !s.HasOption("unlink-close") || s.BoolOption("unlink-close")
+	doUnlink := unixUnlinkOnClose(s)
 	if ul, ok := ln.(*net.UnixListener); ok {
 		ul.SetUnlinkOnClose(doUnlink)
 	}
 
 	// mode/perm/user then perm-early/user-early/group-early on the socket
 	// file after bind.
-	if err := xio.ApplyNamedAfterBind(path, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(path, s, nil); err != nil {
 		_ = ln.Close()
 		if !xio.IsAbstract(path) {
 			_ = xio.Unlink(path)
@@ -87,11 +87,11 @@ func openUnixListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global
 }
 
 // openAbstractListen: ABSTRACT-LISTEN:name — stream listen in Linux abstract namespace.
-func openAbstractListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
+func openAbstractListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if s.Network.SocketPath == "" {
 		return nil, fmt.Errorf("ABSTRACT-LISTEN requires name")
 	}
-	name := s.Params[0]
+	name := s.Network.SocketPath
 	if !xio.IsAbstract(name) {
 		name = "@" + name
 	}
@@ -125,7 +125,7 @@ func openAbstractListen(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Gl
 	})
 }
 
-func applyAbstractListenerFDPhase(ln net.Listener, s parse.Spec) error {
+func applyAbstractListenerFDPhase(ln net.Listener, s addrconfig.Address) error {
 	sc, ok := ln.(syscall.Conn)
 	if !ok {
 		return fmt.Errorf("%s: listener does not expose a descriptor", s.Type)

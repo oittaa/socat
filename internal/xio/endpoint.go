@@ -7,11 +7,11 @@ import (
 	"io"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
@@ -112,9 +112,9 @@ type globalOptions struct {
 	Verbose      bool
 	Hex          bool
 	Dump         io.Writer
-	DumpFDs      bool      // -D: filan-style dump of channel descriptors
-	DumpFDOut    io.Writer // defaults to stderr; independent of -l* destinations
-	LogFacility  string    // syslog facility for -ly/-lm
+	DumpFDs      bool          // -D: filan-style dump of channel descriptors
+	DumpFDOut    io.Writer     // defaults to stderr; independent of -l* destinations
+	LogFacility  logx.Facility // syslog facility for -ly/-lm
 	Statistics   bool
 	Experimental bool // --experimental (netns= warning)
 	// -r / -R path templates. Files live on sniffFiles, opened after peer is known.
@@ -309,8 +309,9 @@ type Opened struct {
 	closeOnce  sync.Once
 	closeErr   error
 
-	// NoForkSpec is KindExec: EXEC/SYSTEM,nofork started in Run with the peer FD as stdio.
-	NoForkSpec *parse.Spec
+	// NoForkConfig is KindExec: EXEC/SYSTEM/SHELL,nofork started in Run with
+	// the peer FD as stdio.
+	NoForkConfig *addrconfig.Address
 	// childDone closes when an EXEC/SYSTEM/SHELL child exits. Fork loops with
 	// max-children retain their slot until that process, not just its relay,
 	// has finished.
@@ -438,20 +439,33 @@ type EOFReader struct{}
 
 func (EOFReader) Read([]byte) (int, error) { return 0, io.EOF }
 
-// OpenChannel opens a parsed address channel.
+// OpenChannel prepares and opens a parsed address channel.
 func OpenChannel(ctx context.Context, ch parse.Channel, mode Mode, g *Global) (*Opened, error) {
-	if ch.IsDual() {
-		return openDual(ctx, ch.Dual, g)
+	prepared, err := PrepareChannel(ch)
+	if err != nil {
+		return nil, err
 	}
-	return OpenSpec(ctx, *ch.Single, mode, g)
+	return OpenPreparedChannel(ctx, prepared, mode, g)
 }
 
-func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
-	left, err := OpenSpec(ctx, d.Left, ModeRead, g)
+// OpenPreparedChannel opens a previously prepared channel without repeating
+// registry resolution or common static decoding.
+func OpenPreparedChannel(ctx context.Context, ch PreparedChannel, mode Mode, g *Global) (*Opened, error) {
+	if ch.IsDual() {
+		return openPreparedDual(ctx, ch.Dual, g)
+	}
+	if ch.Single == nil {
+		return nil, fmt.Errorf("xio: empty channel")
+	}
+	return OpenPreparedSpec(ctx, *ch.Single, mode, g)
+}
+
+func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened, error) {
+	left, err := OpenPreparedSpec(ctx, d.Left, ModeRead, g)
 	if err != nil {
 		return nil, fmt.Errorf("dual read side: %w", err)
 	}
-	right, err := OpenSpec(ctx, d.Right, ModeWrite, g)
+	right, err := OpenPreparedSpec(ctx, d.Right, ModeWrite, g)
 	if err != nil {
 		logx.CloseQuiet(left)
 		return nil, fmt.Errorf("dual write side: %w", err)
@@ -475,56 +489,37 @@ func openDual(ctx context.Context, d *parse.Dual, g *Global) (*Opened, error) {
 	return o, nil
 }
 
-// OpenSpec opens a single address type.
+// OpenSpec prepares and opens a single address.
 func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	orig := strings.ToUpper(s.Type)
-	s.Type = orig
-	fn, ok := lookupOpener(s.Type)
-	if !ok {
-		return nil, fmt.Errorf("unknown device/address \"%s\"", orig)
-	}
-	// Rewrite to the registered keyword so Type-based opener logic (chdir
-	// UNIX paths, ABSTRACT-CLIENT autodetect, family openers) sees the
-	// canonical name. Direct registrations such as TCP-L keep their own name.
-	if d, ok := registeredAddresses.resolve(s.Type); ok {
-		s.Type = d.Name
-		warnAddressMode(g, mode, d.Directions)
-	}
-	var err error
-	// Process-wide setuid/chroot/substuser names are recognized so the
-	// error explains the isolation requirement instead of "unknown option".
-	if err := RejectUnsupportedIsolation(s); err != nil {
-		return nil, err
-	}
-	s, err = ResolveChdirPaths(s)
+	prepared, err := PrepareSpec(s)
 	if err != nil {
 		return nil, err
 	}
-	if err := RejectUnsupportedIPAncillary(s); err != nil {
-		return nil, err
+	return OpenPreparedSpec(ctx, prepared, mode, g)
+}
+
+// OpenPreparedSpec opens a prepared address. Resource acquisition and
+// namespace work stay here so preparation never changes their lifetime.
+// Static option and platform checks already ran in PrepareSpec.
+func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, g *Global) (*Opened, error) {
+	if d, ok := registeredAddresses.resolve(prepared.Config.Type); ok {
+		warnAddressMode(g, mode, d.Directions)
 	}
-	if err := RejectUnsupportedTermios(s); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedRecvErr(s); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedRemainingIPv4(s); err != nil {
-		return nil, err
-	}
-	if err := RejectUnsupportedListenBacklog(s); err != nil {
+	var err error
+	prepared.Config, err = ResolvePreparedPaths(prepared.Config)
+	if err != nil {
 		return nil, err
 	}
 	// lockfile=/waitlock= after chdir= rewrite and before the opener so a
 	// failed open still releases.
-	release, err := applyAddressLock(ctx, s)
+	release, err := applyAddressLock(ctx, prepared.Config)
 	if err != nil {
 		return nil, err
 	}
 	var o *Opened
-	err = WithNetNS(s, g, func() error {
+	err = WithNetNS(prepared.Config.Common.NetNamespace.Value, g, func() error {
 		var e error
-		o, e = fn(ctx, s, mode, g)
+		o, e = prepared.opener(ctx, prepared.Config, mode, g)
 		return e
 	})
 	if err != nil {
@@ -542,13 +537,8 @@ func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened,
 	if release != nil {
 		o.AddCleanup(release)
 	}
-	if value, ok := optionValueAny(s, "children-shutup", "child-shutup"); ok {
-		n, parseErr := ParseIntAny(value)
-		if parseErr != nil || n < 0 {
-			_ = o.Close()
-			return nil, fmt.Errorf("children-shutup: invalid value %q", value)
-		}
-		o.ChildrenShutup = n
+	if prepared.Config.Common.ChildrenShutup.Set {
+		o.ChildrenShutup = prepared.Config.Common.ChildrenShutup.Value
 	}
 	return o, nil
 }
@@ -586,5 +576,5 @@ func modeAccText(m Mode) string {
 	}
 }
 
-// Opener opens one address type.
-type Opener func(context.Context, parse.Spec, Mode, *Global) (*Opened, error)
+// Opener opens one address type from prepared settings.
+type Opener func(context.Context, addrconfig.Address, Mode, *Global) (*Opened, error)

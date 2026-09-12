@@ -17,7 +17,7 @@ func TestListenControlAppliesMulticastTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := net.ListenConfig{Control: ListenControl(spec)}
+	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
 	pc, err := lc.ListenPacket(context.Background(), "udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -38,7 +38,7 @@ func TestDialControlAppliesIPv6MulticastLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
 	c, err := d.Dial("udp6", "[::1]:9")
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +55,7 @@ func TestIPv4SocketRejectsIPv6MulticastLoop(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp4", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp4", nil)}
 	c, err := d.Dial("udp4", "127.0.0.1:9")
 	if c != nil {
 		_ = c.Close()
@@ -70,10 +70,10 @@ func TestIPv6RecvErrRejectedAtOpenSpecAndDialControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RejectUnsupportedRecvErr(spec); err == nil || !strings.Contains(err.Error(), "not supported") {
+	if err := RejectUnsupportedRecvErr(mustDecodeAddress(t, spec)); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("RejectUnsupportedRecvErr=%v", err)
 	}
-	d := &net.Dialer{Control: DialControl(spec, "udp6", nil)}
+	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
 	c, err := d.Dial("udp6", "[::1]:9")
 	if c != nil {
 		_ = c.Close()

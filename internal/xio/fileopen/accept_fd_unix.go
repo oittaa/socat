@@ -6,12 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"os"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -26,7 +26,7 @@ func init() {
 // descriptor, socket, connected, then late options.
 // fork, range, sourceport, lowport, and tcpwrap apply to IP and UNIX
 // listeners, not only TCP. ACCEPT is the public alias of ACCEPT-FD.
-func openAcceptFDNum(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
+func openAcceptFDNum(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
 	setInheritedFDCloexec(fd, g)
 	if _, err := unix.Getsockname(fd); err != nil {
 		if g != nil && g.Log != nil {
@@ -121,7 +121,7 @@ func rejectIfNotListening(fd int) error {
 	return fmt.Errorf("ACCEPT-FD:%d: %w", fd, err)
 }
 
-func applyAcceptFDAcceptedOpts(s parse.Spec, c net.Conn) error {
+func applyAcceptFDAcceptedOpts(s addrconfig.Address, c net.Conn) error {
 	if sc, ok := c.(syscall.Conn); ok {
 		// After open, then after socket(), then after connect/accept.
 		// Late options follow in ApplyStreamLateOptions.

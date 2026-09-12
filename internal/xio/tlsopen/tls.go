@@ -8,35 +8,35 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"strings"
+	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/optionmeta"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
 // openTLSConnect implements TLS/TLS-CONNECT (and OPENSSL/SSL aliases).
-func openTLSConnect(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTLSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Dual-stack like TCP-CONNECT; pf=ip4/ip6 still forces a family.
 	return openTLSConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
 }
 
-func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
+func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+	if !s.Network.TargetSet {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	if host == "" || port == "" {
+	target, port := s.Network.Target, s.Network.TargetPort
+	host := target.String()
+	if target.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Dual-stack + pf= like TCP-CONNECT.
-	network = xio.ConnectNetworkForType(g, s, host, network)
-	addr := net.JoinHostPort(xio.StripBrackets(host), port)
+	network = xio.ConnectNetworkForType(g, s, target, network)
+	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 
-	tlsCfg, err := tlsClientConfig(s, host)
+	tlsCfg, err := tlsClientConfigForContext(ctx, s, host)
 	if err != nil {
 		return nil, err
 	}
@@ -48,22 +48,18 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 	// then TLS on the winning socket.
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {
 			cctx := dctx
 			var cancel context.CancelFunc
 			if timeout > 0 {
 				cctx, cancel = context.WithTimeout(dctx, timeout)
 				defer cancel()
 			}
-			raw, e := xio.DialTCPAll(cctx, xio.DialTarget{Network: network, Host: host, Port: port}, s, g, timeout, nil)
+			raw, e := xio.DialTCPAll(cctx, xio.DialTarget{Network: network, Host: target, Port: port}, s, g, timeout, nil)
 			if e != nil {
 				return e
 			}
-			timeoutRaw, e := xio.NewSocketTimeoutConn(s, raw)
-			if e != nil {
-				logx.CloseQuiet(raw)
-				return e
-			}
+			timeoutRaw := xio.NewSocketTimeoutConn(raw, s.Common.ReadTimeout.Value, s.Common.WriteTimeout.Value)
 			// Clone config per dial so concurrent handshake state stays isolated.
 			cfg := tlsCfg.Clone()
 			tc := tls.Client(timeoutRaw, cfg)
@@ -102,26 +98,23 @@ func openTLSConnectNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio
 
 // openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
-func openTLSListen(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openTLSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	netw := xio.ListenNetwork(g, s)
 	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
-	if netw == "tcp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		netw = "tcp"
-	}
-	return openTLSListenNetwork(ctx, s, mode, g, netw)
+	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(s, netw))
 }
 
-func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
-	if len(s.Params) < 1 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
+func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
+	port, err := xio.ListenPort(s)
+	if err != nil {
+		return nil, err
 	}
-	port := s.Params[0]
 	addr, err := xio.TCPListenAddress(ctx, s, network, port)
 	if err != nil {
 		return nil, err
 	}
 
-	tlsCfg, err := tlsServerConfig(s)
+	tlsCfg, err := tlsServerConfigForContext(ctx, s)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +123,11 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	if err != nil {
 		return nil, err
 	}
-	tlsLn := tls.NewListener(&socketTimeoutListener{Listener: ln, spec: s}, tlsCfg)
+	tlsLn := tls.NewListener(&socketTimeoutListener{
+		Listener:     ln,
+		readTimeout:  s.Common.ReadTimeout.Value,
+		writeTimeout: s.Common.WriteTimeout.Value,
+	}, tlsCfg)
 
 	wrapConn := func(c net.Conn) (relay.Stream, error) {
 		xio.EnableSocketTimeouts(c)
@@ -147,7 +144,7 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener:         tlsLn,
-		Label:            s.Type + ":" + port,
+		Label:            s.Type + ":" + port.Text(),
 		WrapDial:         wrapConn,
 		HandshakeTimeout: handshakeTimeout,
 		ListeningLog:     fmt.Sprintf("listening on %s (TLS)", tlsLn.Addr()),
@@ -159,7 +156,8 @@ func openTLSListenNetwork(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.
 
 type socketTimeoutListener struct {
 	net.Listener
-	spec parse.Spec
+	readTimeout  time.Duration
+	writeTimeout time.Duration
 }
 
 func (l *socketTimeoutListener) Accept() (net.Conn, error) {
@@ -167,115 +165,89 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	wrapped, err := xio.NewSocketTimeoutConn(l.spec, conn)
-	if err != nil {
-		logx.CloseQuiet(conn)
-		return nil, err
-	}
-	return wrapped, nil
+	return xio.NewSocketTimeoutConn(conn, l.readTimeout, l.writeTimeout), nil
 }
 
 // TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
-func TLSClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
-	return tlsClientConfig(s, serverName)
+func TLSClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
+	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
+}
+
+func tlsClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
+	return TLSClientConfig(s, serverName)
 }
 
 // TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
-func TLSServerConfig(s parse.Spec) (*tls.Config, error) {
-	return tlsServerConfig(s)
+func TLSServerConfig(s addrconfig.Address) (*tls.Config, error) {
+	return TLSServerConfigSettings(s.Type, s.TLS)
 }
 
-func rejectUnsupportedOpenSSLOptions(s parse.Spec) error {
-	typ := s.Type
+func tlsServerConfig(s addrconfig.Address) (*tls.Config, error) {
+	return TLSServerConfig(s)
+}
+
+func rejectUnsupportedOpenSSLOptions(settings addrconfig.TLS, typ string) error {
 	if typ == "" {
 		typ = "TLS"
 	}
-	seen := make(map[string]struct{})
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		option := s.Options[i]
-		canonical := parse.CanonicalOptionName(option.Name)
-		def, ok := optionmeta.Lookup(canonical)
-		if !ok || def.TLSRejectReason == "" {
-			continue
-		}
-		if _, ok := seen[canonical]; ok {
-			continue
-		}
-		seen[canonical] = struct{}{}
-		if compatibleDisabledOpenSSLOption(canonical, option) {
-			continue
-		}
-		return fmt.Errorf("%s: option %q is not supported (%s)", typ, option.OriginalSpelling(), def.TLSRejectReason)
+	if settings.UnsupportedSet {
+		return fmt.Errorf("%s: option %q is not supported (%s)", typ, settings.UnsupportedName, settings.UnsupportedReason)
 	}
 	return nil
 }
 
-func rejectTLSNamesOnPlaintext(s parse.Spec, includePublic bool) error {
-	typ := s.Type
+func rejectTLSNamesOnPlaintext(typ string, settings addrconfig.TLS, includePublic bool) error {
 	if typ == "" {
 		typ = "address"
 	}
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		option := s.Options[i]
-		canonical := parse.CanonicalOptionName(option.Name)
-		def, ok := optionmeta.Lookup(canonical)
-		if !ok {
-			continue
-		}
-		hiddenTLS := def.Hidden && def.TLSRejectReason != ""
-		publicTLS := includePublic && def.PublicTLS
-		if !hiddenTLS && !publicTLS {
-			continue
-		}
-		return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, option.OriginalSpelling())
+	name := settings.LastHiddenName
+	if includePublic {
+		name = settings.LastPlaintextName
 	}
-	return nil
+	if name == "" {
+		return nil
+	}
+	return fmt.Errorf("%s: option %q does not apply to a plaintext transport", typ, name)
 }
 
 // RejectHiddenTLSOnPlaintext fails when a hidden OpenSSL family is present on
 // a path that will not configure TLS. Call after the opener has chosen a
 // plaintext transport. Last-wins selects the spelling in the error.
-func RejectHiddenTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, false)
+func RejectHiddenTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
+	return rejectTLSNamesOnPlaintext(typ, settings, false)
 }
 
 // RejectPROXYTLSOnPlaintext fails when a hidden or public TLS family is present
 // on plaintext PROXY (HTTP/1 CONNECT or h2c). Call after HTTP-version / h2c
 // dispatch. Last-wins selects the spelling in the error.
-func RejectPROXYTLSOnPlaintext(s parse.Spec) error {
-	return rejectTLSNamesOnPlaintext(s, true)
+func RejectPROXYTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
+	return rejectTLSNamesOnPlaintext(typ, settings, true)
 }
 
-func compatibleDisabledOpenSSLOption(canonical string, option parse.Option) bool {
-	switch canonical {
-	case "openssl-fips", "openssl-pseudo":
-		one := parse.Spec{Options: []parse.Option{option}}
-		return !one.BoolOption(canonical)
-	case "openssl-compress":
-		return option.Has && strings.EqualFold(strings.TrimSpace(option.Value), "none")
-	default:
-		return false
-	}
+func tlsClientConfigForContext(ctx context.Context, s addrconfig.Address, serverName string) (*tls.Config, error) {
+	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
 }
 
-func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
-	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
+// TLSClientConfigSettings builds a client config from prepared TLS settings.
+// s remains only for the temporary compatibility rejection adapter.
+func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
+	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err
 	}
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
-	if err := applyProtocolVersions(cfg, s); err != nil {
+	if err := applyProtocolVersions(cfg, settings); err != nil {
 		return nil, err
 	}
-	if err := applyCipherSuites(cfg, s); err != nil {
-		return nil, err
+	if len(settings.CipherSuites) != 0 {
+		cfg.CipherSuites = append([]uint16(nil), settings.CipherSuites...)
 	}
 	// Name used for hostname check / SNI.
 	// Without commonname, verify against the dial host (IP must not auto-pass).
 	// Empty commonname= skips the name check.
 	dialHost := xio.StripBrackets(serverName)
-	cnOpt, cnSet := commonNameOption(s)
+	cnOpt, cnSet := settings.CommonName.Value, settings.CommonName.Set
 	checkName := dialHost
 	if cnSet {
 		checkName = cnOpt
@@ -283,8 +255,8 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 
 	// SNI: nosni / snihost (openssl-no-sni / openssl-snihost aliases).
 	// Empty commonname= does not clear SNI; use snihost= / nosni for that.
-	noSNI := s.BoolOption("nosni")
-	sniHost := s.OptionValue("snihost", "")
+	noSNI := settings.NoSNI.Set && settings.NoSNI.Value
+	sniHost := settings.SNIHost.Value
 	if !noSNI {
 		if sniHost != "" {
 			cfg.ServerName = sniHost
@@ -293,10 +265,10 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 		}
 	}
 
-	if !verifyEnabled(s) {
+	if settings.Verify.Set && !settings.Verify.Value {
 		cfg.InsecureSkipVerify = true
 	} else {
-		roots, err := loadVerifyRoots(s)
+		roots, err := loadVerifyRootsForPaths(settings.CAFile.Value, settings.CAPath.Value)
 		if err != nil {
 			return nil, err
 		}
@@ -311,8 +283,8 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	}
 
 	// Client certificate (mutual TLS)
-	certPath := s.OptionValue("cert", "")
-	keyPath := s.OptionValue("key", "")
+	certPath := settings.Certificate.Value
+	keyPath := settings.Key.Value
 	if certPath != "" {
 		cert, err := loadKeyPair(certPath, keyPath)
 		if err != nil {
@@ -323,14 +295,19 @@ func tlsClientConfig(s parse.Spec, serverName string) (*tls.Config, error) {
 	return cfg, nil
 }
 
-func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
-	if err := rejectUnsupportedOpenSSLOptions(s); err != nil {
+func tlsServerConfigForContext(ctx context.Context, s addrconfig.Address) (*tls.Config, error) {
+	return TLSServerConfigSettings(s.Type, s.TLS)
+}
+
+// TLSServerConfigSettings builds a server config from prepared TLS settings.
+// s remains only for the temporary compatibility rejection adapter.
+func TLSServerConfigSettings(typ string, settings addrconfig.TLS) (*tls.Config, error) {
+	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err
 	}
-	certPath := s.OptionValue("cert", "")
-	keyPath := s.OptionValue("key", "")
+	certPath := settings.Certificate.Value
+	keyPath := settings.Key.Value
 	if certPath == "" {
-		typ := s.Type
 		if typ == "" {
 			typ = "TLS-LISTEN"
 		}
@@ -346,23 +323,23 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 		Certificates: []tls.Certificate{cert},
 		MinVersion:   tls.VersionTLS12,
 	}
-	if err := applyProtocolVersions(cfg, s); err != nil {
+	if err := applyProtocolVersions(cfg, settings); err != nil {
 		return nil, err
 	}
-	if err := applyCipherSuites(cfg, s); err != nil {
-		return nil, err
+	if len(settings.CipherSuites) != 0 {
+		cfg.CipherSuites = append([]uint16(nil), settings.CipherSuites...)
 	}
 
 	// verify=0 does not request a client cert; commonname is ignored
 	// (name check runs only when verify is on).
-	if !verifyEnabled(s) {
+	if settings.Verify.Set && !settings.Verify.Value {
 		cfg.ClientAuth = tls.NoClientCert
 		return cfg, nil
 	}
 
-	cnWant, _ := commonNameOption(s)
+	cnWant := settings.CommonName.Value
 	// Empty cafile/capath uses the system verify pool.
-	roots, err := loadVerifyRoots(s)
+	roots, err := loadVerifyRootsForPaths(settings.CAFile.Value, settings.CAPath.Value)
 	if err != nil {
 		return nil, err
 	}
@@ -375,38 +352,15 @@ func tlsServerConfig(s parse.Spec) (*tls.Config, error) {
 	return cfg, nil
 }
 
-func applyProtocolVersions(cfg *tls.Config, s parse.Spec) error {
-	if opt, ok := s.OptionNamed("openssl-min-proto-version"); ok {
-		version, err := parseProtocolVersion(opt.Value)
-		if err != nil {
-			return fmt.Errorf("openssl-min-proto-version: %w", err)
-		}
-		cfg.MinVersion = version
+func applyProtocolVersions(cfg *tls.Config, settings addrconfig.TLS) error {
+	if settings.MinVersion != 0 {
+		cfg.MinVersion = settings.MinVersion
 	}
-	if opt, ok := s.OptionNamed("openssl-max-proto-version"); ok {
-		version, err := parseProtocolVersion(opt.Value)
-		if err != nil {
-			return fmt.Errorf("openssl-max-proto-version: %w", err)
-		}
-		cfg.MaxVersion = version
+	if settings.MaxVersion != 0 {
+		cfg.MaxVersion = settings.MaxVersion
 	}
 	if cfg.MaxVersion != 0 && cfg.MinVersion > cfg.MaxVersion {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
 	}
 	return nil
-}
-
-func parseProtocolVersion(value string) (uint16, error) {
-	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "TLS1", "TLS1.0", "TLSV1", "TLSV1.0":
-		return tls.VersionTLS10, nil
-	case "TLS1.1", "TLSV1.1":
-		return tls.VersionTLS11, nil
-	case "TLS1.2", "TLSV1.2":
-		return tls.VersionTLS12, nil
-	case "TLS1.3", "TLSV1.3":
-		return tls.VersionTLS13, nil
-	default:
-		return 0, fmt.Errorf("unsupported protocol version %q", value)
-	}
 }

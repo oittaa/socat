@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func TestProxyHTTP1RejectsOversizedResponseLine(t *testing.T) {
@@ -50,16 +50,12 @@ func testOversizedProxyResponse(t *testing.T, response string) {
 		done <- err
 	}()
 
-	s, err := parse.ParseSpec("PROXY:proxy.example:target.example:443")
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	type result struct{ err error }
 	resultCh := make(chan result, 1)
 	go func() {
-		_, err := proxyHTTP1Handshake(client, s, "192.0.2.1", "443", "1.0")
+		_, err := proxyHTTP1Handshake(client, addrconfig.Proxy{}, "192.0.2.1", 443, "1.0")
 		resultCh <- result{err: err}
 	}()
 	select {

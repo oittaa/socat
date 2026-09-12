@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
 )
 
@@ -55,6 +56,9 @@ type AddressDesc struct {
 	Opener      Opener        // Opener function handling this address
 	OptionCaps  []string      // Address capability tokens for option-scope checks
 	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
+	Kind        addrconfig.AddressKind
+	Role        addrconfig.AddressRole
+	Family      addrconfig.IPFamily
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
 }
@@ -171,18 +175,6 @@ func Register(name string, fn Opener) {
 	})
 }
 
-func lookupOpener(typ string) (Opener, bool) {
-	return registeredAddresses.opener(typ)
-}
-
-func (r *addressRegistry) opener(typ string) (Opener, bool) {
-	d, ok := r.resolve(typ)
-	if !ok || d.Opener == nil {
-		return nil, false
-	}
-	return d.Opener, true
-}
-
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
 // entries win. Otherwise Aliases on a registered descriptor are applied.
 // Unsupported families (DCCP, UDP-Lite, readline) stay unknown because
@@ -234,6 +226,9 @@ type AddressRegistration struct {
 	Syntax     string
 	Enabled    bool
 	OptionCaps []string
+	Kind       addrconfig.AddressKind
+	Role       addrconfig.AddressRole
+	Family     addrconfig.IPFamily
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -290,6 +285,9 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 		Syntax:     d.Syntax,
 		Enabled:    d.Enabled == nil || d.Enabled(),
 		OptionCaps: append([]string(nil), d.OptionCaps...),
+		Kind:       d.Kind,
+		Role:       d.Role,
+		Family:     d.Family,
 	}
 }
 

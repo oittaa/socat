@@ -3,21 +3,21 @@ package xio
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"strconv"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // ListenPacketWithOptions prepares an unconnected UDP transport socket.
-func ListenPacketWithOptions(ctx context.Context, network, addr string, s parse.Spec) (net.PacketConn, error) {
+func ListenPacketWithOptions(ctx context.Context, network string, host addrconfig.HostTarget, port addrconfig.PortTarget, s addrconfig.Address) (net.PacketConn, error) {
 	if timeout := ConnectTimeout(s); timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	laddr, err := ResolveUDPAddr(ctx, s, network, addr)
+	laddr, err := ResolveUDPTarget(ctx, s, network, host, port)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func ListenPacketWithOptions(ctx context.Context, network, addr string, s parse.
 	if err != nil {
 		return nil, err
 	}
-	for _, apply := range []func(net.PacketConn, parse.Spec) error{
+	for _, apply := range []func(net.PacketConn, addrconfig.Address) error{
 		ApplyLateSocketOptionsToPacketConn, ApplyFDLifecycleToPacketConn,
 	} {
 		if err := apply(pc, s); err != nil {
@@ -43,23 +43,23 @@ func ListenPacketWithOptions(ctx context.Context, network, addr string, s parse.
 }
 
 // ListenClientPacket binds sourceport, or a reserved port when lowport is set.
-func ListenClientPacket(ctx context.Context, network, bindHost, sourceport string, s parse.Spec, g *Global) (net.PacketConn, error) {
-	bind := func(port string) (net.PacketConn, error) {
-		return ListenPacketWithOptions(ctx, network, net.JoinHostPort(StripBrackets(bindHost), port), s)
+func ListenClientPacket(ctx context.Context, network string, host addrconfig.HostTarget, port addrconfig.PortTarget, s addrconfig.Address, g *Global) (net.PacketConn, error) {
+	bind := func(p addrconfig.PortTarget) (net.PacketConn, error) {
+		return ListenPacketWithOptions(ctx, network, host, p, s)
 	}
-	if !s.BoolOption("lowport") || (sourceport != "" && sourceport != "0") {
-		if sourceport == "" {
-			sourceport = "0"
+	if !ClientUsesLowport(s) || (!port.Empty() && !port.IsZero()) {
+		if port.Empty() {
+			port = addrconfig.PortFromText("0")
 		}
-		return bind(sourceport)
+		return bind(port)
 	}
 	var pc net.PacketConn
-	_, err := FirstAvailableLowport(func(port int) error {
+	_, err := FirstAvailableLowport(func(p int) error {
 		if g != nil && g.Log != nil {
-			g.Log.Debugf("bind(%s:%d)", bindHost, port)
+			g.Log.Debugf("bind(%s:%d)", host.Original(), p)
 		}
 		var err error
-		pc, err = bind(strconv.Itoa(port))
+		pc, err = bind(addrconfig.PortFromText(strconv.Itoa(p)))
 		return err
 	})
 	if err != nil {

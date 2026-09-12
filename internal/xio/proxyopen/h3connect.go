@@ -6,15 +6,14 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"net/http"
-	"strconv"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -26,70 +25,26 @@ var testHookH3PacketConn func(net.PacketConn)
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
 // IP/ancillary options apply after socket() and before bind, instead of
 // http3.Transport creating its own UDP socket and ignoring those options.
-func listenH3Packet(ctx context.Context, s parse.Spec, g *xio.Global, proxyHost string) (net.PacketConn, string, error) {
+func listenH3Packet(ctx context.Context, s addrconfig.Address, g *xio.Global, proxyHost addrconfig.HostTarget) (net.PacketConn, string, error) {
 	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, proxyHost, "tcp"))
 	netw, err := xio.PacketNetworkForHost(ctx, s, network, proxyHost)
 	if err != nil {
 		return nil, "", err
 	}
 	network = netw
-	bindHost, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	bindHost, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, "", err
 	}
-	sourceport := s.OptionValue("sourceport", "")
-	lc := net.ListenConfig{Control: xio.ListenControl(s)}
-	listen := func(port string) (net.PacketConn, error) {
-		laddr := net.JoinHostPort(xio.StripBrackets(bindHost), port)
-		resolved, resolveErr := xio.ResolveUDPAddr(ctx, s, network, laddr)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		return lc.ListenPacket(ctx, network, resolved.String())
-	}
-	var pc net.PacketConn
-	if s.BoolOption("lowport") && (sourceport == "" || sourceport == "0") {
-		_, err = xio.FirstAvailableLowport(func(port int) error {
-			if g != nil && g.Log != nil {
-				g.Log.Debugf("bind(%s:%d)", bindHost, port)
-			}
-			pc, err = listen(strconv.Itoa(port))
-			return err
-		})
-		if err != nil {
-			return nil, "", fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
-		}
-	} else {
-		if sourceport == "" {
-			sourceport = "0"
-		}
-		pc, err = listen(sourceport)
-	}
+	pc, err := xio.ListenClientPacket(ctx, network, bindHost, xio.ClientLocalPort(s), s, g)
 	if err != nil {
-		return nil, "", err
-	}
-	// The explicit PacketConn must carry the same post-bind phases as direct
-	// QUIC. Otherwise options accepted on PROXY,http-version=3 would become
-	// silent no-ops merely because http3.Transport no longer owns the socket.
-	if err := xio.ApplyLateSocketOptionsToPacketConn(pc, s); err != nil {
-		_ = pc.Close()
-		return nil, "", err
-	}
-	// Descriptor lifecycle on the HTTP/3 UDP socket before quic-go wrapping.
-	// Never accept append/perm on the stream wrapper.
-	if err := xio.ApplyFDLifecycleToPacketConn(pc, s); err != nil {
-		_ = pc.Close()
-		return nil, "", err
-	}
-	if err := xio.ApplyGenericSetsockoptToPacketConn(pc, s, xio.SockoptPhaseConnected); err != nil {
-		_ = pc.Close()
 		return nil, "", err
 	}
 	return pc, network, nil
 }
 
-func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	tlsCfg, err := tlsopen.TLSClientConfig(s, t.proxyHost)
+func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t proxyTarget) (net.Conn, error) {
+	tlsCfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, t.proxyHost.String())
 	if err != nil {
 		return nil, err
 	}
@@ -97,15 +52,19 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	if tlsCfg.MinVersion < tls.VersionTLS13 {
 		tlsCfg.MinVersion = tls.VersionTLS13
 	}
-	tlsCfg.NextProtos = []string{proxyALPN(s, http3.NextProtoH3)}
+	tlsCfg.NextProtos = []string{proxyALPN(s.TLS, http3.NextProtoH3)}
 
-	u := "https://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
-	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	proxyPort, err := xio.ResolvePort("udp", t.proxyPort)
+	if err != nil {
+		return nil, err
+	}
+	u := "https://" + proxyCONNECTTarget(t.proxyHost.String(), proxyPort) + "/"
+	authority := proxyCONNECTTarget(t.connectHost, t.connectPort)
 	attemptTimeout := xio.CombinedConnectHandshakeTimeout(s)
 	idle := xio.QUICHandshakeIdleTimeout(s)
 
 	var conn net.Conn
-	err = xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
+	err = xio.WithRetry(ctx, g, s.Common.Retry.Policy(), "PROXY-CONNECT", func() error {
 		cctx, stopTimer, cancelHandshake := proxyHandshakeContext(ctx, attemptTimeout)
 		pc, network, e := listenH3Packet(cctx, s, g, t.proxyHost)
 		if e != nil {
@@ -120,8 +79,8 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		tr := &http3.Transport{
 			TLSClientConfig: tlsCfg.Clone(),
 			QUICConfig:      &quic.Config{HandshakeIdleTimeout: idle},
-			Dial: func(dctx context.Context, addr string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
-				raddr, resolveErr := xio.ResolveUDPAddr(dctx, s, network, addr)
+			Dial: func(dctx context.Context, _ string, tlsCfg *tls.Config, cfg *quic.Config) (*quic.Conn, error) {
+				raddr, resolveErr := xio.ResolveUDPTarget(dctx, s, network, t.proxyHost, t.proxyPort)
 				if resolveErr != nil {
 					return nil, resolveErr
 				}
@@ -147,7 +106,7 @@ func dialH3CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 		}
 		req.Host = authority
 		req.ContentLength = -1
-		if auth, e := proxyAuthString(s); e != nil {
+		if auth, e := proxyAuthString(s.Proxy); e != nil {
 			_ = pw.Close()
 			return e
 		} else if auth != "" {

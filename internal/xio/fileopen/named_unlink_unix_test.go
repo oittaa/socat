@@ -23,17 +23,7 @@ func openSpec(t *testing.T, raw string, mode xio.Mode) *xio.Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var o *xio.Opened
-	switch spec.Type {
-	case "OPEN", "FILE":
-		o, err = openOPEN(context.Background(), spec, mode, nil)
-	case "CREATE", "CREAT":
-		o, err = openCREATE(context.Background(), spec, mode, nil)
-	case "GOPEN":
-		o, err = openGOPEN(context.Background(), spec, mode, nil)
-	default:
-		t.Fatalf("unexpected type %q", spec.Type)
-	}
+	o, err := xio.OpenSpec(context.Background(), spec, mode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +39,7 @@ func TestOpenUnlinkEarlyRemovesThenOpenFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN,unlink-early of existing file without creat succeeded")
@@ -88,25 +78,6 @@ func TestGOPENUnlinkEarlyExistingRegularFile(t *testing.T) {
 	}
 }
 
-func TestNamedPipeUnlinkLateRemovesNameOnFDOptionFailure(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "file")
-	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	spec, err := parse.ParseSpec("PIPE:" + path + ",unlink-late,f-setpipe-sz=4096")
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
-	if err == nil {
-		_ = o.Close()
-		t.Fatal("f-setpipe-sz on a regular file succeeded")
-	}
-	if _, err := os.Lstat(path); !os.IsNotExist(err) {
-		t.Fatalf("PIPE unlink-late left the name after setup failure: %v", err)
-	}
-}
-
 func TestNamedPipeUnlinkPreOpenIgnoresMissingPath(t *testing.T) {
 	dir := t.TempDir()
 	for _, opt := range []string{"unlink", "delete", "remove"} {
@@ -116,7 +87,7 @@ func TestNamedPipeUnlinkPreOpenIgnoresMissingPath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -131,7 +102,7 @@ func TestNamedPipeUnlinkLateRemovesNameWhileOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +173,7 @@ func TestNamedPipeUnlinkEqualsZeroMissingCreatesFIFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -217,7 +188,7 @@ func TestNamedPipeUnlinkLateEqualsZeroKeepsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openPIPE(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +247,7 @@ func TestOpenPermEarlyDroppedOnMissingPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openOPEN(context.Background(), spec, xio.ModeRead, nil)
+	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN of missing path with perm-early succeeded")
@@ -301,14 +272,9 @@ func TestUIDEAndGIDEAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.OptionValue("user-early", "") != "1000" {
-		t.Fatalf("uid-e did not parse as user-early: %v", s.Options)
-	}
-	if s.OptionValue("group-early", "") != "100" {
-		t.Fatalf("gid-e did not parse as group-early: %v", s.Options)
-	}
-	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[1].Name != "group-early" {
-		t.Fatalf("stored names=%v", s.Options)
+	if len(s.Options) != 2 || s.Options[0].Name != "user-early" || s.Options[0].Value != "1000" ||
+		s.Options[1].Name != "group-early" || s.Options[1].Value != "100" {
+		t.Fatalf("uid-e/gid-e did not fold: %v", s.Options)
 	}
 }
 

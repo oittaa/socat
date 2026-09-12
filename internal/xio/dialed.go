@@ -2,10 +2,10 @@ package xio
 
 import (
 	"context"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -21,7 +21,7 @@ type Dialed struct {
 }
 
 // OpenDialed opens a client address: CONNECT,fork loop, or one dial + wrap.
-func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened, error) {
+func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) (*Opened, error) {
 	o := &Opened{Label: d.Label}
 	for _, f := range d.Cleanup {
 		if f != nil {
@@ -40,8 +40,8 @@ func OpenDialed(ctx context.Context, s parse.Spec, g *Global, d Dialed) (*Opened
 	if fork {
 		o.Kind = KindDial
 		o.MaxChildren = maxChildren
-		o.Interval = ParseRetry(s).Interval
-		o.Dial = WrapNetNSDial(s, g, d.Dial)
+		o.Interval = s.Common.Retry.Policy().Interval
+		o.Dial = WrapNetNSDial(netNamespaceName(s), g, d.Dial)
 		o.WrapDial = wrap
 		return o, nil
 	}

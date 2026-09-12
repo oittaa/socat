@@ -42,7 +42,7 @@ type udpDispatchListener struct {
 }
 
 func newUDPListenForkListener(base *udpForkListener) net.Listener {
-	if !udpForkUsesPacketDispatch(base.spec) {
+	if !udpForkUsesPacketDispatch(base.config) {
 		return base
 	}
 	l := &udpDispatchListener{
@@ -169,7 +169,7 @@ func (l *udpDispatchListener) Addr() net.Addr { return l.base.pc.LocalAddr() }
 
 func (l *udpDispatchListener) readLoop() {
 	buf := make([]byte, 65535)
-	wantCtrl := xio.NeedAncillary(l.base.spec)
+	wantCtrl := xio.NeedAncillary(l.base.config)
 	var oobBuffer [xio.AncillaryBufferSize]byte
 	for {
 		if l.base.rcvTimeout > 0 {
@@ -185,7 +185,7 @@ func (l *udpDispatchListener) readLoop() {
 			if l.base.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
-			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.base.spec), l.base.pc, l.base.g)
+			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.base.config), l.base.pc, l.base.g)
 			_ = l.shutdown(err)
 			return
 		}
@@ -231,7 +231,7 @@ func (l *udpDispatchListener) readLoop() {
 			deadlineChanged: make(chan struct{}, 1),
 			env:             session.SessionVarsSnapshot(),
 			g:               session,
-			recvErr:         xio.NeedRecvErr(l.base.spec),
+			recvErr:         xio.NeedRecvErr(l.base.config),
 		}
 		l.mu.Lock()
 		select {

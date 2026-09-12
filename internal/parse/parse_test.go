@@ -35,7 +35,7 @@ func TestParseTCP4(t *testing.T) {
 	if len(s.Params) != 1 || s.Params[0] != "8080" {
 		t.Fatalf("params %v", s.Params)
 	}
-	if !s.BoolOption("reuseaddr") || !s.BoolOption("fork") {
+	if !boolOption(*s, "reuseaddr") || !boolOption(*s, "fork") {
 		t.Fatalf("options %v", s.Options)
 	}
 }
@@ -79,7 +79,7 @@ func TestParseDualWithOptions(t *testing.T) {
 	if ch.Dual.Left.Type != "TCP4" {
 		t.Fatalf("left type %s", ch.Dual.Left.Type)
 	}
-	if ch.Dual.Left.OptionValue("connect-timeout", "") != "1" {
+	if optionValue(ch.Dual.Left, "connect-timeout", "") != "1" {
 		t.Fatalf("options %v", ch.Dual.Left.Options)
 	}
 }
@@ -105,7 +105,7 @@ func TestParseQuotedParam(t *testing.T) {
 	if ch.Single.Params[0] != "echo hello" {
 		t.Fatalf("param %q", ch.Single.Params[0])
 	}
-	if !ch.Single.BoolOption("pty") {
+	if !boolOption(*ch.Single, "pty") {
 		t.Fatal("missing pty")
 	}
 }
@@ -134,10 +134,10 @@ func TestParseOptionValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch.Single.OptionValue("bind", "") != "127.0.0.1" {
+	if optionValue(*ch.Single, "bind", "") != "127.0.0.1" {
 		t.Fatal(ch.Single.Options)
 	}
-	if ch.Single.OptionValue("backlog", "") != "10" {
+	if optionValue(*ch.Single, "backlog", "") != "10" {
 		t.Fatal(ch.Single.Options)
 	}
 }
@@ -161,10 +161,10 @@ func TestParseUNIX(t *testing.T) {
 	if s.Type != "UNIX-LISTEN" || s.Params[0] != "/tmp/sock" {
 		t.Fatalf("got %+v", s)
 	}
-	if !s.BoolOption("unlink-early") {
+	if !boolOption(*s, "unlink-early") {
 		t.Fatal("unlink-early")
 	}
-	if s.OptionValue("mode", "") != "777" {
+	if optionValue(*s, "mode", "") != "777" {
 		t.Fatal(s.Options)
 	}
 }
@@ -188,10 +188,10 @@ func TestBoolOptionEmptyDisables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !s.HasOption("reuseaddr") {
+	if !hasOption(s, "reuseaddr") {
 		t.Fatal("expected HasOption reuseaddr")
 	}
-	if s.BoolOption("reuseaddr") {
+	if boolOption(s, "reuseaddr") {
 		t.Fatal("so-reuseaddr= must be false")
 	}
 }
@@ -202,7 +202,7 @@ func TestUnlinkDeleteRemoveAliases(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !s.BoolOption("unlink") {
+		if !boolOption(s, "unlink") {
 			t.Fatalf("%s: unlink not set (options=%v)", spec, s.Options)
 		}
 	}
@@ -213,13 +213,13 @@ func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.OptionValue("ciphers", ""); got != "ECDHE-ECDSA-AES256-GCM-SHA384" {
+	if got := optionValue(s, "ciphers", ""); got != "ECDHE-ECDSA-AES256-GCM-SHA384" {
 		t.Fatalf("ciphers=%q", got)
 	}
-	if got := s.OptionValue("setsockopt-listen", ""); got != "1:2:1" {
+	if got := optionValue(s, "setsockopt-listen", ""); got != "1:2:1" {
 		t.Fatalf("setsockopt-listen=%q", got)
 	}
-	if !s.BoolOption("setlk") {
+	if !boolOption(s, "setlk") {
 		t.Fatal("f-setlk-wr alias did not normalize to setlk")
 	}
 }
@@ -229,7 +229,7 @@ func TestIoctlAliasFoldsToIoctlVoid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := s.OptionValue("ioctl-void", ""); got != "0x541B" {
+	if got := optionValue(s, "ioctl-void", ""); got != "0x541B" {
 		t.Fatalf("ioctl-void=%q", got)
 	}
 	if CanonicalOptionName("ioctl") != "ioctl-void" {
@@ -245,11 +245,11 @@ func TestTruncateAlias(t *testing.T) {
 	if CanonicalOptionName("truncate") != "ftruncate" {
 		t.Fatalf("truncate canonicalized to %q", CanonicalOptionName("truncate"))
 	}
-	if !s.HasOption("ftruncate") {
+	if !hasOption(s, "ftruncate") {
 		t.Fatal("truncate= did not normalize to ftruncate")
 	}
-	if s.OptionValue("ftruncate", "") != "4" {
-		t.Fatalf("ftruncate=%q", s.OptionValue("ftruncate", ""))
+	if optionValue(s, "ftruncate", "") != "4" {
+		t.Fatalf("ftruncate=%q", optionValue(s, "ftruncate", ""))
 	}
 }
 
@@ -259,7 +259,7 @@ func TestSocketTypeAlias(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := s.OptionValue("socktype", ""); got != "5" {
+		if got := optionValue(s, "socktype", ""); got != "5" {
 			t.Fatalf("%s: socktype=%q want 5", alias, got)
 		}
 	}
@@ -270,14 +270,14 @@ func TestPOSIXMQOptionAliases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.OptionValue("mq-prio", "") != "3" {
-		t.Fatalf("mq-prio %q", s.OptionValue("mq-prio", ""))
+	if optionValue(s, "mq-prio", "") != "3" {
+		t.Fatalf("mq-prio %q", optionValue(s, "mq-prio", ""))
 	}
-	if !s.BoolOption("mq-flush") {
+	if !boolOption(s, "mq-flush") {
 		t.Fatal("mq-flush")
 	}
-	if s.OptionValue("mq-maxmsg", "") != "8" || s.OptionValue("mq-msgsize", "") != "128" {
-		t.Fatalf("maxmsg/msgsize %q %q", s.OptionValue("mq-maxmsg", ""), s.OptionValue("mq-msgsize", ""))
+	if optionValue(s, "mq-maxmsg", "") != "8" || optionValue(s, "mq-msgsize", "") != "128" {
+		t.Fatalf("maxmsg/msgsize %q %q", optionValue(s, "mq-maxmsg", ""), optionValue(s, "mq-msgsize", ""))
 	}
 }
 
@@ -286,7 +286,7 @@ func TestParseEmptyOptionValue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, ok := s.OptionNamed("commonname")
+	o, ok := optionNamed(s, "commonname")
 	if !ok || !o.Has {
 		t.Fatalf("commonname= missing: %+v", s.Options)
 	}
@@ -303,8 +303,8 @@ func TestOpenSSLCapathAlias(t *testing.T) {
 	if s.Type != "OPENSSL" {
 		t.Fatalf("type %q", s.Type)
 	}
-	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
-		t.Fatalf("capath %q", s.OptionValue("capath", ""))
+	if optionValue(s, "capath", "") != "/etc/ssl/certs" {
+		t.Fatalf("capath %q", optionValue(s, "capath", ""))
 	}
 }
 
@@ -316,8 +316,8 @@ func TestTLSCapathAlias(t *testing.T) {
 	if s.Type != "TLS" {
 		t.Fatalf("type %q", s.Type)
 	}
-	if s.OptionValue("capath", "") != "/etc/ssl/certs" {
-		t.Fatalf("capath %q", s.OptionValue("capath", ""))
+	if optionValue(s, "capath", "") != "/etc/ssl/certs" {
+		t.Fatalf("capath %q", optionValue(s, "capath", ""))
 	}
 }
 
@@ -356,7 +356,7 @@ func TestParseWindowsCertOption(t *testing.T) {
 	if s.Type != "TLS-LISTEN" || len(s.Params) != 1 || s.Params[0] != "443" {
 		t.Fatalf("spec %+v", s)
 	}
-	if got := s.OptionValue("cert", ""); got != cert {
+	if got := optionValue(s, "cert", ""); got != cert {
 		t.Fatalf("cert %q", got)
 	}
 }

@@ -20,7 +20,7 @@ func TestLowWaterOptionsUnsupportedWindows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ApplySocketOptions(0, spec)
+		err = ApplySocketOptions(0, mustDecodeAddress(t, spec))
 		if err == nil || !errors.Is(err, errNamedOptUnsupported) {
 			t.Fatalf("%s: error=%v want %v", specText, err, errNamedOptUnsupported)
 		}

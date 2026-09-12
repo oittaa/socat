@@ -8,7 +8,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/windows"
 )
 
@@ -62,21 +62,16 @@ func SetSockoptInt(fd, level, opt, value int) error {
 	return setSockoptInt(fd, level, opt, value)
 }
 
-// applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
-func applyLingerOption(fd int, o parse.Option) error {
-	if !o.Has {
-		return fmt.Errorf("so-linger: requires a value")
-	}
-	seconds, err := ParseIntAny(o.Value)
-	if err != nil || seconds < 0 {
-		return fmt.Errorf("so-linger: invalid value %q", o.Value)
+func applyLingerSeconds(fd int, seconds int) error {
+	if seconds < 0 {
+		return fmt.Errorf("so-linger: invalid value %q", fmt.Sprint(seconds))
 	}
 	if seconds > math.MaxUint16 {
-		return fmt.Errorf("so-linger: value %q is out of range", o.Value)
+		return fmt.Errorf("so-linger: value %q is out of range", fmt.Sprint(seconds))
 	}
 	linger := &windows.Linger{Onoff: 1, Linger: int32(seconds)}
 	if int(linger.Linger) != seconds {
-		return fmt.Errorf("so-linger: value %q is out of range", o.Value)
+		return fmt.Errorf("so-linger: value %q is out of range", fmt.Sprint(seconds))
 	}
 	if err := windows.SetsockoptLinger(windows.Handle(fd), solSocket, windows.SO_LINGER, linger); err != nil {
 		return fmt.Errorf("so-linger: %w", err)
@@ -84,37 +79,39 @@ func applyLingerOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence using
-// Winsock's millisecond DWORD values.
-func applySocketTimeoOption(fd int, o parse.Option) error {
-	ms, err := windowsTimeoutMillis(o.Value)
+func applySocketTimeoDuration(fd int, action addrconfig.SocketAction) error {
+	name := action.Text
+	if name == "" {
+		if action.Recv {
+			name = "rcvtimeo"
+		} else {
+			name = "sndtimeo"
+		}
+	}
+	ms, err := windowsTimeoutMillisFromDuration(action.Duration)
 	if err != nil {
-		return fmt.Errorf("%s: %w", o.Name, err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	opt := soRcvtimeo
-	if o.Name == "sndtimeo" {
+	if !action.Recv {
 		opt = soSndtimeo
 	}
 	if err := windows.SetsockoptInt(windows.Handle(fd), solSocket, opt, int(ms)); err != nil {
-		return fmt.Errorf("%s: %w", o.Name, err)
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
 }
 
-// windowsTimeoutMillis converts a timeout spec to Winsock's millisecond
-// DWORD. Zero disables the timeout; positive sub-millisecond values are
-// rounded up so they do not turn into zero accidentally.
-func windowsTimeoutMillis(v string) (uint32, error) {
-	d, err := parseTimeval(v)
-	if err != nil || d < 0 {
-		return 0, fmt.Errorf("invalid timeout %q", v)
+func windowsTimeoutMillisFromDuration(d time.Duration) (uint32, error) {
+	if d < 0 {
+		return 0, fmt.Errorf("invalid timeout %q", d)
 	}
 	if d == 0 {
 		return 0, nil
 	}
 	ms := (uint64(d) + uint64(time.Millisecond) - 1) / uint64(time.Millisecond)
 	if ms > math.MaxUint32 {
-		return 0, fmt.Errorf("timeout %q exceeds Winsock's DWORD milliseconds", v)
+		return 0, fmt.Errorf("timeout %q exceeds Winsock's DWORD milliseconds", d)
 	}
 	return uint32(ms), nil
 }

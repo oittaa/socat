@@ -46,7 +46,7 @@ func TestWindowsUnixConnectBindPreservesLiveListenSocket(t *testing.T) {
 		Params:  []string{listen},
 		Options: []parse.Option{{Name: "bind", Value: bind, Has: true}},
 	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixConnect(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected bind of live listen socket to fail")
@@ -64,7 +64,7 @@ func TestWindowsUnixConnectFailedOpenUnlinksOnlyCreatedBind(t *testing.T) {
 		Params:  []string{missing},
 		Options: []parse.Option{{Name: "bind", Value: bind, Has: true}},
 	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixConnect(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected connect to missing dest to fail")

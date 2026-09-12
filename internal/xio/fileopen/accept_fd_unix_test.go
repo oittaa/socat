@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -106,7 +107,7 @@ func acceptFDCloseDoesNotDoubleClose(t *testing.T) {
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	// fork returns before accept so we can inspect the listen fd without an
 	// accepted conn reusing the original number.
-	o, err := openAcceptFD(context.Background(), parseAcceptSpec(t, "ACCEPT-FD:0,fork", fd), xio.ModeRDWR, nil)
+	o, err := openAcceptFD(context.Background(), mustAddr(t, parseAcceptSpec(t, "ACCEPT-FD:0,fork", fd)), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestAcceptFDRejectsListenSetsockopt(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Params = []string{strconv.Itoa(fd)}
-	_, err = openAcceptFD(context.Background(), s, xio.ModeRDWR, nil)
+	_, err = openAcceptFD(context.Background(), mustAddr(t, s), xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "not supported at this lifecycle phase") {
 		t.Fatalf("err=%v want lifecycle rejection", err)
 	}
@@ -156,8 +157,12 @@ func TestAcceptFDRejectsListenSetsockopt(t *testing.T) {
 }
 
 func TestAcceptFDWrongParamCount(t *testing.T) {
-	_, err := openAcceptFD(context.Background(), parse.Spec{Type: "ACCEPT-FD"}, xio.ModeRDWR, nil)
+	_, err := xio.PrepareSpec(parse.Spec{Type: "ACCEPT-FD"})
 	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
-		t.Fatalf("err=%v", err)
+		t.Fatalf("prepare err=%v", err)
+	}
+	_, err = openAcceptFD(context.Background(), addrconfig.Address{Type: "ACCEPT-FD", Params: []string{"3"}}, xio.ModeRDWR, nil)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
+		t.Fatalf("open without FDSet err=%v", err)
 	}
 }

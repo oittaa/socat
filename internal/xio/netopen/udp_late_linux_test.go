@@ -15,7 +15,7 @@ func TestListenUDPAppliesLateBuffers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, spec)
+	pc, err := listenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)}, mustAddr(t, spec))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,7 @@ func wrapShutDown(t *testing.T, inner relay.Stream) relay.Stream {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := wrapShutPolicy(spec, inner)
+	stream, err := wrapShutPolicy(mustDecodeAddress(t, spec), inner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func wrapSpec(t *testing.T, spec string, inner relay.Stream) relay.Stream {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := SetupStream(s, inner)
+	stream, err := SetupStream(mustDecodeAddress(t, s), inner)
 	if err != nil {
 		t.Fatal(err)
 	}

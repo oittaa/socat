@@ -17,7 +17,7 @@ func TestUnixListenPermEarlyChmodsSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestUnixListenPermEarlyWinsOverPerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestUnixRecvPermEarlyChmodsSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecv(context.Background(), spec, xio.ModeRead, nil)
+	o, err := openUnixRecv(context.Background(), mustAddr(t, spec), xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestUnixSendtoBindPermEarlyChmodsSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixSendto(context.Background(), spec, xio.ModeWrite, nil)
+	o, err := openUnixSendto(context.Background(), mustAddr(t, spec), xio.ModeWrite, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestUnixListenAbstractPermEarlyNoError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixListen(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixListen(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

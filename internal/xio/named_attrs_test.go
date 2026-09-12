@@ -22,14 +22,14 @@ func TestApplyNamedAttrsSetsPerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAttrs(path, spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAttrs(path, nil, mustDecodeAddress(t, spec).File); err != nil {
 		t.Fatal(err)
 	}
 	assertPathPerm(t, path, 0o600)
 }
 
 func TestApplyNamedAfterBindPermEarlyWinsOverPerm(t *testing.T) {
-	// ApplyNamedAfterBind is chmod/chown of a path, not bind(2). Do not
+	// ApplyConfiguredNamedAfterBind is chmod/chown of a path, not bind(2). Do not
 	// net.Listen("unix") under t.TempDir(): Darwin sun_path is 104 bytes and
 	// the macOS TempDir includes the test name (CI: bind: invalid argument).
 	path := filepath.Join(t.TempDir(), "named")
@@ -40,7 +40,7 @@ func TestApplyNamedAfterBindPermEarlyWinsOverPerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAfterBind(path, spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAfterBind(path, mustDecodeAddress(t, spec), nil); err != nil {
 		t.Fatal(err)
 	}
 	assertPathPerm(t, path, 0o600)
@@ -57,7 +57,7 @@ func TestApplyNamedAfterBindUserEarlyGroupEarlyCurrentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAfterBind(path, spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAfterBind(path, mustDecodeAddress(t, spec), nil); err != nil {
 		t.Fatal(err)
 	}
 	gotUID, gotGID := pathOwner(t, path)
@@ -71,13 +71,13 @@ func TestApplyNamedAfterBindSkipsAbstract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAfterBind("@abs", spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAfterBind("@abs", mustDecodeAddress(t, spec), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAfterBind("\x00abs", spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAfterBind("\x00abs", mustDecodeAddress(t, spec), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedAfterBind("", spec, nil); err != nil {
+	if err := ApplyConfiguredNamedAfterBind("", mustDecodeAddress(t, spec), nil); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -91,7 +91,7 @@ func TestApplyNamedPreopenPermEarly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedPreopen(path, spec); err != nil {
+	if err := ApplyConfiguredNamedPreopen(path, mustDecodeAddress(t, spec).File); err != nil {
 		t.Fatal(err)
 	}
 	assertPathPerm(t, path, 0o600)
@@ -108,7 +108,7 @@ func TestApplyNamedPreopenUserEarlyGroupEarlyCurrentIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedPreopen(path, spec); err != nil {
+	if err := ApplyConfiguredNamedPreopen(path, mustDecodeAddress(t, spec).File); err != nil {
 		t.Fatal(err)
 	}
 	gotUID, gotGID := pathOwner(t, path)
@@ -126,7 +126,7 @@ func TestApplyNamedPreopenUserEarlyUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyNamedPreopen(path, spec)
+	err = ApplyConfiguredNamedPreopen(path, mustDecodeAddress(t, spec).File)
 	if err == nil || !strings.Contains(err.Error(), "user") {
 		t.Fatalf("error=%v want user lookup failure", err)
 	}
@@ -142,7 +142,7 @@ func TestApplyNamedPreopenUIDEAlias(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyNamedPreopen(path, spec); err != nil {
+	if err := ApplyConfiguredNamedPreopen(path, mustDecodeAddress(t, spec).File); err != nil {
 		t.Fatal(err)
 	}
 	gotUID, _ := pathOwner(t, path)

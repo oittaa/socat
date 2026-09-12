@@ -3,26 +3,20 @@ package fileopen
 import (
 	"context"
 	"fmt"
-	"strconv"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-// parseFDNum is the FD / ACCEPT-FD number parser: exactly one parameter,
-// base-0 (10, 0x10, 010), leftover garbage rejected.
-func parseFDNum(s parse.Spec) (int, error) {
-	if len(s.Params) != 1 || s.Params[0] == "" {
+// parseFDNum returns the FD / ACCEPT-FD number decoded at preparation.
+func parseFDNum(s addrconfig.Address) (int, error) {
+	if !s.File.FDSet {
 		return -1, fmt.Errorf("%s: wrong number of parameters (%d instead of 1)", s.Type, len(s.Params))
 	}
-	n, err := strconv.ParseUint(s.Params[0], 0, 32)
-	if err != nil {
-		return -1, fmt.Errorf("error in FD number %q", s.Params[0])
-	}
-	return int(n), nil
+	return s.File.FD, nil
 }
 
-func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openAcceptFD(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	fd, err := parseFDNum(s)
 	if err != nil {
 		return nil, err
@@ -32,8 +26,17 @@ func openAcceptFD(ctx context.Context, s parse.Spec, mode xio.Mode, g *xio.Globa
 	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind); err != nil {
 		return nil, err
 	}
-	if s.HasOption("ip-transparent") {
-		return nil, fmt.Errorf("%s: option %q is not supported at this lifecycle phase", s.Type, "ip-transparent")
+	if err := rejectAcceptFDTransparent(s); err != nil {
+		return nil, err
 	}
 	return openAcceptFDNum(ctx, s, mode, g, fd)
+}
+
+func rejectAcceptFDTransparent(config addrconfig.Address) error {
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionTransparent {
+			return fmt.Errorf("%s: option %q is not supported at this lifecycle phase", config.Type, "ip-transparent")
+		}
+	}
+	return nil
 }

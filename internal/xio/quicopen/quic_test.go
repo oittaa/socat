@@ -69,7 +69,7 @@ func TestQUICListenConnectEcho(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestQUICVerifyFailsWithoutTrust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
+	if _, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
 		t.Fatal("expected verify failure against untrusted server cert")
 	}
 }
@@ -100,7 +100,7 @@ func TestQUICALPNMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
+	if _, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()}); err == nil {
 		t.Fatal("expected ALPN mismatch")
 	}
 }
@@ -115,7 +115,7 @@ func TestQUICListenForkTwoClients(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		o, err := openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err := openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 		if err != nil {
 			t.Fatalf("client %d: %v", i, err)
 		}
@@ -131,7 +131,7 @@ func TestQUICConnectLowportBindFamilyMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openQUICConnect(ctx, cs, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	_, err = openQUICConnect(ctx, mustAddr(t, cs), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil || !strings.Contains(err.Error(), "address family mismatch") {
 		t.Fatalf("want bind family mismatch, got %v", err)
 	}

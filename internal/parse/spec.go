@@ -1,9 +1,5 @@
 package parse
 
-import (
-	"strings"
-)
-
 // Option is a single address option (keyword or keyword=value).
 type Option struct {
 	Name     string // canonical runtime name after alias folding
@@ -44,59 +40,3 @@ type Channel struct {
 
 // IsDual reports whether this channel uses dual addressing.
 func (c Channel) IsDual() bool { return c.Dual != nil }
-
-// OptionNamed returns the option with the given name (case-insensitive), if any.
-func (s Spec) OptionNamed(name string) (Option, bool) {
-	name = normalizeOptionName(name)
-	// Options apply in command-line order (last-wins). Scan backwards so a later
-	// option overrides an earlier one even when aliases fold onto the same name.
-	for i := len(s.Options) - 1; i >= 0; i-- {
-		o := s.Options[i]
-		if normalizeOptionName(o.Name) == name {
-			return o, true
-		}
-	}
-	return Option{}, false
-}
-
-// HasOption reports whether a flag-style or valued option is present.
-func (s Spec) HasOption(name string) bool {
-	_, ok := s.OptionNamed(name)
-	return ok
-}
-
-// OptionValue returns the value of a named option, or def if missing.
-func (s Spec) OptionValue(name, def string) string {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return def
-	}
-	if !o.Has {
-		return "1" // flag present
-	}
-	return o.Value
-}
-
-// Active reports whether this occurrence is truthy.
-// Bare flag → true; =0/false/no/off and empty "=" → false.
-func (o Option) Active() bool {
-	if !o.Has {
-		return true
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	if v == "" {
-		return false
-	}
-	return v != "0" && v != "false" && v != "no" && v != "off"
-}
-
-// BoolOption returns whether an option is set truthily.
-// Bare flag → true; =0/false/no/off → false; empty value (=) → false
-// (so-reuseaddr= disables SO_REUSEADDR).
-func (s Spec) BoolOption(name string) bool {
-	o, ok := s.OptionNamed(name)
-	if !ok {
-		return false
-	}
-	return o.Active()
-}

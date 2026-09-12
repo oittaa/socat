@@ -33,7 +33,7 @@ func TestPROXYHTTP1RejectsPublicTLSOptions(t *testing.T) {
 	defer cancel()
 	for _, opt := range []string{
 		"cert=x", "key=x", "cafile=x", "capath=x", "verify=0",
-		"commonname=h", "snihost=h", "nosni", "ciphers=RSA",
+		"commonname=h", "snihost=h", "nosni", "ciphers=ECDHE-RSA-AES128-GCM-SHA256",
 		"compress=none", "openssl-min-proto-version=TLS1.2",
 		"openssl-max-proto-version=TLS1.3", "alpn=h2",
 	} {
@@ -41,7 +41,7 @@ func TestPROXYHTTP1RejectsPublicTLSOptions(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+		o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 		if o != nil {
 			_ = o.Close()
 		}
@@ -63,7 +63,7 @@ func TestPROXYHTTP11RejectsVerify(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -84,7 +84,7 @@ func TestPROXYHTTP1RejectsCertificateAlias(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -98,7 +98,7 @@ func TestPROXYHTTP1RejectsCertBeforeDNS(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}
@@ -124,7 +124,7 @@ func TestH2cCONNECTRejectsALPN(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	o, err := openProxyConnect(ctx, s, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if o != nil {
 		_ = o.Close()
 	}

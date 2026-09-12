@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"net/http"
@@ -13,13 +14,12 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarget) (net.Conn, error) {
-	h2c := s.BoolOption("h2c")
+func dialH2CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t proxyTarget) (net.Conn, error) {
+	h2c := s.Proxy.H2C.Value
 	connectTimeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	network := xio.ConnectNetworkForType(g, s, t.proxyHost, "tcp")
@@ -29,20 +29,24 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 	if h2c {
 		scheme = "http"
 	} else {
-		cfg, err := tlsopen.TLSClientConfig(s, t.proxyHost)
+		cfg, err := tlsopen.TLSClientConfigSettings(s.Type, s.TLS, t.proxyHost.String())
 		if err != nil {
 			return nil, err
 		}
 		tlsCfg = cfg.Clone()
-		tlsCfg.NextProtos = []string{proxyALPN(s, "h2")}
+		tlsCfg.NextProtos = []string{proxyALPN(s.TLS, "h2")}
 	}
 
-	u := scheme + "://" + net.JoinHostPort(xio.StripBrackets(t.proxyHost), t.proxyPort) + "/"
-	authority := net.JoinHostPort(t.connectHost, t.targetPort)
+	proxyPort, err := xio.ResolvePort("tcp", t.proxyPort)
+	if err != nil {
+		return nil, err
+	}
+	u := scheme + "://" + proxyCONNECTTarget(t.proxyHost.String(), proxyPort) + "/"
+	authority := proxyCONNECTTarget(t.connectHost, t.connectPort)
 
 	var conn net.Conn
-	err := xio.WithRetry(ctx, s, g, "PROXY-CONNECT", func() error {
-		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: t.proxyHost, Port: t.proxyPort}, s, g, connectTimeout, nil)
+	err = xio.WithRetry(ctx, g, s.Common.Retry.Policy(), "PROXY-CONNECT", func() error {
+		raw, e := xio.DialTCPAll(ctx, xio.DialTarget{Network: network, Host: s.Proxy.Server, Port: proxyPortTarget(s.Proxy)}, s, g, connectTimeout, nil)
 		if e != nil {
 			return e
 		}
@@ -105,7 +109,7 @@ func dialH2CONNECT(ctx context.Context, s parse.Spec, g *xio.Global, t proxyTarg
 			}
 			req.Host = authority
 			req.ContentLength = -1
-			if auth, e := proxyAuthString(s); e != nil {
+			if auth, e := proxyAuthString(s.Proxy); e != nil {
 				_ = pw.Close()
 				return e
 			} else if auth != "" {

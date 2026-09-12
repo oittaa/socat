@@ -4,33 +4,36 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// applyFileLocks implements whole-file fcntl lock options.
-// Write locks belong to the address's output descriptor and read locks to its
-// input descriptor. A regular FILE/OPEN descriptor is commonly both.
-func applyFileLocks(s parse.Spec, readFile, writeFile *os.File) error {
-	locks := []struct {
-		option string
-		file   *os.File
-		write  bool
-		wait   bool
-	}{
-		{"setlk", writeFile, true, false},
-		{"setlkw", writeFile, true, true},
-		{"setlk-rd", readFile, false, false},
-		{"setlkw-rd", readFile, false, true},
-	}
-	for _, lock := range locks {
-		if !s.HasOption(lock.option) || !s.BoolOption(lock.option) {
+func applyConfiguredFileLocks(config addrconfig.File, readFile, writeFile *os.File) error {
+	for _, action := range config.Actions {
+		var file *os.File
+		var write, wait bool
+		switch action.Kind {
+		case addrconfig.FileActionLock:
+			switch action.Value {
+			case 1:
+				file, write = writeFile, true
+			case 2:
+				file, write, wait = writeFile, true, true
+			case 3:
+				file = readFile
+			case 4:
+				file, wait = readFile, true
+			}
+		default:
 			continue
 		}
-		if lock.file == nil {
-			return fmt.Errorf("%s: address has no applicable file descriptor", lock.option)
+		if !action.Enabled {
+			continue
 		}
-		if err := lockFile(lock.file, lock.write, lock.wait); err != nil {
-			return fmt.Errorf("%s: %w", lock.option, err)
+		if file == nil {
+			return fmt.Errorf("%s: address has no applicable file descriptor", action.Name)
+		}
+		if err := lockFile(file, write, wait); err != nil {
+			return fmt.Errorf("%s: %w", action.Name, err)
 		}
 	}
 	return nil

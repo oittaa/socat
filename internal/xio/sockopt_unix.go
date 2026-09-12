@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
@@ -60,17 +60,12 @@ func setListenBacklog(fd, backlog int) error {
 	return unix.Listen(fd, backlog)
 }
 
-// applyLingerOption sets SO_LINGER (onoff=1) from a non-negative seconds value.
-func applyLingerOption(fd int, o parse.Option) error {
-	if !o.Has {
-		return fmt.Errorf("so-linger: requires a value")
-	}
-	seconds, err := ParseIntAny(o.Value)
-	if err != nil || seconds < 0 {
-		return fmt.Errorf("so-linger: invalid value %q", o.Value)
+func applyLingerSeconds(fd int, seconds int) error {
+	if seconds < 0 {
+		return fmt.Errorf("so-linger: invalid value %q", fmt.Sprint(seconds))
 	}
 	if seconds > math.MaxInt32 {
-		return fmt.Errorf("so-linger: value %q is out of range", o.Value)
+		return fmt.Errorf("so-linger: value %q is out of range", fmt.Sprint(seconds))
 	}
 	linger := &unix.Linger{
 		Onoff:  1,
@@ -82,30 +77,26 @@ func applyLingerOption(fd int, o parse.Option) error {
 	return nil
 }
 
-// applySocketTimeoOption is one rcvtimeo=/sndtimeo= occurrence as kernel
-// SO_RCVTIMEO / SO_SNDTIMEO. Only raw blocking-fd paths observe these; Go
-// netpoll conns run nonblocking, so use read/write deadlines at the call site.
-func applySocketTimeoOption(fd int, o parse.Option) error {
-	tv, err := timevalFromSpec(o.Value)
-	if err != nil {
-		return fmt.Errorf("%s: %w", o.Name, err)
+func applySocketTimeoDuration(fd int, action addrconfig.SocketAction) error {
+	name := action.Text
+	if name == "" {
+		if action.Recv {
+			name = "rcvtimeo"
+		} else {
+			name = "sndtimeo"
+		}
 	}
+	d := action.Duration
+	if d < 0 {
+		return fmt.Errorf("%s: invalid timeout %q", name, d)
+	}
+	tv := unix.NsecToTimeval(int64(d))
 	opt := soRcvtimeo
-	if o.Name == "sndtimeo" {
+	if !action.Recv {
 		opt = soSndtimeo
 	}
-	if err := unix.SetsockoptTimeval(fd, solSocket, opt, tv); err != nil {
-		return fmt.Errorf("%s: %w", o.Name, err)
+	if err := unix.SetsockoptTimeval(fd, solSocket, opt, &tv); err != nil {
+		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
-}
-
-func timevalFromSpec(v string) (*unix.Timeval, error) {
-	d, err := parseTimeval(v)
-	if err != nil || d < 0 {
-		return nil, fmt.Errorf("invalid timeout %q", v)
-	}
-	// NsecToTimeval handles each platform's Sec/Usec widths.
-	tv := unix.NsecToTimeval(int64(d))
-	return &tv, nil
 }

@@ -33,14 +33,15 @@ func TestValidateExecParentSignalsTypeConst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := validateExecParentSignals(ok); err != nil {
-		t.Fatal(err)
+	config := mustDecodeAddress(t, ok)
+	if len(config.Process.ParentSignals) != 1 {
+		t.Fatalf("signals=%v", config.Process.ParentSignals)
 	}
 	bad, err := parse.ParseSpec("EXEC:true,sighup=0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateExecParentSignals(bad)
+	_, err = PrepareSpec(bad)
 	if err == nil || !strings.Contains(err.Error(), "no value permitted") {
 		t.Fatalf("error=%v want no value permitted", err)
 	}

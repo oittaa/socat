@@ -3,7 +3,6 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/outbuf"
 	"github.com/oittaa/socat/internal/parse"
@@ -43,7 +43,7 @@ type Config struct {
 	LogLevel      logx.Level
 	LogDest       LogDest
 	LogFile       string
-	LogFacility   string
+	LogFacility   logx.Facility
 	DumpFDs       bool
 	Progname      string
 	Micros        bool
@@ -242,7 +242,7 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 func setLogStderr(cfg *Config) {
 	cfg.LogDest = LogDestStderr
 	cfg.LogFile = ""
-	cfg.LogFacility = ""
+	cfg.LogFacility = logx.FacilityDaemon
 }
 
 func setLogFileFlag(cfg *Config, v string) error {
@@ -251,7 +251,7 @@ func setLogFileFlag(cfg *Config, v string) error {
 	}
 	cfg.LogDest = LogDestFile
 	cfg.LogFile = v
-	cfg.LogFacility = ""
+	cfg.LogFacility = logx.FacilityDaemon
 	return nil
 }
 
@@ -263,7 +263,7 @@ func parseSyslogOption(a string, mixed bool, cfg *Config) error {
 	if !syslogOptionSupported() {
 		return fmt.Errorf("option %q is not implemented", flag)
 	}
-	fac, err := logx.CanonicalFacility(a[len(flag):])
+	fac, err := logx.ParseFacility(a[len(flag):])
 	if err != nil {
 		return err
 	}
@@ -391,18 +391,7 @@ func optArg(a, key string, args []string, i *int) (string, error) {
 }
 
 func parseDuration(v string) (time.Duration, error) {
-	d, err := xio.ParseDurationValue(v)
-	if err != nil {
-		switch {
-		case errors.Is(err, xio.ErrEmptyDuration):
-			return 0, fmt.Errorf("empty duration")
-		case errors.Is(err, xio.ErrDurationOutOfRange):
-			return 0, fmt.Errorf("duration out of range")
-		default:
-			return 0, err
-		}
-	}
-	return d, nil
+	return addrconfig.ParseDuration(v)
 }
 
 // Field selectors for plainFlag.
@@ -468,18 +457,20 @@ func Run(args []string, signalExit func(int)) int {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}
-	if err := validateChannelOptions(left); err != nil {
+	preparedLeft, err := xio.PrepareChannel(left)
+	if err != nil {
 		log.Errorf("parse left address: %s", err)
 		return 1
 	}
-	if err := validateChannelOptions(right); err != nil {
+	preparedRight, err := xio.PrepareChannel(right)
+	if err != nil {
 		log.Errorf("parse right address: %s", err)
 		return 1
 	}
 
 	g := buildGlobal(cfg, log)
 
-	runErr := xio.Run(ctx, left, right, g)
+	runErr := xio.RunPrepared(ctx, preparedLeft, preparedRight, g)
 	if cfg.Statistics {
 		xio.PrintExitStats(g)
 	}

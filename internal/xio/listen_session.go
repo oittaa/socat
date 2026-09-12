@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -29,7 +29,7 @@ type ListenSession struct {
 }
 
 // DefaultWrapDial returns SetupStream around a net.Conn.
-func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
+func DefaultWrapDial(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
 		return SetupStream(s, relay.NetStream{Conn: c})
 	}
@@ -37,7 +37,7 @@ func DefaultWrapDial(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 
 // DefaultWrapOpened wraps a net.Conn after the opener applied descriptor
 // lifecycle on the real owner.
-func DefaultWrapOpened(s parse.Spec) func(net.Conn) (relay.Stream, error) {
+func DefaultWrapOpened(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
 		return WrapOpened(s, relay.NetStream{Conn: c})
 	}
@@ -46,7 +46,7 @@ func DefaultWrapOpened(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 // OpenListenSession compiles peer filtering before accept, then either
 // returns a fork parent or accepts one permitted connection. Each refused peer
 // restarts accept-timeout.
-func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess ListenSession) (*Opened, error) {
+func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, sess ListenSession) (*Opened, error) {
 	ln := sess.Listener
 	if ln == nil {
 		return nil, fmt.Errorf("listen session requires a listener")
@@ -66,7 +66,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	}
 	peerFilter := sess.PeerFilter
 	if peerFilter == nil {
-		peerFilter, err = NewPeerFilter(ctx, s, g)
+		peerFilter, err = PreparedPeerFilter(ctx, s, g)
 		if err != nil {
 			_ = closeLn()
 			return nil, err
@@ -106,7 +106,7 @@ func OpenListenSession(ctx context.Context, s parse.Spec, g *Global, sess Listen
 	return acceptOnce(ctx, s, g, sess, ln, wrap, peerFilter.AllowConn, safeCloseLn)
 }
 
-func acceptOnce(ctx context.Context, s parse.Spec, g *Global, sess ListenSession, ln net.Listener, wrap func(net.Conn) (relay.Stream, error), filter func(net.Conn) error, safeCloseLn func() error) (*Opened, error) {
+func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess ListenSession, ln net.Listener, wrap func(net.Conn) (relay.Stream, error), filter func(net.Conn) error, safeCloseLn func() error) (*Opened, error) {
 	if sess.ListeningLog != "" && g != nil && g.Log != nil {
 		g.Log.Noticef("%s", sess.ListeningLog)
 	} else if g != nil && g.Log != nil {

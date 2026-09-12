@@ -32,10 +32,10 @@ func TestApplySocketOptionsBindToDeviceIfAliasLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.OptionValue("bindtodevice", "") != "lo" {
+	if len(spec.Options) != 1 || spec.Options[0].Name != "bindtodevice" || spec.Options[0].Value != "lo" {
 		t.Fatalf("if= did not canonicalize to bindtodevice: %#v", spec.Options)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	skipIfUnprivilegedBindToDevice(t, err)
 	if err != nil {
 		t.Fatal(err)
@@ -53,10 +53,10 @@ func TestApplySocketOptionsBindToDeviceInterfaceAliasLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if spec.OptionValue("bindtodevice", "") != "lo" {
+	if len(spec.Options) != 1 || spec.Options[0].Name != "bindtodevice" || spec.Options[0].Value != "lo" {
 		t.Fatalf("interface= did not canonicalize to bindtodevice: %#v", spec.Options)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	skipIfUnprivilegedBindToDevice(t, err)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +74,7 @@ func TestApplySocketOptionsBindToDeviceInvalidLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplySocketOptions(fd, spec)
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("invalid interface name succeeded")
 	}
@@ -87,7 +87,7 @@ func TestSetupStreamAppliesLateThroughNetConnUnwrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SetupStream(spec, relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
+	if _, err := SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: netConnUnwrapper{Conn: cli}}); err != nil {
 		t.Fatalf("SetupStream via NetConn(): %v", err)
 	}
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {

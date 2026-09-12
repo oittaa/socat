@@ -45,7 +45,7 @@ func TestUnixConnectBindPreservesLiveListenSocket(t *testing.T) {
 		Params:  []string{listen},
 		Options: []parse.Option{{Name: "bind", Value: bind, Has: true}},
 	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixConnect(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected bind of live listen socket to fail")
@@ -63,7 +63,7 @@ func TestUnixConnectFailedOpenUnlinksOnlyCreatedBind(t *testing.T) {
 		Params:  []string{missing},
 		Options: []parse.Option{{Name: "bind", Value: bind, Has: true}},
 	}
-	o, err := openUnixConnect(context.Background(), spec, xio.ModeRDWR, nil)
+	o, err := openUnixConnect(context.Background(), mustAddr(t, spec), xio.ModeRDWR, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected connect to missing dest to fail")
@@ -84,7 +84,7 @@ func TestUnixSendtoHonorsCanceledContext(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = openUnixSendto(ctx, spec, xio.ModeWrite, nil)
+	_, err = openUnixSendto(ctx, mustAddr(t, spec), xio.ModeWrite, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v want context canceled", err)
 	}
@@ -99,7 +99,7 @@ func TestUnixRecvRejectsWriteModeAtOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openUnixRecv(context.Background(), spec, xio.ModeWrite, nil)
+	o, err := openUnixRecv(context.Background(), mustAddr(t, spec), xio.ModeWrite, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected write-mode UNIX-RECV to fail at open")
@@ -117,7 +117,7 @@ func TestAbstractRecvRejectsWriteModeAtOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := openAbstractRecv(context.Background(), spec, xio.ModeWrite, nil)
+	o, err := openAbstractRecv(context.Background(), mustAddr(t, spec), xio.ModeWrite, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("expected write-mode ABSTRACT-RECV to fail at open")
@@ -144,7 +144,7 @@ func TestUnixgramUnnamedAndNamedPeerMatch(t *testing.T) {
 }
 
 func TestUnixgramConnReadDoesNotHangOnEOF(t *testing.T) {
-	c, err := listenUnixgramUnbound(parse.Spec{Type: "UNIX-SENDTO"})
+	c, err := listenUnixgramUnbound(mustAddr(t, parse.Spec{Type: "UNIX-SENDTO"}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,46 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// RetryPolicy from retry=N, forever, interval=seconds.
-type RetryPolicy struct {
-	// maxAttempts: 1 = no retry, 0 = forever
-	MaxAttempts int
-	Interval    time.Duration
-}
-
-func ParseRetry(s parse.Spec) RetryPolicy {
-	p := RetryPolicy{MaxAttempts: 1, Interval: time.Second}
-	if s.BoolOption("forever") {
-		p.MaxAttempts = 0
-	}
-	if v := s.OptionValue("retry", ""); v != "" {
-		n, err := ParseIntAny(v)
-		if err == nil {
-			// retry=N means N retries after the first try → N+1 attempts
-			if n < 0 {
-				p.MaxAttempts = 0
-			} else {
-				p.MaxAttempts = n + 1
-			}
-		}
-	}
-	if v := s.OptionValue("interval", ""); v != "" {
-		d, err := ParseDurationValue(v)
-		if err == nil && d >= 0 {
-			p.Interval = d
-		}
-	}
-	return p
-}
-
 // WithRetry runs fn until success or policy exhausted / ctx done.
-func WithRetry(ctx context.Context, s parse.Spec, g *Global, what string, fn func() error) error {
-	p := ParseRetry(s)
+func WithRetry(ctx context.Context, g *Global, policy addrconfig.RetryPolicy, what string, fn func() error) error {
 	var last error
-	for attempt := 1; p.MaxAttempts == 0 || attempt <= p.MaxAttempts; attempt++ {
+	for attempt := uint64(1); policy.MaxAttempts == 0 || attempt <= policy.MaxAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -52,13 +19,13 @@ func WithRetry(ctx context.Context, s parse.Spec, g *Global, what string, fn fun
 		if last == nil {
 			return nil
 		}
-		if p.MaxAttempts != 0 && attempt >= p.MaxAttempts {
+		if policy.MaxAttempts != 0 && attempt >= policy.MaxAttempts {
 			break
 		}
 		if g != nil && g.Log != nil {
-			g.Log.Noticef("%s: %v; retrying in %s", what, last, p.Interval)
+			g.Log.Noticef("%s: %v; retrying in %s", what, last, policy.Interval)
 		}
-		t := time.NewTimer(p.Interval)
+		t := time.NewTimer(policy.Interval)
 		select {
 		case <-ctx.Done():
 			t.Stop()

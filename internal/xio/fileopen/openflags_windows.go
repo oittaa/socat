@@ -2,15 +2,17 @@
 
 package fileopen
 
+import "github.com/oittaa/socat/internal/addrconfig"
+
 // Windows has no O_SYNC / O_ASYNC / O_NOCTTY family. Reject enabled flags.
 var openFlagTable = []openFlag{
-	{name: "o-direct", supported: false},
-	{name: "o-sync", supported: false},
-	{name: "o-dsync", supported: false},
-	{name: "o-rsync", supported: false},
-	{name: "o-noctty", supported: false},
-	{name: "o-nofollow", supported: false},
-	{name: "o-directory", supported: false},
-	{name: "o-largefile", supported: false},
-	{name: "async", supported: false},
+	{id: addrconfig.OpenFlagDirect, supported: false},
+	{id: addrconfig.OpenFlagSync, supported: false},
+	{id: addrconfig.OpenFlagDSync, supported: false},
+	{id: addrconfig.OpenFlagRSync, supported: false},
+	{id: addrconfig.OpenFlagNoCTTY, supported: false},
+	{id: addrconfig.OpenFlagNoFollow, supported: false},
+	{id: addrconfig.OpenFlagDirectory, supported: false},
+	{id: addrconfig.OpenFlagLargeFile, supported: false},
+	{id: addrconfig.OpenFlagAsync, supported: false},
 }

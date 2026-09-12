@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // errDSAUnsupported is returned when a PEM contains a DSA private key.
@@ -84,9 +82,7 @@ func splitCertKeyPEM(data []byte) (certPEM, keyPEM []byte) {
 	return certPEM, keyPEM
 }
 
-func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
-	cafile := s.OptionValue("cafile", "")
-	capath := s.OptionValue("capath", "")
+func loadCAPoolPaths(cafile, capath string) (*x509.CertPool, error) {
 	if cafile == "" && capath == "" {
 		return nil, nil
 	}
@@ -112,9 +108,8 @@ func loadCAPool(s parse.Spec) (*x509.CertPool, error) {
 	return pool, nil
 }
 
-// loadVerifyRoots is the trust store for verify=1: cafile/capath, else the system pool.
-func loadVerifyRoots(s parse.Spec) (*x509.CertPool, error) {
-	pool, err := loadCAPool(s)
+func loadVerifyRootsForPaths(cafile, capath string) (*x509.CertPool, error) {
+	pool, err := loadCAPoolPaths(cafile, capath)
 	if err != nil {
 		return nil, err
 	}

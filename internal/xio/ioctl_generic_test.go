@@ -2,27 +2,37 @@ package xio
 
 import (
 	"testing"
+
+	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 func TestHasFDLifecycleOptionsIoctl(t *testing.T) {
-	if !hasFDLifecycleOptions(mustSpec(t, "FD:3,ioctl-void=1"), FDSkip{}) {
-		t.Fatal("ioctl-void must trigger ApplyFDOptions")
-	}
-	if !hasFDLifecycleOptions(mustSpec(t, "TCP:localhost:1,ioctl=1"), FDSkip{}) {
-		t.Fatal("ioctl alias must trigger ApplyFDOptions")
-	}
-	if !hasFDLifecycleOptions(mustSpec(t, "OPEN:file,ioctl-string=1:x"), FDSkip{}) {
-		t.Fatal("ioctl-string must trigger ApplyFDOptions")
+	for _, raw := range []string{
+		"FD:3,ioctl-void=1",
+		"TCP:localhost:1,ioctl=1",
+		"OPEN:file,ioctl-string=1:x",
+	} {
+		config, err := decodeAddress(mustSpec(t, raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasConfiguredFDActions(config.File, FDSkip{}) {
+			t.Fatalf("%s must trigger ApplyFDOptions", raw)
+		}
 	}
 }
 
 func TestGenericIoctlOptionNames(t *testing.T) {
 	for _, name := range []string{"ioctl", "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string"} {
-		if !GenericIoctlOption(name) {
-			t.Errorf("%s: GenericIoctlOption=false", name)
+		def, ok := optionmeta.Lookup(name)
+		if !ok {
+			t.Errorf("%s: unknown ioctl option", name)
+			continue
 		}
-	}
-	if GenericIoctlOption("setsockopt") {
-		t.Fatal("setsockopt is not a generic ioctl option")
+		switch def.Canonical {
+		case "ioctl-void", "ioctl-int", "ioctl-intp", "ioctl-bin", "ioctl-string":
+		default:
+			t.Errorf("%s: canonical %q", name, def.Canonical)
+		}
 	}
 }

@@ -16,13 +16,13 @@ import (
 )
 
 func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
-	cfg, err := tlsClientConfig(parse.Spec{
+	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
 		Type: "TLS",
 		Options: []parse.Option{
 			{Name: "commonname", Value: "", Has: true},
 			{Name: "verify", Value: "0"},
 		},
-	}, "example.com")
+	}), "example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,13 +32,13 @@ func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
 }
 
 func TestTLSClientNoSNI(t *testing.T) {
-	cfg, err := tlsClientConfig(parse.Spec{
+	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
 		Type: "TLS",
 		Options: []parse.Option{
 			{Name: "openssl-no-sni"},
 			{Name: "verify", Value: "0"},
 		},
-	}, "badssl.com")
+	}), "badssl.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestTLSClientNoSNI(t *testing.T) {
 }
 
 func TestTLSServerConfigRequiresCert(t *testing.T) {
-	_, err := tlsServerConfig(parse.Spec{Type: "TLS-LISTEN", Params: []string{"443"}})
+	_, err := tlsServerConfig(mustAddr(t, parse.Spec{Type: "TLS-LISTEN", Params: []string{"443"}}))
 	if err == nil {
 		t.Fatal("expected error without cert=")
 	}
@@ -58,13 +58,13 @@ func TestTLSServerConfigRequiresCert(t *testing.T) {
 }
 
 func TestTLSClientSNIHost(t *testing.T) {
-	cfg, err := tlsClientConfig(parse.Spec{
+	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
 		Type: "TLS",
 		Options: []parse.Option{
 			{Name: "openssl-snihost", Value: "sni.example", Has: true},
 			{Name: "verify", Value: "0"},
 		},
-	}, "127.0.0.1")
+	}), "127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestLoadCAPath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "ca.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: ca.Raw}), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	pool, err := loadCAPool(parse.Spec{Options: []parse.Option{{Name: "capath", Value: dir, Has: true}}})
+	pool, err := loadCAPoolPaths("", dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestTLSCipherListCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := tlsClientConfig(spec, "localhost")
+	cfg, err := tlsClientConfig(mustAddr(t, spec), "localhost")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,11 +115,25 @@ func TestTLSProtocolVersionOptions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg, err := tlsClientConfig(spec, "localhost")
+	cfg, err := tlsClientConfig(mustAddr(t, spec), "localhost")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cfg.MinVersion != tls.VersionTLS11 || cfg.MaxVersion != tls.VersionTLS13 {
+		t.Fatalf("protocol bounds=%#x..%#x", cfg.MinVersion, cfg.MaxVersion)
+	}
+}
+
+func TestTLSProtocolVersionLastWinsRange(t *testing.T) {
+	spec, err := parse.ParseSpec("TLS:localhost:443,min-version=TLS1.3,max-version=TLS1.2,max-version=TLS1.3,verify=0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := tlsClientConfig(mustAddr(t, spec), "localhost")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MinVersion != tls.VersionTLS13 || cfg.MaxVersion != tls.VersionTLS13 {
 		t.Fatalf("protocol bounds=%#x..%#x", cfg.MinVersion, cfg.MaxVersion)
 	}
 }
@@ -133,7 +147,11 @@ func TestTLSProtocolVersionOptionsRejectInvalidBounds(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tlsClientConfig(spec, "localhost"); err == nil {
+		config, err := tryAddr(spec)
+		if err == nil {
+			_, err = tlsClientConfig(config, "localhost")
+		}
+		if err == nil {
 			t.Fatalf("tlsClientConfig(%q) succeeded", text)
 		}
 	}
@@ -145,7 +163,11 @@ func TestTLSCipherListRejectsUnsupportedPolicy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := tlsClientConfig(spec, "localhost"); err == nil || !strings.Contains(err.Error(), "not supported") {
+		config, err := tryAddr(spec)
+		if err == nil {
+			_, err = tlsClientConfig(config, "localhost")
+		}
+		if err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("ciphers=%q error=%v", value, err)
 		}
 	}

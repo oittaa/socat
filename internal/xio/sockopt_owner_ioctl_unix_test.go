@@ -23,7 +23,7 @@ func TestApplySocketOptionsOwnerIoctlCommandLineOrderUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fd, spec); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	assertSocketOwner(t, fd, pid)
@@ -43,7 +43,10 @@ func TestApplySocketOptionsOwnerIoctlInvalidUnix(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = ApplySocketOptions(fd, spec)
+		config, err := decodeAddress(spec)
+		if err == nil {
+			err = ApplySocketOptions(fd, config)
+		}
 		if err == nil || !strings.Contains(err.Error(), "invalid value") {
 			t.Fatalf("%s: err=%v want invalid value", specText, err)
 		}

@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/windows"
 )
 
@@ -31,17 +31,17 @@ func closeInheritedFD(fd int) error {
 	return windows.CloseHandle(windows.Handle(fd))
 }
 
-func mirrorInheritedFDFlags(orig int, _ *os.File, s parse.Spec) error {
-	for _, o := range s.Options {
-		if parse.CanonicalOptionName(o.Name) != "noinherit" {
+func mirrorInheritedFDFlags(orig int, _ *os.File, config addrconfig.File) error {
+	for _, action := range config.Actions {
+		if action.Kind != addrconfig.FileActionNoInherit {
 			continue
 		}
 		flags := uint32(0)
-		if !o.Active() {
+		if !action.Enabled {
 			flags = windows.HANDLE_FLAG_INHERIT
 		}
 		if err := windows.SetHandleInformation(windows.Handle(orig), windows.HANDLE_FLAG_INHERIT, flags); err != nil {
-			return fmt.Errorf("%s: SetHandleInformation: %w", o.OriginalSpelling(), err)
+			return fmt.Errorf("%s: SetHandleInformation: %w", action.Name, err)
 		}
 	}
 	return nil

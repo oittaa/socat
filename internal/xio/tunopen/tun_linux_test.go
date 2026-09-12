@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
@@ -31,7 +32,7 @@ func TestTUNRejectsBadName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	_, err = openTUN(context.Background(), mustAddr(t, s), xio.ModeRDWR, nil)
 	if err == nil {
 		t.Fatal("expected tun-name ../all to fail")
 	}
@@ -57,13 +58,59 @@ func TestParseIffOpts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, clear := parseIffOpts(s)
-	if set&unix.IFF_UP == 0 {
+	config := mustAddr(t, s)
+	if config.Network.TUNInterfaceSet&unix.IFF_UP == 0 {
 		t.Fatal("iff-up not set")
 	}
-	if clear&unix.IFF_NOARP == 0 {
+	if config.Network.TUNInterfaceClr&unix.IFF_NOARP == 0 {
 		t.Fatal("iff-noarp=0 not cleared")
 	}
+}
+
+func TestTUNIffLastWinsBringsInterfaceUp(t *testing.T) {
+	s, err := parse.ParseSpec("TUN,iff-up=0,iff-up=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := mustAddr(t, s)
+	if config.Network.TUNInterfaceSet&unix.IFF_UP == 0 {
+		t.Fatal("iff-up=1 last must set IFF_UP")
+	}
+	if config.Network.TUNInterfaceClr&unix.IFF_UP != 0 {
+		t.Fatal("iff-up=1 last must not remain in the clear mask")
+	}
+	o, err := openTUN(context.Background(), config, xio.ModeRDWR, nil)
+	if err != nil {
+		t.Skipf("requires TUN (/dev/net/tun): %v", err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	name := strings.TrimPrefix(o.Label, "TUN:")
+	if name == "" || name == o.Label {
+		t.Fatalf("TUN label=%q", o.Label)
+	}
+	flags, err := readInterfaceFlags(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if flags&unix.IFF_UP == 0 {
+		t.Fatalf("%s flags=%#x want IFF_UP", name, flags)
+	}
+}
+
+func readInterfaceFlags(name string) (uint16, error) {
+	sock, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = unix.Close(sock) }()
+	ifr, err := unix.NewIfreq(name)
+	if err != nil {
+		return 0, err
+	}
+	if err := unix.IoctlIfreq(sock, unix.SIOCGIFFLAGS, ifr); err != nil {
+		return 0, err
+	}
+	return ifr.Uint16(), nil
 }
 
 func TestPacketAuxVLANTCIEmpty(t *testing.T) {
@@ -81,7 +128,17 @@ func TestTUNRetrieveVLANRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = openTUN(context.Background(), s, xio.ModeRDWR, nil)
+	if _, err := xio.PrepareSpec(s); err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("PrepareSpec err=%v want not supported", err)
+	}
+	config, err := addrconfig.Decode(s, addrconfig.Facts{Type: "TUN", Kind: addrconfig.AddressKindTUN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !config.Network.TUNRetrieveVLAN {
+		t.Fatal("expected retrieve-vlan on decoded TUN config")
+	}
+	_, err = openTUN(context.Background(), config, xio.ModeRDWR, nil)
 	if err == nil || !strings.Contains(err.Error(), "AF_PACKET") {
 		t.Fatalf("err=%v want AF_PACKET INTERFACE error", err)
 	}

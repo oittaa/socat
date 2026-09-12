@@ -3,17 +3,17 @@ package dtlsopen
 import (
 	"context"
 	"fmt"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"net/netip"
 
 	"github.com/oittaa/socat/internal/dtls13"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func wrap(s parse.Spec) func(net.Conn) (relay.Stream, error) {
+func wrap(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
 		dc, ok := c.(datagramConn)
 		if !ok {
@@ -23,23 +23,23 @@ func wrap(s parse.Spec) func(net.Conn) (relay.Stream, error) {
 	}
 }
 
-func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	host, port, err := xio.HostPortParams(s)
-	if err != nil {
-		return nil, err
-	}
-	if host == "" || port == "" {
+func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	if !s.Network.TargetSet {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	cfg, err := endpointConfig(s, host, false)
+	host := s.Network.Target
+	port := s.Network.TargetPort
+	if host.Empty() || port.Empty() {
+		return nil, fmt.Errorf("%s requires host and port", s.Type)
+	}
+	cfg, err := endpointConfig(ctx, s, host.String(), false)
 	if err != nil {
 		return nil, err
 	}
-	dest := net.JoinHostPort(xio.StripBrackets(host), port)
 	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
 	dial := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
-		err := xio.WithRetry(dctx, s, g, s.Type, func() error {
+		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {
 			cctx := dctx
 			if timeout := xio.CombinedConnectHandshakeTimeout(s); timeout > 0 {
 				var cancel context.CancelFunc
@@ -50,15 +50,15 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 			if err != nil {
 				return err
 			}
-			peer, err := xio.ResolveUDPAddr(cctx, s, netw, dest)
+			peer, err := xio.ResolveUDPTarget(cctx, s, netw, host, port)
 			if err != nil {
 				return err
 			}
-			bind, err := xio.ListenBindHost(s, netw, s.OptionValue("bind", ""))
+			bind, err := xio.ListenBindHost(s, netw)
 			if err != nil {
 				return err
 			}
-			pc, err := xio.ListenClientPacket(cctx, netw, bind, s.OptionValue("sourceport", ""), s, g)
+			pc, err := xio.ListenClientPacket(cctx, netw, bind, xio.ClientLocalPort(s), s, g)
 			if err != nil {
 				return err
 			}
@@ -71,33 +71,31 @@ func openClient(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 		return conn, err
 	}
 	return xio.OpenDialed(ctx, s, g, xio.Dialed{
-		Label: s.Type + ":" + dest, Dial: dial, Wrap: wrap(s),
+		Label: s.Type + ":" + net.JoinHostPort(host.String(), port.Text()), Dial: dial, Wrap: wrap(s),
 		RememberTLS: true, LogOK: true, LogSuffix: " (DTLS)",
 	})
 }
 
-func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	if len(s.Params) == 0 || s.Params[0] == "" {
-		return nil, fmt.Errorf("%s requires port", s.Type)
-	}
-	cfg, err := endpointConfig(s, "", true)
+func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
+	port, err := xio.ListenPort(s)
 	if err != nil {
 		return nil, err
 	}
-	filter, err := xio.NewPeerFilter(ctx, s, g)
+	cfg, err := endpointConfig(ctx, s, "", true)
+	if err != nil {
+		return nil, err
+	}
+	filter, err := xio.PreparedPeerFilter(ctx, s, g)
 	if err != nil {
 		return nil, err
 	}
 	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
-	if network == "udp6" && s.HasOption("ipv6-v6only") && !s.BoolOption("ipv6-v6only") {
-		network = "udp"
-	}
-	host, err := xio.ListenBindHost(s, network, s.OptionValue("bind", ""))
+	network = xio.DualStackListenNetwork(s, network)
+	host, err := xio.ListenBindHost(s, network)
 	if err != nil {
 		return nil, err
 	}
-	addr := net.JoinHostPort(xio.StripBrackets(host), s.Params[0])
-	pc, err := xio.ListenPacketWithOptions(ctx, network, addr, s)
+	pc, err := xio.ListenPacketWithOptions(ctx, network, host, port, s)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +109,7 @@ func openServer(ctx context.Context, s parse.Spec, _ xio.Mode, g *xio.Global) (*
 	}
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{
 		Listener: drainingListener{ln}, CloseListener: ln.Close,
-		Label: s.Type + ":" + s.Params[0], WrapDial: wrap(s), PeerFilter: filter,
+		Label: s.Type + ":" + port.Text(), WrapDial: wrap(s), PeerFilter: filter,
 		KeepListenerForSession: true,
 		ListeningLog:           fmt.Sprintf("listening on %s (DTLS)", ln.Addr()),
 		AfterAccept:            func(g *xio.Global, c net.Conn) error { return xio.RememberTLSPeer(g, c, 0) },

@@ -5,48 +5,23 @@ import (
 	"os"
 	"os/user"
 	"strconv"
-	"strings"
 	"sync"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// ApplyOwner applies every user=/uid=/owner= and group=/gid=
-// occurrence to a named object in command-line order. perm=/mode= is omitted
-// because regular files and FIFOs already consumed it as their creation mode.
-func ApplyOwner(path string, s parse.Spec, f *os.File) error {
-	// CREATE/CREAT use creat(2); ApplyFDOptions applies user/group on the
-	// descriptor. Do not also chown the pathname here.
-	switch strings.ToUpper(s.Type) {
-	case "CREATE", "CREAT":
-		return nil
+// resolveUID uses a prepared user= / user-early= / user-late= reference.
+// Numeric IDs are used as-is; only names hit the account database.
+func resolveUID(owner addrconfig.OwnerRef) (int, bool, error) {
+	if owner.Numeric {
+		return owner.ID, true, nil
 	}
-	for _, o := range s.Options {
-		switch parse.CanonicalOptionName(o.Name) {
-		case "user":
-			if err := applyNamedUser(path, f, o); err != nil {
-				return err
-			}
-		case "group":
-			if err := applyNamedGroup(path, f, o); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// resolveUID parses user=/user-early= as a numeric uid or login name.
-func resolveUID(name string) (int, bool, error) {
-	if name == "" {
+	if owner.Name == "" {
 		return -1, false, nil
 	}
-	if n, err := strconv.Atoi(name); err == nil {
-		return n, true, nil
-	}
-	u, err := user.Lookup(name)
+	u, err := user.Lookup(owner.Name)
 	if err != nil {
-		return -1, false, fmt.Errorf("user %q: %w", name, err)
+		return -1, false, fmt.Errorf("user %q: %w", owner.Name, err)
 	}
 	n, err := strconv.Atoi(u.Uid)
 	if err != nil {
@@ -55,17 +30,18 @@ func resolveUID(name string) (int, bool, error) {
 	return n, true, nil
 }
 
-// resolveGID parses group=/group-early= as a numeric gid or group name.
-func resolveGID(name string) (int, bool, error) {
-	if name == "" {
+// resolveGID uses a prepared group= / group-early= / group-late= reference.
+// Numeric IDs are used as-is; only names hit the account database.
+func resolveGID(owner addrconfig.OwnerRef) (int, bool, error) {
+	if owner.Numeric {
+		return owner.ID, true, nil
+	}
+	if owner.Name == "" {
 		return -1, false, nil
 	}
-	if n, err := strconv.Atoi(name); err == nil {
-		return n, true, nil
-	}
-	g, err := user.LookupGroup(name)
+	g, err := user.LookupGroup(owner.Name)
 	if err != nil {
-		return -1, false, fmt.Errorf("group %q: %w", name, err)
+		return -1, false, fmt.Errorf("group %q: %w", owner.Name, err)
 	}
 	n, err := strconv.Atoi(g.Gid)
 	if err != nil {

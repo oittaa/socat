@@ -3,15 +3,12 @@
 package xio
 
 import (
-	"errors"
 	"fmt"
 	"math"
 	"math/bits"
-	"strconv"
-	"strings"
 	"time"
 
-	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
 
@@ -46,11 +43,6 @@ type termiosValue struct {
 	word  termiosWord
 	mask  termiosBits
 	shift uint
-}
-
-type termiosSetFlags struct {
-	word  int
-	flags termiosBits
 }
 
 // Flags we honor. Advertise only these.
@@ -135,8 +127,6 @@ var termiosCharAliases = []string{
 var termiosFlagAliases = []string{
 	"crterase", "crtkill", "ctlecho", "hup", "prterase", "tandem",
 }
-
-var termiosCombos = []string{"sane", "rawer", "raw", "cfmakeraw"}
 
 type baudOption struct {
 	name string
@@ -271,24 +261,6 @@ func lookupTermiosValue(name string) (termiosValue, bool) {
 	return termiosValue{}, false
 }
 
-func lookupBaud(name string) (uint32, bool) {
-	for _, b := range baudOptions() {
-		if b.name == name {
-			return b.baud, true
-		}
-	}
-	return 0, false
-}
-
-func isTermiosCombo(name string) bool {
-	for _, c := range termiosCombos {
-		if c == name {
-			return true
-		}
-	}
-	return false
-}
-
 func setFlag(t *unix.Termios, word termiosWord, mask termiosBits, on bool) {
 	switch word {
 	case wordI:
@@ -333,175 +305,6 @@ func setPattern(t *unix.Termios, word termiosWord, field, value termiosBits) {
 		t.Lflag &^= field
 		t.Lflag |= value
 	}
-}
-
-func parseTermiosBool(o parse.Option) (bool, error) {
-	if !o.Has {
-		return true, nil
-	}
-	switch strings.TrimSpace(o.Value) {
-	case "0":
-		return false, nil
-	case "1":
-		return true, nil
-	default:
-		return false, fmt.Errorf("%s: boolean value must be 0 or 1", o.Name)
-	}
-}
-
-func parseTermiosByte(name string, o parse.Option) (byte, error) {
-	// The man page documents every control character as name=<byte>. A bare
-	// flag is rejected here. Overflow clamps to 255.
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return 0, fmt.Errorf("%s: value required", name)
-	}
-	n, err := strconv.ParseUint(v, 0, 8)
-	if err == nil {
-		return byte(n), nil
-	}
-	if errors.Is(err, strconv.ErrRange) {
-		return 255, nil
-	}
-	return 0, fmt.Errorf("%s: invalid byte value %q", name, v)
-}
-
-func parseTermiosUint(name string, o parse.Option) (uint32, error) {
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return 0, fmt.Errorf("option %q: missing numerical value", name)
-	}
-	n, err := strconv.ParseUint(v, 0, 32)
-	if err != nil {
-		// Distinguish a value with no numeric prefix from a valid prefix
-		// followed by junk (different diagnostics).
-		for i := len(v) - 1; i > 0; i-- {
-			if _, prefixErr := strconv.ParseUint(v[:i], 0, 32); prefixErr == nil {
-				return 0, fmt.Errorf("option %q: trailing garbage %q", name, v[i:])
-			}
-		}
-		if v[0] < '0' || v[0] > '9' {
-			return 0, fmt.Errorf("option %q: missing numerical value", name)
-		}
-		return 0, fmt.Errorf("%s: invalid unsigned value %q", name, v)
-	}
-	return uint32(n), nil
-}
-
-func parseTermiosField(o parse.Option, field termiosValue) (termiosBits, error) {
-	n, err := parseTermiosUint(field.name, o)
-	if err != nil {
-		return 0, err
-	}
-	shifted64 := uint64(n) << field.shift
-	if shifted64 > uint64(^termiosBits(0)) || shifted64&^uint64(field.mask) != 0 {
-		return 0, fmt.Errorf("%s: invalid value %d", field.name, n)
-	}
-	shifted := termiosBits(shifted64)
-	return shifted, nil
-}
-
-func parseTermiosSetFlags(o parse.Option) (termiosSetFlags, error) {
-	v := strings.TrimSpace(o.Value)
-	if !o.Has || v == "" {
-		return termiosSetFlags{}, fmt.Errorf("%s: WORD:FLAGS value required", o.Name)
-	}
-	parts := strings.Split(v, ":")
-	if len(parts) != 2 {
-		return termiosSetFlags{}, fmt.Errorf("%s: expected WORD:FLAGS", o.Name)
-	}
-	word, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 0, 32)
-	if err != nil || word < 0 || word > 3 {
-		return termiosSetFlags{}, fmt.Errorf("%s: word must be 0..3", o.Name)
-	}
-	// Parse flags at host unsigned-long width, then truncate to tcflag_t when
-	// the termios word is narrower.
-	flags64, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 0, strconv.IntSize)
-	if err != nil {
-		return termiosSetFlags{}, fmt.Errorf("%s: invalid flags %q", o.Name, strings.TrimSpace(parts[1]))
-	}
-	flags := termiosBits(flags64) // #nosec G115 -- unsigned-long to tcflag_t truncation.
-	return termiosSetFlags{word: int(word), flags: flags}, nil
-}
-
-func validateTermiosConst(o parse.Option) error {
-	if o.Has {
-		return fmt.Errorf("%s: no value permitted", o.Name)
-	}
-	return nil
-}
-
-// ValidateTermiosOption enforces the documented option type. Non-termios
-// options are ignored.
-func ValidateTermiosOption(o parse.Option) error {
-	name := parse.CanonicalOptionName(o.Name)
-	if isTermiosCombo(name) {
-		return validateTermiosConst(o)
-	}
-	if f, ok := lookupTermiosFlag(name); ok {
-		if f.clr != 0 {
-			return validateTermiosConst(o)
-		}
-		_, err := parseTermiosBool(o)
-		return err
-	}
-	if _, ok := lookupTermiosChar(name); ok {
-		_, err := parseTermiosByte(name, o)
-		return err
-	}
-	if _, ok := lookupBaud(name); ok {
-		return validateTermiosConst(o)
-	}
-	if name == "ispeed" || name == "ospeed" {
-		_, err := parseTermiosUint(name, o)
-		return err
-	}
-	if field, ok := lookupTermiosValue(name); ok {
-		_, err := parseTermiosField(o, field)
-		return err
-	}
-	if name == "termios-setflags" {
-		_, err := parseTermiosSetFlags(o)
-		return err
-	}
-	if name == "tiocswinsz" {
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return fmt.Errorf("%s: COL:ROW value required", o.Name)
-		}
-		_, _, err := parseWinsz(o.Value)
-		return err
-	}
-	if name == "ctty" {
-		_, err := parseTermiosBool(o)
-		return err
-	}
-	return nil
-}
-
-func isTermiosStateOption(name string) bool {
-	if isTermiosCombo(name) || name == "ispeed" || name == "ospeed" || name == "termios-setflags" {
-		return true
-	}
-	if _, ok := lookupTermiosFlag(name); ok {
-		return true
-	}
-	if _, ok := lookupTermiosChar(name); ok {
-		return true
-	}
-	if _, ok := lookupBaud(name); ok {
-		return true
-	}
-	_, ok := lookupTermiosValue(name)
-	return ok
-}
-
-func specHasTermiosState(s parse.Spec) bool {
-	for _, o := range s.Options {
-		if isTermiosStateOption(parse.CanonicalOptionName(o.Name)) {
-			return true
-		}
-	}
-	return false
 }
 
 func applyCombo(t *unix.Termios, name string) {
@@ -563,63 +366,6 @@ func setTermiosWord(t *unix.Termios, word int, flags termiosBits) {
 	}
 }
 
-func applyOneTermios(t *unix.Termios, o parse.Option) error {
-	name := parse.CanonicalOptionName(o.Name)
-	if isTermiosCombo(name) {
-		applyCombo(t, name)
-		return nil
-	}
-	if f, ok := lookupTermiosFlag(name); ok {
-		if f.clr != 0 {
-			setPattern(t, f.word, f.clr, f.mask)
-			return nil
-		}
-		on, err := parseTermiosBool(o)
-		if err != nil {
-			return err
-		}
-		setFlag(t, f.word, f.mask, on)
-		return nil
-	}
-	if idx, ok := lookupTermiosChar(name); ok {
-		b, err := parseTermiosByte(name, o)
-		if err != nil {
-			return err
-		}
-		t.Cc[idx] = b
-		return nil
-	}
-	if baud, ok := lookupBaud(name); ok {
-		setSpeed(t, baud, true, true)
-		return nil
-	}
-	if name == "ispeed" || name == "ospeed" {
-		n, err := parseTermiosUint(name, o)
-		if err != nil {
-			return err
-		}
-		setSpeed(t, n, name == "ispeed", name == "ospeed")
-		return nil
-	}
-	if field, ok := lookupTermiosValue(name); ok {
-		value, err := parseTermiosField(o, field)
-		if err != nil {
-			return err
-		}
-		setPattern(t, field.word, field.mask, value)
-		return nil
-	}
-	if name == "termios-setflags" {
-		value, err := parseTermiosSetFlags(o)
-		if err != nil {
-			return err
-		}
-		setTermiosWord(t, value.word, value.flags)
-		return nil
-	}
-	return nil
-}
-
 func getTermios(fd int) (*unix.Termios, error) {
 	return unix.IoctlGetTermios(fd, termiosGet)
 }
@@ -628,28 +374,17 @@ func setTermios(fd int, t *unix.Termios) error {
 	return unix.IoctlSetTermios(fd, termiosSet, t)
 }
 
-// ApplyTermios mutates fd termios from spec. Options are applied in
-// command-line order. A termios state option on a non-TTY is an error;
-// specs without termios state options remain valid on ordinary descriptors.
-func ApplyTermios(fd int, s parse.Spec) error {
-	if err := RejectUnsupportedTermios(s); err != nil {
-		return err
-	}
-	for _, o := range s.Options {
-		if err := ValidateTermiosOption(o); err != nil {
-			return err
-		}
-	}
-	if specHasTermiosState(s) {
+// ApplyConfiguredTermios applies decoded terminal operations in their source
+// order. The platform table resolves prepared action identities to termios
+// fields; no option value grammar is interpreted here.
+func ApplyConfiguredTermios(fd int, config addrconfig.Terminal) error {
+	if hasConfiguredTermiosState(config) {
 		t, err := getTermios(fd)
 		if err != nil {
 			return fmt.Errorf("termios: %w", err)
 		}
-		for _, o := range s.Options {
-			if !isTermiosStateOption(parse.CanonicalOptionName(o.Name)) {
-				continue
-			}
-			if err := applyOneTermios(t, o); err != nil {
+		for _, action := range config.Actions {
+			if err := applyConfiguredTermiosAction(t, action); err != nil {
 				return err
 			}
 		}
@@ -657,103 +392,95 @@ func ApplyTermios(fd int, s parse.Spec) error {
 			return fmt.Errorf("termios: %w", err)
 		}
 	}
-	if err := ApplyWinsz(fd, s); err != nil {
-		return err
-	}
-	return ApplyCtty(fd, s)
-}
-
-// ApplyWinsz sets TIOCSWINSZ from tiocswinsz=COL:ROW.
-func ApplyWinsz(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if parse.CanonicalOptionName(o.Name) != "tiocswinsz" {
+	for _, action := range config.Actions {
+		if action.Kind != addrconfig.TerminalActionWinSize {
 			continue
 		}
-		col, row, err := parseWinsz(o.Value)
-		if err != nil {
-			return err
-		}
-		ws := unix.Winsize{Col: col, Row: row}
+		ws := unix.Winsize{Col: action.Col, Row: action.Row}
 		if err := unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &ws); err != nil {
 			return fmt.Errorf("tiocswinsz: %w", err)
 		}
 	}
-	return nil
-}
-
-func parseWinsz(v string) (col, row uint16, err error) {
-	parts := strings.Split(v, ":")
-	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("tiocswinsz requires COL:ROW")
+	if !config.CTTY.Set || !config.CTTY.Value {
+		return nil
 	}
-	c, err := strconv.Atoi(strings.TrimSpace(parts[0]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz col: %w", err)
-	}
-	r, err := strconv.Atoi(strings.TrimSpace(parts[1]))
-	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz row: %w", err)
-	}
-	if c < 0 {
-		c = 0
-	}
-	if r < 0 {
-		r = 0
-	}
-	if c > 65535 {
-		c = 65535
-	}
-	if r > 65535 {
-		r = 65535
-	}
-	return uint16(c), uint16(r), nil
-}
-
-// ApplyCtty issues TIOCSCTTY when ctty is set.
-func ApplyCtty(fd int, s parse.Spec) error {
-	for _, o := range s.Options {
-		if parse.CanonicalOptionName(o.Name) != "ctty" {
-			continue
-		}
-		enabled, err := parseTermiosBool(o)
-		if err != nil {
-			return err
-		}
-		if !enabled {
-			continue
-		}
-		if err := unix.IoctlSetInt(fd, unix.TIOCSCTTY, 0); err != nil {
-			// EPERM if already controlling / not session leader — ignore like setsid.
-			if err != unix.EPERM {
-				return fmt.Errorf("ctty: %w", err)
-			}
-		}
+	if err := unix.IoctlSetInt(fd, unix.TIOCSCTTY, 0); err != nil && err != unix.EPERM {
+		return fmt.Errorf("ctty: %w", err)
 	}
 	return nil
 }
 
-// AttachTermios saves tty state, applies spec, and restores on Opened.Close
-// before the FD is closed.
-func AttachTermios(o *Opened, fd int, s parse.Spec) error {
+func hasConfiguredTermiosState(config addrconfig.Terminal) bool {
+	for _, action := range config.Actions {
+		if action.Kind != addrconfig.TerminalActionWinSize {
+			return true
+		}
+	}
+	return false
+}
+
+func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAction) error {
+	switch action.Kind {
+	case addrconfig.TerminalActionCombo:
+		applyCombo(t, action.Name)
+	case addrconfig.TerminalActionFlag:
+		flag, ok := lookupTermiosFlag(action.Name)
+		if !ok {
+			return nil
+		}
+		if flag.clr != 0 {
+			setPattern(t, flag.word, flag.clr, flag.mask)
+			return nil
+		}
+		setFlag(t, flag.word, flag.mask, action.Enabled)
+	case addrconfig.TerminalActionChar:
+		idx, ok := lookupTermiosChar(action.Name)
+		if !ok {
+			return nil
+		}
+		if action.Value > math.MaxUint8 {
+			return fmt.Errorf("%s: invalid byte value %d", action.Name, action.Value)
+		}
+		t.Cc[idx] = byte(action.Value)
+	case addrconfig.TerminalActionSpeed:
+		switch action.Name {
+		case "ispeed":
+			setSpeed(t, action.Value, true, false)
+		case "ospeed":
+			setSpeed(t, action.Value, false, true)
+		default:
+			setSpeed(t, action.Value, true, true)
+		}
+	case addrconfig.TerminalActionField:
+		field, ok := lookupTermiosValue(action.Name)
+		if !ok {
+			return nil
+		}
+		setPattern(t, field.word, field.mask, termiosBits(action.Value)<<field.shift)
+	case addrconfig.TerminalActionSetFlags:
+		setTermiosWord(t, int(action.Word), termiosBits(action.Flags)) // #nosec G115 -- decoder bounds the word and preserves the platform flag bit pattern.
+	}
+	return nil
+}
+
+// AttachConfiguredTermios saves, applies, and restores typed terminal state.
+func AttachConfiguredTermios(o *Opened, fd int, config addrconfig.Terminal) error {
 	var saved *unix.Termios
-	if specHasTermiosState(s) {
+	if hasConfiguredTermiosState(config) {
 		var err error
 		saved, err = getTermios(fd)
 		if err != nil {
 			return fmt.Errorf("termios: %w", err)
 		}
 	}
-	if err := ApplyTermios(fd, s); err != nil {
+	if err := ApplyConfiguredTermios(fd, config); err != nil {
 		return err
 	}
 	if saved == nil {
 		return nil
 	}
 	cp := *saved
-	fdc := fd
-	o.AddTTYRestore(func() {
-		_ = setTermios(fdc, &cp)
-	})
+	o.AddTTYRestore(func() { _ = setTermios(fd, &cp) })
 	return nil
 }
 
@@ -779,12 +506,4 @@ func WaitPTYSlave(masterFD int, interval time.Duration) error {
 		}
 		time.Sleep(interval)
 	}
-}
-
-// PTYWaitInterval is pty-interval (default 1s).
-func PTYWaitInterval(s parse.Spec) time.Duration {
-	if !s.HasOption("pty-interval") {
-		return time.Second
-	}
-	return ParseTimeval(s.OptionValue("pty-interval", "1"))
 }
