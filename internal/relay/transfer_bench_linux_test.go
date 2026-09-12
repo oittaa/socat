@@ -27,7 +27,7 @@ func BenchmarkTransferZeroCopy(b *testing.B) {
 	_ = plan.Close()
 	_ = probe.Close()
 	_ = src.(FDStream).R.(*os.File).Close()
-	_ = dst.(NetStream).Conn.Close()
+	_ = dst.(NetStream).Close()
 
 	b.SetBytes(int64(len(payload)))
 	b.ReportAllocs()
@@ -52,7 +52,7 @@ func BenchmarkTransferZeroCopy(b *testing.B) {
 			b.Fatal(err)
 		}
 		<-drained
-		_ = right.(NetStream).Conn.Close()
+		_ = right.(NetStream).Close()
 		_ = left.(FDStream).R.(*os.File).Close()
 	}
 }
