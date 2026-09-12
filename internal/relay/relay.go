@@ -255,11 +255,17 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	}
 
 	// Capture poll FDs before cancel can Close.
-	lrDstFD, lrSrcFD := -1, -1
-	rlDstFD, rlSrcFD := -1, -1
+	lrDstFD, lrSrcFD, lrEOF := -1, -1, -1
+	rlDstFD, rlSrcFD, rlEOF := -1, -1, -1
 	var lrZeroCopy, rlZeroCopy zeroCopyPlan
 	// Poll pipes, terminals, and raw-FD streams only.
 	useExplicitPoll := canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right))
+	if cfg.LeftToRight {
+		lrEOF = streamReadFD(left)
+	}
+	if cfg.RightToLeft {
+		rlEOF = streamReadFD(right)
+	}
 	if useExplicitPoll {
 		if cfg.LeftToRight {
 			lrDstFD = streamWriteFD(right)
@@ -293,11 +299,11 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	nDirs := 0
 	if cfg.LeftToRight {
 		nDirs++
-		startDir(ctx, dirTask{dir: dirLeftToRight, dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
+		startDir(ctx, dirTask{dir: dirLeftToRight, dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, eofFD: lrEOF, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
-		startDir(ctx, dirTask{dir: dirRightToLeft, dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
+		startDir(ctx, dirTask{dir: dirRightToLeft, dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, eofFD: rlEOF, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
@@ -399,6 +405,7 @@ type dirTask struct {
 	dst, src Stream
 	dstFD    int
 	srcFD    int
+	eofFD    int // source ReadFD for OnEOF; independent of poll
 	plan     zeroCopyPlan
 	bytes    *atomic.Uint64
 	blocks   *atomic.Uint64
@@ -411,7 +418,7 @@ func reportEOF(cfg Config, d direction, fd int) {
 }
 
 func finishSourceEOF(ctx context.Context, t dirTask, cfg Config) dirOutcome {
-	reportEOF(cfg, t.dir, t.srcFD)
+	reportEOF(cfg, t.dir, t.eofFD)
 	if ctx.Err() == nil {
 		_ = t.dst.ShutdownWrite()
 	}

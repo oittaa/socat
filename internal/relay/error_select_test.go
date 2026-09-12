@@ -176,9 +176,9 @@ func TestTransferBenignCloseIsNil(t *testing.T) {
 	}
 }
 
-func TestOnEOFStillReportsPollSrcFD(t *testing.T) {
+func TestOnEOFUsesSourceReadFDNotOnlyPoll(t *testing.T) {
 	var fds []int
-	left := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}}
+	left := staticReadFD{FDStream: FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}}, fd: 7}
 	right := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}}
 	if err := Transfer(context.Background(), left, right, Config{
 		LeftToRight: true,
@@ -186,11 +186,20 @@ func TestOnEOFStillReportsPollSrcFD(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	// Structural change only: unknown source FDs stay -1 here. Mapping
-	// unknown → 0 is a separate reporting fix.
-	if len(fds) != 1 || fds[0] != -1 {
-		t.Fatalf("OnEOF fds=%v, want [-1]", fds)
+	if len(fds) != 1 || fds[0] != 7 {
+		t.Fatalf("OnEOF fds=%v, want [7] (source ReadFD, not poll-only -1)", fds)
 	}
+}
+
+type staticReadFD struct {
+	FDStream
+	fd int
+}
+
+func (s staticReadFD) StreamProps() Props {
+	p := NoProps()
+	p.ReadFD = s.fd
+	return p
 }
 
 func TestTransferLingerZeroDoesNotInventError(t *testing.T) {
