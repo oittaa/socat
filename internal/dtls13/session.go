@@ -65,7 +65,7 @@ type workingMTU struct {
 	canProbe     bool
 }
 
-// session is driven by one connection event loop. Transport ownership,
+// session is driven by Conn's private driver. Transport ownership,
 // deadlines, and application queues belong to the connection.
 type session struct {
 	handshake           *handshakeState

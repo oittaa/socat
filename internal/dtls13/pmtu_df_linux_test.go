@@ -72,10 +72,10 @@ func TestUnfragmentedProbesIPv6UsesPMTUDISCProbe(t *testing.T) {
 
 func TestUnfragmentedProbesDefaultOff(t *testing.T) {
 	client, _, _ := connectionPair(t)
-	if client.transport.unfragmented || client.session.working.canProbe {
+	if client.config.transport.unfragmented || client.driver.session.working.canProbe {
 		t.Fatal("default client enabled DF probes")
 	}
-	if ipv4MTUDiscoverMode(t, client.transport.udp) == unix.IP_PMTUDISC_PROBE {
+	if ipv4MTUDiscoverMode(t, client.config.transport.udp) == unix.IP_PMTUDISC_PROBE {
 		t.Fatal("default client socket is PMTUDISC_PROBE")
 	}
 }

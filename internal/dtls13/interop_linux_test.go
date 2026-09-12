@@ -279,7 +279,7 @@ func TestInteropWolfSSLServer(t *testing.T) {
 				if err := client.Close(); err != nil {
 					t.Fatal(err)
 				}
-				if client.session.currentWriteEpoch() < 4 || client.session.epochs.readApplicationEpoch < 4 {
+				if client.driver.session.currentWriteEpoch() < 4 || client.driver.session.epochs.readApplicationEpoch < 4 {
 					t.Fatal("wolfSSL did not complete both key updates")
 				}
 				t.Log("verified public client API, mutual authentication, bidirectional key updates, and wolfSSL echo")

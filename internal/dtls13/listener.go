@@ -231,7 +231,7 @@ func (l *Listener) AcceptContext(ctx context.Context) (net.Conn, error) {
 				return nil, acceptErr
 			}
 			select {
-			case <-c.stop:
+			case <-c.config.stop:
 				continue
 			default:
 				return c, nil

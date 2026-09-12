@@ -56,7 +56,7 @@ func verifyWolfSSLCID(t *testing.T, conn *Conn, transport *cidOracleTransport, s
 		t.Fatal(err)
 	}
 	// Close joins the event loop before the protocol-state assertions.
-	s := conn.session
+	s := conn.driver.session
 	state := conn.ConnectionState()
 	if state.Version != version13 || state.CipherSuite != suite || len(state.VerifiedChains) == 0 {
 		t.Fatal("wolfSSL did not negotiate authenticated DTLS 1.3 with the requested cipher")

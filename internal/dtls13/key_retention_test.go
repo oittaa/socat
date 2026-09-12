@@ -10,7 +10,7 @@ func TestConnIdleHandshakeReadKeyExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		client, server, _ := syntheticConnectionPair(t)
 		advanceHandshakeClock(4 * time.Minute)
-		if server.session.epochs.read[2] != nil || !server.session.handshakeReadExpiry.IsZero() {
+		if server.driver.session.epochs.read[2] != nil || !server.driver.session.handshakeReadExpiry.IsZero() {
 			t.Fatal("idle connection did not expire handshake read keys")
 		}
 		if _, err := client.Write([]byte("still connected")); err != nil {

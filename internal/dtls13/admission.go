@@ -211,9 +211,9 @@ func (l *Listener) admitHello(peer netip.AddrPort, p *pendingHello) {
 		return
 	}
 	c := newConn(peer)
-	c.cookieValidated = true
-	c.transport, c.packetBudget = l.transport, &l.packets
-	s := newSession(h.handshakeState, h.handle, c.sendPacket)
+	c.driver.cookieValidated = true
+	c.config.transport, c.config.packetBudget = l.transport, &l.packets
+	s := newSession(h.handshakeState, h.handle, c.driver.sendPacket)
 	s.reassembly.budget, s.reassembly.next = &l.fragments, 1
 	fragment, err := p.message.fragment(0, len(p.message.body))
 	if err != nil {
@@ -225,14 +225,14 @@ func (l *Listener) admitHello(peer netip.AddrPort, p *pendingHello) {
 	}
 	// Later plaintext ACKs must not acknowledge records from the retry cache.
 	s.epochs.write[0].sequence = l.nextPlainSequence
-	c.attach(s)
-	c.onReady, c.onClose, c.onPeerChanged = l.establish, l.remove, l.peerChanged
+	c.driver.attach(s)
+	c.config.onReady, c.config.onClose, c.config.onPeerChanged = l.establish, l.remove, l.peerChanged
 	s.cid.setLocal = func(ids [][]byte) error { return l.setCIDs(c, ids) }
 	l.connections[c], l.handshakes[peer] = true, c
 	if len(h.localCID) != 0 {
 		l.cids[string(h.localCID)] = c
 	}
-	go c.run()
+	go c.driver.run()
 }
 
 // One timer services all evictable entries; unauthenticated peers get no goroutine.
