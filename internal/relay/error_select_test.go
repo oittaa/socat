@@ -7,13 +7,11 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 )
 
 func TestClassifyDirError(t *testing.T) {
-	if got := classifyDirError(dirLeftToRight, nil); got.class != classOK || got.err != nil {
-		t.Fatalf("nil = %+v, want classOK", got)
-	}
 	if got := classifyDirError(dirLeftToRight, context.Canceled); got.class != classCanceled || got.err != context.Canceled {
 		t.Fatalf("exact Canceled = %+v, want classCanceled", got)
 	}
@@ -23,6 +21,18 @@ func TestClassifyDirError(t *testing.T) {
 	}
 	if got := classifyDirError(dirLeftToRight, context.DeadlineExceeded); got.class != classFailed {
 		t.Fatalf("DeadlineExceeded = %+v, want classFailed", got)
+	}
+}
+
+func TestSourceEOFAndDestCloseAreDistinct(t *testing.T) {
+	if dirEOF(dirLeftToRight).class == dirClosed(dirLeftToRight).class {
+		t.Fatal("source EOF and dest close share a class")
+	}
+	if err := selectTransferError(nil, dirEOF(dirLeftToRight)); err != nil {
+		t.Fatalf("source EOF selected: %v", err)
+	}
+	if err := selectTransferError(nil, dirClosed(dirRightToLeft)); err != nil {
+		t.Fatalf("dest close selected: %v", err)
 	}
 }
 
@@ -41,8 +51,8 @@ func TestSelectTransferErrorRules(t *testing.T) {
 		t.Fatalf("later error replaced first: %v", kept)
 	}
 
-	if err := selectTransferError(nil, classifyDirError(dirLeftToRight, nil)); err != nil {
-		t.Fatalf("nil outcome selected: %v", err)
+	if err := selectTransferError(nil, dirEOF(dirLeftToRight)); err != nil {
+		t.Fatalf("source EOF selected: %v", err)
 	}
 	if err := selectTransferError(nil, classifyDirError(dirLeftToRight, context.Canceled)); err != nil {
 		t.Fatalf("exact Canceled selected: %v", err)
@@ -67,16 +77,16 @@ func TestSelectTransferErrorRules(t *testing.T) {
 
 func TestTransferOutcomesDrainIsNotSelected(t *testing.T) {
 	var o transferOutcomes
-	o.keep(classifyDirError(dirLeftToRight, nil))
-	o.drain(classifyDirError(dirRightToLeft, errors.New("late")))
-	if err := o.publish(); err != nil {
+	o.accept(dirEOF(dirLeftToRight), true)
+	o.accept(classifyDirError(dirRightToLeft, errors.New("late")), false)
+	if err := publishTransfer(o); err != nil {
 		t.Fatalf("drained error selected: %v", err)
 	}
 	if o.rightToLeft.err == nil || o.rightToLeft.class != classFailed {
 		t.Fatal("drained outcome was not stored")
 	}
-	if len(o.live) != 1 || o.live[0].dir != dirLeftToRight {
-		t.Fatalf("live = %v, want only left→right", o.live)
+	if len(o.inspect) != 1 || o.inspect[0] != dirLeftToRight {
+		t.Fatalf("inspect = %v, want only left→right", o.inspect)
 	}
 }
 
@@ -85,21 +95,45 @@ func TestTransferOutcomesPublishWalksLiveOnly(t *testing.T) {
 	later := errors.New("later")
 
 	var firstWins transferOutcomes
-	firstWins.keep(classifyDirError(dirLeftToRight, boom))
-	firstWins.drain(classifyDirError(dirRightToLeft, later))
-	err := firstWins.publish()
+	firstWins.accept(classifyDirError(dirLeftToRight, boom), true)
+	firstWins.accept(classifyDirError(dirRightToLeft, later), false)
+	err := publishTransfer(firstWins)
 	if !errors.Is(err, boom) || !strings.HasPrefix(err.Error(), ">: ") {
 		t.Fatalf("live boom = %v", err)
 	}
 
 	var canceledThenDrained transferOutcomes
-	canceledThenDrained.keep(classifyDirError(dirLeftToRight, context.Canceled))
-	canceledThenDrained.drain(classifyDirError(dirRightToLeft, boom))
-	if err := canceledThenDrained.publish(); err != nil {
+	canceledThenDrained.accept(classifyDirError(dirLeftToRight, context.Canceled), true)
+	canceledThenDrained.accept(classifyDirError(dirRightToLeft, boom), false)
+	if err := publishTransfer(canceledThenDrained); err != nil {
 		t.Fatalf("live Canceled plus drained boom = %v", err)
 	}
 	if canceledThenDrained.rightToLeft.err != boom {
 		t.Fatal("drained boom was not stored")
+	}
+}
+
+func TestCopyDirReturnsSourceEOF(t *testing.T) {
+	left := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}}
+	right := FDStream{R: eofReader{}, W: io.Discard, C: nopCloser{}}
+	got := copyDir(context.Background(), dirTask{
+		dir: dirLeftToRight, dst: right, src: left, dstFD: -1, srcFD: -1,
+		bytes: new(atomic.Uint64), blocks: new(atomic.Uint64),
+	}, Config{BufferSize: 32}, func() {})
+	if got.dir != dirLeftToRight || got.class != classEOF {
+		t.Fatalf("copyDir = %+v, want classEOF", got)
+	}
+}
+
+func TestCopyDirReturnsDestClose(t *testing.T) {
+	left := FDStream{R: strings.NewReader("payload"), W: io.Discard, C: nopCloser{}}
+	right := FDStream{R: eofReader{}, W: closedPipeWriter{}, C: nopCloser{}}
+	got := copyDir(context.Background(), dirTask{
+		dir: dirLeftToRight, dst: right, src: left, dstFD: -1, srcFD: -1,
+		bytes: new(atomic.Uint64), blocks: new(atomic.Uint64),
+	}, Config{BufferSize: 32}, func() {})
+	if got.dir != dirLeftToRight || got.class != classClosed {
+		t.Fatalf("copyDir = %+v, want classClosed", got)
 	}
 }
 
