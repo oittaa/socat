@@ -1,6 +1,7 @@
 package xio
 
 import (
+	"os"
 	"sync/atomic"
 	"testing"
 
@@ -106,6 +107,31 @@ func TestForkSessionCopiesLogger(t *testing.T) {
 	c.Log = logx.New()
 	if !g.LogMixed || g.Log != lg {
 		t.Fatal("parent logger is independent")
+	}
+}
+
+func TestForkSessionOwnsSniffFiles(t *testing.T) {
+	parent, err := os.CreateTemp(t.TempDir(), "sniff-parent-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = parent.Close() })
+	if _, err := parent.WriteString("parent"); err != nil {
+		t.Fatal(err)
+	}
+
+	g := NewSession(Options{RawLeftPath: parent.Name()}, nil)
+	g.Sniff.RawLeft = parent
+	c := g.ForkSession()
+	if c.Sniff.RawLeft != nil || c.Sniff.RawRight != nil {
+		t.Fatal("fork must not share sniff file pointers")
+	}
+	if g.Sniff.RawLeft != parent {
+		t.Fatal("parent keeps its sniff files")
+	}
+	c.Sniff.closeFiles()
+	if _, err := parent.WriteString("+still-open"); err != nil {
+		t.Fatal(err)
 	}
 }
 

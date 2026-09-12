@@ -445,16 +445,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		if err := openSniffFiles(g); err != nil {
 			return err
 		}
-		defer func() {
-			if g.RawLeft != nil {
-				_ = g.RawLeft.Close()
-				g.RawLeft = nil
-			}
-			if g.RawRight != nil {
-				_ = g.RawRight.Close()
-				g.RawRight = nil
-			}
-		}()
+		defer g.Sniff.closeFiles()
 	}
 	leftToRight, rightToLeft := opts.LeftToRight, opts.RightToLeft
 	if !leftToRight && !rightToLeft {
@@ -474,11 +465,11 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	}
 	// Assign only concrete dump files. Converting a nil *os.File directly to
 	// io.Writer produces a non-nil interface that reports spurious write errors.
-	if g.RawLeft != nil {
-		cfg.RawLeft = g.RawLeft
+	if g.Sniff.RawLeft != nil {
+		cfg.RawLeft = g.Sniff.RawLeft
 	}
-	if g.RawRight != nil {
-		cfg.RawRight = g.RawRight
+	if g.Sniff.RawRight != nil {
+		cfg.RawRight = g.Sniff.RawRight
 	}
 	if g != nil && opts.Statistics && g.Log != nil {
 		cfg.OnStats = func(st relay.Stats) {
