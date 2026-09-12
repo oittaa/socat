@@ -507,7 +507,9 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 			}
 			eofOnce[sock].Do(func() {
 				if fd < 0 {
-					fd = 0
+					// Unknown descriptor: do not report fd 0 (stdin).
+					g.Log.Noticef("socket %d is at EOF", sock)
+					return
 				}
 				g.Log.Noticef("socket %d (fd %d) is at EOF", sock, fd)
 			})
