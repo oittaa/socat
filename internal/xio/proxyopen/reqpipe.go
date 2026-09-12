@@ -8,29 +8,25 @@ import (
 )
 
 // reqPipe is the CONNECT request body. Write copies into a bounded buffer
-// or, when the buffer is full, rendezvous with Read. A deadline returns only
-// this call's copied bytes and drops the rest; nothing stays in flight for a
-// later Write to acknowledge.
+// and waits when the buffer is full. A deadline returns only this call's
+// copied bytes; nothing stays in flight for a later Write to acknowledge.
 type reqPipe struct {
 	mu      sync.Mutex
 	cond    *sync.Cond
 	buf     []byte
 	max     int
-	rdl     time.Time
 	wdl     time.Time
 	rclosed bool
 	wclosed bool
 	wactive bool
-	wsrc    []byte
-	wprog   int
 }
 
 type reqPipeReader struct{ p *reqPipe }
 type reqPipeWriter struct{ p *reqPipe }
 
 func newReqPipe(max int) (*reqPipeReader, *reqPipeWriter) {
-	if max < 0 {
-		max = 0
+	if max < 1 {
+		max = 1
 	}
 	p := &reqPipe{max: max}
 	p.cond = sync.NewCond(&p.mu)
@@ -50,19 +46,25 @@ func (w *reqPipeWriter) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (p *reqPipe) wait(dl *time.Time) {
+func (p *reqPipe) wait() {
 	if h := pipeConnWaitHook; h != nil {
 		h()
 	}
-	deadline := *dl
-	if err := deadlineErr(deadline); err != nil {
+	p.cond.Wait()
+}
+
+func (p *reqPipe) waitWrite() {
+	if h := pipeConnWaitHook; h != nil {
+		h()
+	}
+	if err := deadlineErr(p.wdl); err != nil {
 		return
 	}
-	if deadline.IsZero() {
+	if p.wdl.IsZero() {
 		p.cond.Wait()
 		return
 	}
-	remain := time.Until(deadline)
+	remain := time.Until(p.wdl)
 	if remain <= 0 {
 		return
 	}
@@ -95,24 +97,16 @@ func (p *reqPipe) write(b []byte) (int, error) {
 		if err := p.writeErr(); err != nil {
 			return 0, err
 		}
-		p.wait(&p.wdl)
+		p.waitWrite()
 	}
 	p.wactive = true
 	defer func() {
-		p.wsrc = nil
 		p.wactive = false
 		p.cond.Broadcast()
 	}()
 	if err := p.writeErr(); err != nil {
 		return 0, err
 	}
-	if p.max == 0 {
-		return p.writeRendezvous(b)
-	}
-	return p.writeBuffered(b)
-}
-
-func (p *reqPipe) writeBuffered(b []byte) (int, error) {
 	n := 0
 	for n < len(b) {
 		if err := p.writeErr(); err != nil {
@@ -129,42 +123,19 @@ func (p *reqPipe) writeBuffered(b []byte) (int, error) {
 			p.cond.Broadcast()
 			continue
 		}
-		p.wait(&p.wdl)
+		p.waitWrite()
 	}
 	return n, nil
 }
 
-func (p *reqPipe) writeRendezvous(b []byte) (int, error) {
-	p.wsrc = b
-	p.wprog = 0
-	for p.wprog < len(b) {
-		if err := p.writeErr(); err != nil {
-			n := p.wprog
-			p.wsrc = nil
-			return n, err
-		}
-		p.cond.Broadcast()
-		p.wait(&p.wdl)
-	}
-	p.wsrc = nil
-	return len(b), nil
-}
-
 func (p *reqPipe) take(b []byte) int {
-	if len(p.buf) > 0 {
-		n := copy(b, p.buf)
-		p.buf = p.buf[n:]
-		p.cond.Broadcast()
-		return n
+	if len(p.buf) == 0 {
+		return 0
 	}
-	if len(p.wsrc) > 0 {
-		n := copy(b, p.wsrc)
-		p.wsrc = p.wsrc[n:]
-		p.wprog += n
-		p.cond.Broadcast()
-		return n
-	}
-	return 0
+	n := copy(b, p.buf)
+	p.buf = p.buf[n:]
+	p.cond.Broadcast()
+	return n
 }
 
 func (p *reqPipe) read(b []byte) (int, error) {
@@ -183,10 +154,7 @@ func (p *reqPipe) read(b []byte) (int, error) {
 		if p.rclosed {
 			return 0, net.ErrClosed
 		}
-		if err := deadlineErr(p.rdl); err != nil {
-			return 0, err
-		}
-		p.wait(&p.rdl)
+		p.wait()
 	}
 }
 
@@ -197,7 +165,6 @@ func (p *reqPipe) closeWrite() error {
 		return nil
 	}
 	p.wclosed = true
-	p.wsrc = nil
 	p.cond.Broadcast()
 	return nil
 }

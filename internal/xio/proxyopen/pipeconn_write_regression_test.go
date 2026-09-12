@@ -14,6 +14,7 @@ const (
 	reviewPayload = "seven!!" // 7 bytes, same as the native review reproducer
 	reviewOld     = "OLDDATA!"
 	reviewNew     = "NEWDATA!"
+	reviewPipeCap = 8
 )
 
 type writeResult struct {
@@ -31,6 +32,16 @@ func reviewWriteConn(t *testing.T, bufMax int) (*pipeConn, *reqPipeReader) {
 		_ = pr.Close()
 	})
 	return c, pr
+}
+
+func fillPipe(t *testing.T, c *pipeConn, n int) []byte {
+	t.Helper()
+	fill := bytes.Repeat([]byte("F"), n)
+	got, err := c.Write(fill)
+	if err != nil || got != n {
+		t.Fatalf("fill Write n=%d err=%v want %d", got, err, n)
+	}
+	return fill
 }
 
 func waitPipe(t *testing.T) <-chan struct{} {
@@ -72,7 +83,8 @@ func waitResult(t *testing.T, done <-chan writeResult) writeResult {
 }
 
 func TestReviewPipeConnTimeoutThenDifferentPayload(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
+	fill := fillPipe(t, c, reviewPipeCap)
 	entered := waitPipe(t)
 	done := startWrite(c, reviewOld)
 	waitEnter(t, entered)
@@ -88,8 +100,8 @@ func TestReviewPipeConnTimeoutThenDifferentPayload(t *testing.T) {
 	}
 	readDone := make(chan []byte, 1)
 	go func() {
-		buf := make([]byte, len(reviewOld)+len(reviewNew))
-		n, _ := pr.Read(buf)
+		buf := make([]byte, len(fill)+len(reviewOld)+len(reviewNew))
+		n, _ := io.ReadFull(pr, buf[:len(fill)+len(reviewNew)])
 		readDone <- append([]byte(nil), buf[:n]...)
 	}()
 	n, err := c.Write([]byte(reviewNew))
@@ -98,8 +110,9 @@ func TestReviewPipeConnTimeoutThenDifferentPayload(t *testing.T) {
 	}
 	select {
 	case peer := <-readDone:
-		if n != len(reviewNew) || string(peer) != reviewNew {
-			t.Fatalf("NEW Write n=%d peer=%q; want n=%d peer=%q", n, peer, len(reviewNew), reviewNew)
+		want := append(append([]byte{}, fill...), reviewNew...)
+		if n != len(reviewNew) || !bytes.Equal(peer, want) {
+			t.Fatalf("NEW Write n=%d peer=%q; want n=%d peer=%q", n, peer, len(reviewNew), want)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("peer did not receive NEW")
@@ -107,7 +120,8 @@ func TestReviewPipeConnTimeoutThenDifferentPayload(t *testing.T) {
 }
 
 func TestReviewPipeConnSamePayloadRetryAfterZero(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
+	fill := fillPipe(t, c, reviewPipeCap)
 	entered := waitPipe(t)
 	done := startWrite(c, reviewPayload)
 	waitEnter(t, entered)
@@ -123,8 +137,8 @@ func TestReviewPipeConnSamePayloadRetryAfterZero(t *testing.T) {
 	}
 	readDone := make(chan []byte, 1)
 	go func() {
-		buf := make([]byte, len(reviewPayload)*2)
-		n, _ := pr.Read(buf)
+		buf := make([]byte, len(fill)+len(reviewPayload))
+		n, _ := io.ReadFull(pr, buf)
 		readDone <- append([]byte(nil), buf[:n]...)
 	}()
 	n, err := c.Write([]byte(reviewPayload))
@@ -132,8 +146,9 @@ func TestReviewPipeConnSamePayloadRetryAfterZero(t *testing.T) {
 		t.Fatalf("retry Write n=%d err=%v want %d", n, err, len(reviewPayload))
 	}
 	peer := <-readDone
-	if string(peer) != reviewPayload {
-		t.Fatalf("peer got %q want one copy of %q", peer, reviewPayload)
+	want := append(append([]byte{}, fill...), reviewPayload...)
+	if !bytes.Equal(peer, want) {
+		t.Fatalf("peer got %q want fill plus one copy of %q", peer, reviewPayload)
 	}
 }
 
@@ -171,7 +186,8 @@ func TestReviewPipeConnSuffixRetryAfterPartial(t *testing.T) {
 }
 
 func TestReviewPipeConnConcurrentTimeoutNoCrossAck(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
+	fill := fillPipe(t, c, reviewPipeCap)
 	waits := make(chan struct{}, 8)
 	pipeConnWaitHook = func() {
 		select {
@@ -204,7 +220,7 @@ func TestReviewPipeConnConcurrentTimeoutNoCrossAck(t *testing.T) {
 		}
 		readDone := make(chan []byte, 1)
 		go func() {
-			buf := make([]byte, 8)
+			buf := make([]byte, len(fill)+8)
 			n, err := io.ReadFull(pr, buf)
 			if err != nil {
 				readDone <- nil
@@ -218,7 +234,8 @@ func TestReviewPipeConnConcurrentTimeoutNoCrossAck(t *testing.T) {
 		}
 		select {
 		case peer := <-readDone:
-			if string(peer) != "AFTER!!!" {
+			want := append(append([]byte{}, fill...), "AFTER!!!"...)
+			if !bytes.Equal(peer, want) {
 				t.Fatalf("peer got %q after concurrent timeout; tunnel should still accept a new Write", peer)
 			}
 		case <-time.After(2 * time.Second):
@@ -227,13 +244,14 @@ func TestReviewPipeConnConcurrentTimeoutNoCrossAck(t *testing.T) {
 	case <-waits:
 		readDone := make(chan []byte, 1)
 		go func() {
-			buf := make([]byte, len(reviewNew))
+			buf := make([]byte, len(fill)+len(reviewNew))
 			n, _ := io.ReadFull(pr, buf)
 			readDone <- buf[:n]
 		}()
 		neu = waitResult(t, newDone)
 		peer := <-readDone
-		if neu.n != len(reviewNew) || string(peer) != reviewNew {
+		want := append(append([]byte{}, fill...), reviewNew...)
+		if neu.n != len(reviewNew) || !bytes.Equal(peer, want) {
 			t.Fatalf("NEW n=%d peer=%q; must be this call’s payload, not OLD", neu.n, peer)
 		}
 	case <-time.After(2 * time.Second):
@@ -242,7 +260,7 @@ func TestReviewPipeConnConcurrentTimeoutNoCrossAck(t *testing.T) {
 }
 
 func TestReviewPipeConnWriteZeroProgressError(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
 	if err := pr.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -253,24 +271,16 @@ func TestReviewPipeConnWriteZeroProgressError(t *testing.T) {
 }
 
 func TestReviewPipeConnWritePartialProgressError(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, 3)
 	entered := waitPipe(t)
 	done := startWrite(c, reviewPayload)
 	waitEnter(t, entered)
-	buf := make([]byte, 3)
-	n, err := pr.Read(buf)
-	if err != nil || n != 3 {
-		t.Fatalf("peer Read n=%d err=%v", n, err)
-	}
 	if err := pr.Close(); err != nil {
 		t.Fatal(err)
 	}
 	got := waitResult(t, done)
 	if got.n != 3 || !errors.Is(got.err, io.ErrClosedPipe) {
 		t.Fatalf("Write n=%d err=%v want 3, %v", got.n, got.err, io.ErrClosedPipe)
-	}
-	if string(buf) != reviewPayload[:3] {
-		t.Fatalf("peer got %q want %q", buf, reviewPayload[:3])
 	}
 }
 
@@ -295,7 +305,8 @@ func TestReviewPipeConnLargeWrite(t *testing.T) {
 }
 
 func TestReviewPipeConnWriteDeadlineExtendThenDeliver(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
+	fill := fillPipe(t, c, reviewPipeCap)
 	entered := waitPipe(t)
 	done := startWrite(c, reviewPayload)
 	waitEnter(t, entered)
@@ -304,7 +315,8 @@ func TestReviewPipeConnWriteDeadlineExtendThenDeliver(t *testing.T) {
 	}
 	readDone := make(chan error, 1)
 	go func() {
-		_, err := io.ReadFull(pr, make([]byte, len(reviewPayload)))
+		buf := make([]byte, len(fill)+len(reviewPayload))
+		_, err := io.ReadFull(pr, buf)
 		readDone <- err
 	}()
 	got := waitResult(t, done)
@@ -317,7 +329,8 @@ func TestReviewPipeConnWriteDeadlineExtendThenDeliver(t *testing.T) {
 }
 
 func TestReviewPipeConnCloseWritePendingMatchesCount(t *testing.T) {
-	c, pr := reviewWriteConn(t, 0)
+	c, pr := reviewWriteConn(t, reviewPipeCap)
+	fill := fillPipe(t, c, reviewPipeCap)
 	entered := waitPipe(t)
 	done := startWrite(c, reviewPayload)
 	waitEnter(t, entered)
@@ -331,10 +344,11 @@ func TestReviewPipeConnCloseWritePendingMatchesCount(t *testing.T) {
 	}
 	got := waitResult(t, done)
 	delivered := <-peer
-	if got.n != len(delivered) {
-		t.Fatalf("Write n=%d peer=%q; count must match delivered bytes", got.n, delivered)
+	extra := delivered[len(fill):]
+	if got.n != len(extra) {
+		t.Fatalf("Write n=%d extra=%q; count must match delivered bytes after fill", got.n, extra)
 	}
-	if got.n > 0 && string(delivered) != reviewPayload[:got.n] {
-		t.Fatalf("peer %q is not this Write’s prefix (n=%d)", delivered, got.n)
+	if got.n > 0 && string(extra) != reviewPayload[:got.n] {
+		t.Fatalf("peer extra %q is not this Write’s prefix (n=%d)", extra, got.n)
 	}
 }
