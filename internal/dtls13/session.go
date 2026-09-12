@@ -232,11 +232,45 @@ func (s *session) startFlight(messages []handshakeMessage, now time.Time) error 
 		return err
 	}
 	s.outbound = f
-	return s.transmitFlight(now)
+	return s.transmit(s.outbound, now)
 }
 
-func (s *session) transmitFlight(now time.Time) error {
-	return s.transmit(s.outbound, now)
+// acknowledgeFlight records ACKs, samples RTT, and sends remaining fragments
+// after partial progress.
+func (s *session) acknowledgeFlight(f *flight, records []recordNumber, authenticated bool, now time.Time) error {
+	if f == nil {
+		return nil
+	}
+	progress, sample := f.acknowledge(records, authenticated, now)
+	s.noteRTT(sample, f)
+	if progress && !f.complete {
+		return s.transmit(f, now)
+	}
+	return nil
+}
+
+func (s *session) retransmitExpired(f *flight, now time.Time) error {
+	due, err := expireFlight(f, now)
+	if err != nil || !due {
+		return err
+	}
+	return s.transmit(f, now)
+}
+
+func (s *session) expireOutbound(now time.Time) error {
+	f := s.outbound
+	due, err := expireFlight(f, now)
+	if err != nil || !due {
+		return err
+	}
+	// New-byte bursts and the first unanswered retransmit are not PMTU
+	// evidence. OpenSSL often does not ACK epoch-2 fragments before
+	// Finished, so shrink only after a second unanswered retry.
+	if !f.pendingSend() && !f.ackedSinceSend && f.retries > 1 {
+		_ = s.reduceHandshakeMTU(0)
+	}
+	f.ackedSinceSend = false
+	return s.transmit(f, now)
 }
 
 func (s *session) transmit(f *flight, now time.Time) error {
@@ -328,14 +362,8 @@ func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) (
 				// Authenticated but malformed ACK lists are dropped.
 				continue
 			}
-			if s.outbound != nil {
-				progress, sample := s.outbound.acknowledge(acks, r.encrypted, now)
-				s.noteRTT(sample, s.outbound)
-				if progress && !s.outbound.complete {
-					if err := s.transmitFlight(now); err != nil {
-						return nil, err
-					}
-				}
+			if err := s.acknowledgeFlight(s.outbound, acks, r.encrypted, now); err != nil {
+				return nil, err
 			}
 			if err := s.acknowledgePost(acks, r.encrypted, now); err != nil {
 				return nil, err
@@ -589,28 +617,19 @@ func (s *session) writeAcknowledgements(ready bool) error {
 }
 
 func (s *session) deadline() time.Time {
-	deadline := time.Time{}
+	var deadline time.Time
 	if s.handshakeACKScheduled() {
 		deadline = s.ack.deadline
 	}
-	if !s.handshakeReadExpiry.IsZero() && (deadline.IsZero() || s.handshakeReadExpiry.Before(deadline)) {
-		deadline = s.handshakeReadExpiry
-	}
-	if s.outbound != nil && !s.outbound.complete && (deadline.IsZero() || !s.outbound.deadline.IsZero() && s.outbound.deadline.Before(deadline)) {
-		deadline = s.outbound.deadline
-	}
+	deadline = earlierDeadline(deadline, s.handshakeReadExpiry)
+	deadline = earlierDeadline(deadline, flightDeadline(s.outbound))
 	for _, f := range s.post {
-		if !f.complete && (deadline.IsZero() || !f.deadline.IsZero() && f.deadline.Before(deadline)) {
-			deadline = f.deadline
-		}
+		deadline = earlierDeadline(deadline, flightDeadline(f))
 	}
-	if s.path != nil && s.path.probe != nil && (deadline.IsZero() || s.path.probe.deadline.Before(deadline)) {
-		deadline = s.path.probe.deadline
+	if s.path != nil && s.path.probe != nil {
+		deadline = earlierDeadline(deadline, s.path.probe.deadline)
 	}
-	if d := s.mtuDeadline(); !d.IsZero() && (deadline.IsZero() || d.Before(deadline)) {
-		deadline = d
-	}
-	return deadline
+	return earlierDeadline(deadline, s.mtuDeadline())
 }
 
 func (s *session) tick(now time.Time) error {
@@ -626,35 +645,12 @@ func (s *session) tick(now time.Time) error {
 			return err
 		}
 	}
-	if s.outbound != nil {
-		retransmit, err := s.outbound.expire(now)
-		if err != nil {
-			return err
-		}
-		if retransmit {
-			// New-byte bursts and the first unanswered retransmit are not PMTU
-			// evidence. OpenSSL often does not ACK epoch-2 fragments before
-			// Finished, so shrink only after a second unanswered retry.
-			if !s.outbound.pendingSend() && !s.outbound.ackedSinceSend && s.outbound.retries > 1 {
-				_ = s.reduceHandshakeMTU(0)
-			}
-			s.outbound.ackedSinceSend = false
-			if err := s.transmitFlight(now); err != nil {
-				return err
-			}
-		}
+	if err := s.expireOutbound(now); err != nil {
+		return err
 	}
 	for _, typ := range postTypes {
-		if f := s.post[typ]; f != nil {
-			retransmit, err := f.expire(now)
-			if err != nil {
-				return err
-			}
-			if retransmit {
-				if err := s.transmit(f, now); err != nil {
-					return err
-				}
-			}
+		if err := s.retransmitExpired(s.post[typ], now); err != nil {
+			return err
 		}
 	}
 	return s.advancePost(now)

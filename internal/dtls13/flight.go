@@ -265,3 +265,17 @@ func (f *flight) expire(now time.Time) (bool, error) {
 	f.deadline = now.Add(f.interval)
 	return true, nil
 }
+
+func expireFlight(f *flight, now time.Time) (bool, error) {
+	if f == nil {
+		return false, nil
+	}
+	return f.expire(now)
+}
+
+func flightDeadline(f *flight) time.Time {
+	if f == nil || f.complete {
+		return time.Time{}
+	}
+	return f.deadline
+}

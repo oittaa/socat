@@ -146,14 +146,8 @@ func (s *session) updatedKeys(secret []byte) ([]byte, *trafficKeys, error) {
 
 func (s *session) acknowledgePost(records []recordNumber, authenticated bool, now time.Time) error {
 	for _, typ := range postTypes {
-		if f := s.post[typ]; f != nil {
-			progress, sample := f.acknowledge(records, authenticated, now)
-			s.noteRTT(sample, f)
-			if progress && !f.complete {
-				if err := s.transmit(f, now); err != nil {
-					return err
-				}
-			}
+		if err := s.acknowledgeFlight(s.post[typ], records, authenticated, now); err != nil {
+			return err
 		}
 	}
 	return s.advancePost(now)
