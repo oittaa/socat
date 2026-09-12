@@ -55,10 +55,19 @@ func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
 	return d.DialContext(cctx, c.network, formatTCPAddr(c.network, raddr.IP, raddr.Port))
 }
 
+// testHookTCPDial, when set, sees each DialTCPAll result. Tests count
+// production connect attempts without reading diagnostic text.
+var testHookTCPDial func(addr string, err error)
+
 // DialTCPAll resolves dest.Host and tries each address in order.
 // dest.Network is "tcp", "tcp4", or "tcp6". Logs Notice "opening connection to AF=…"
 // for each attempt.
-func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (net.Conn, error) {
+func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global, timeout time.Duration, control func(network, address string, c syscall.RawConn) error) (conn net.Conn, err error) {
+	defer func() {
+		if h := testHookTCPDial; h != nil {
+			h(net.JoinHostPort(StripBrackets(dest.Host.String()), dest.Port.Text()), err)
+		}
+	}()
 	host := StripBrackets(dest.Host.String())
 	portNum, err := ResolvePort(dest.Network, dest.Port)
 	if err != nil {

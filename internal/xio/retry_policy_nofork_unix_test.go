@@ -16,16 +16,12 @@ func TestRetryingPeerThenNoForkUsesPreparedPolicy(t *testing.T) {
 	}
 
 	const marker = "retry-nofork-handoff"
-	addr := reservedTCP4Addr(t)
-	left := prepareChannel(t, fmt.Sprintf("TCP4:%s,retry=2,interval=0,connect-timeout=1", addr))
-	policy := left.Single.Config.Common.Retry.Policy()
-	if policy.MaxAttempts < 2 {
-		t.Fatalf("fixture policy attempts=%d", policy.MaxAttempts)
-	}
-	gate := newDestGate(addr, policy.MaxAttempts-1)
-	g := retrySessionWithLog(&retryFanout{gates: []*destGate{gate}})
+	gate := newDestGate(reservedTCP4Addr(t), 2)
+	left := prepareChannel(t, fmt.Sprintf("TCP4:%s,retry=2,interval=0,connect-timeout=1", gate.addr))
+	requireRetryAttempts(t, left, 3)
+	installTCPDialHook(t, gate)
 	t.Cleanup(gate.close)
-
+	g := retrySession()
 	right := prepareChannel(t, "SYSTEM:printf "+marker+",nofork")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -47,8 +43,8 @@ func TestRetryingPeerThenNoForkUsesPreparedPolicy(t *testing.T) {
 	if err := waitErr(t, finished, 2*time.Second, "nofork run"); err != nil {
 		t.Fatalf("run: %v", err)
 	}
-	if got := gate.openings.Load(); got < int64(policy.MaxAttempts) {
-		t.Fatalf("retrying peer DialTCPAll openings=%d want >= %d", got, policy.MaxAttempts)
+	if got := gate.loadDials(); got != 3 {
+		t.Fatalf("retrying peer DialTCPAll=%d want 3", got)
 	}
 	if gate.startErr != nil {
 		t.Fatal(gate.startErr)
