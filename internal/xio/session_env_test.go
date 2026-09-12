@@ -68,6 +68,16 @@ func TestSniffEnvFromSession(t *testing.T) {
 	}
 }
 
+func TestRelaySessionConfigFromOptions(t *testing.T) {
+	cfg := relaySessionConfig(Options{BlockSize: 4, LeftToRight: true, Linger: time.Second}, true, false)
+	if cfg.BufferSize != 4 || !cfg.LeftToRight || cfg.RightToLeft || !cfg.NoCloseLeft || cfg.NoCloseRight {
+		t.Fatalf("%+v", cfg)
+	}
+	if cfg.RawLeft != nil || cfg.OnStats != nil || cfg.OnEOF != nil {
+		t.Fatal("relay session config must not attach session files or callbacks")
+	}
+}
+
 func TestChannelModesUsesOptions(t *testing.T) {
 	l, r := channelModes(Options{})
 	if l != ModeRDWR || r != ModeRDWR {

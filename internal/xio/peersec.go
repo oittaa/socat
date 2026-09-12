@@ -44,8 +44,8 @@ type PeerFilter struct {
 }
 
 // PreparedPeerFilter compiles the prepared peer policy for an opening.
-func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Global) (*PeerFilter, error) {
-	return NewPeerFilter(ctx, config.Network, LookupResolver(config), g)
+func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, opts Options) (*PeerFilter, error) {
+	return NewPeerFilter(ctx, config.Network, LookupResolver(config), opts)
 }
 
 // NewPeerFilter compiles peer policy and resolves range= once. Callers must
@@ -54,7 +54,7 @@ func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, g *Globa
 // peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
 // uses it per peer. Long-lived listeners pass the session context so
 // shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, g *Global) (*PeerFilter, error) {
+func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, opts Options) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -65,7 +65,7 @@ func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net
 		hasSourcePort: policy.SourcePortSet,
 		sourcePort:    policy.SourcePort,
 		lowport:       policy.LowPort.Value,
-		tcpwrap:       parseTCPWrap(policy, g.Options()),
+		tcpwrap:       parseTCPWrap(policy, opts),
 	}
 	if policy.RangeSet {
 		matcher, err := compileIPRange(ctx, policy.Range, resolver)

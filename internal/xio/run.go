@@ -443,22 +443,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		}
 		defer g.Sniff.closeFiles()
 	}
-	leftToRight, rightToLeft := opts.LeftToRight, opts.RightToLeft
-	if !leftToRight && !rightToLeft {
-		leftToRight, rightToLeft = true, true
-	}
-	cfg := relay.Config{
-		BufferSize:   opts.BlockSize,
-		Linger:       opts.Linger,
-		IdleTimeout:  opts.Idle,
-		LeftToRight:  leftToRight,
-		RightToLeft:  rightToLeft,
-		Verbose:      opts.Verbose,
-		Hex:          opts.Hex,
-		Dump:         opts.Dump,
-		NoCloseLeft:  noCloseLeft,
-		NoCloseRight: noCloseRight,
-	}
+	cfg := relaySessionConfig(opts, noCloseLeft, noCloseRight)
 	// Assign only concrete dump files. Converting a nil *os.File directly to
 	// io.Writer produces a non-nil interface that reports spurious write errors.
 	if g.Sniff.RawLeft != nil {
@@ -491,6 +476,25 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		}
 	}
 	return relay.Transfer(ctx, left, right, cfg)
+}
+
+func relaySessionConfig(opts Options, noCloseLeft, noCloseRight bool) relay.Config {
+	leftToRight, rightToLeft := opts.LeftToRight, opts.RightToLeft
+	if !leftToRight && !rightToLeft {
+		leftToRight, rightToLeft = true, true
+	}
+	return relay.Config{
+		BufferSize:   opts.BlockSize,
+		Linger:       opts.Linger,
+		IdleTimeout:  opts.Idle,
+		LeftToRight:  leftToRight,
+		RightToLeft:  rightToLeft,
+		Verbose:      opts.Verbose,
+		Hex:          opts.Hex,
+		Dump:         opts.Dump,
+		NoCloseLeft:  noCloseLeft,
+		NoCloseRight: noCloseRight,
+	}
 }
 
 // DefaultCreateMode is open/creat/mkfifo mode (0666 before umask).

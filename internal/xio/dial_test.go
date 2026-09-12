@@ -61,7 +61,7 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	ctx := context.Background()
 	g := NewSession(Options{IPVersion: IPv6}, nil)
 	s := parse.Spec{}
-	ips, err := resolveConnectIPs(ctx, "tcp", "localhost", mustDecodeAddress(t, s), g)
+	ips, err := resolveConnectIPs(ctx, "tcp", "localhost", mustDecodeAddress(t, s), g.Options())
 	if err != nil {
 		t.Skip(err)
 	}
@@ -128,7 +128,7 @@ func TestResolveDialIPsRejectsTCP6IPv4Literals(t *testing.T) {
 	ctx := context.Background()
 	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
 	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
-		_, err := ResolveDialIPs(ctx, DialTargetFromText("tcp6", host, "9"), config, nil)
+		_, err := ResolveDialIPs(ctx, DialTargetFromText("tcp6", host, "9"), config, Options{})
 		if err == nil || !strings.Contains(err.Error(), "not IPv6") {
 			t.Fatalf("%s: err=%v want not IPv6", host, err)
 		}

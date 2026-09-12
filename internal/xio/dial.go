@@ -64,7 +64,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	if err != nil {
 		return nil, err
 	}
-	ips, err := resolveDialIPs(ctx, dest, s, g)
+	ips, err := resolveDialIPs(ctx, dest, s, g.Options())
 	if err != nil {
 		return nil, err
 	}
@@ -128,11 +128,11 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	return nil, lastErr
 }
 
-func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global) ([]net.IP, error) {
-	return resolveDialIPs(ctx, dest, s, g)
+func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IP, error) {
+	return resolveDialIPs(ctx, dest, s, opts)
 }
 
-func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, g *Global) ([]net.IP, error) {
+func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IP, error) {
 	network := connectIPNetwork(dest.Network)
 	host := StripBrackets(dest.Host.Original())
 	if dest.Host.IsLiteral() {
@@ -145,7 +145,7 @@ func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, 
 		}
 		return []net.IP{ip}, nil
 	}
-	return resolveConnectIPs(ctx, network, host, s, g)
+	return resolveConnectIPs(ctx, network, host, s, opts)
 }
 
 func connectIPNetwork(network string) string {
@@ -228,7 +228,7 @@ func afForNetwork(network string, ip net.IP) int {
 }
 
 // resolveConnectIPs returns remote IPs in try order.
-func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, g *Global) ([]net.IP, error) {
+func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, opts Options) ([]net.IP, error) {
 	// Literal IP: single address, no DNS.
 	if ip := net.ParseIP(host); ip != nil {
 		if err := rejectConnectIPFamily(network, host, ip); err != nil {
@@ -252,7 +252,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
 		} else {
-			switch preferredResolveVersion(g.Options()) {
+			switch preferredResolveVersion(opts) {
 			case IPv6:
 				sort.SliceStable(ips, func(i, j int) bool {
 					return ips[i].To4() == nil && ips[j].To4() != nil

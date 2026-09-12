@@ -31,7 +31,7 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 		t.Fatal("Options() snapshot must not write session storage")
 	}
 	other := NewSession(Options{BlockSize: 9}, lg)
-	if other.sharesOptions(g) {
+	if sharesOptions(other, g) {
 		t.Fatal("separate NewSession calls must not share Options")
 	}
 
@@ -46,7 +46,7 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 	c.Peer.SessionVars["A"] = "x"
 	c.Peer.TLSVars["B"] = "y"
 	c.LogMixed = false
-	if !c.sharesOptions(g) {
+	if !sharesOptions(c, g) {
 		t.Fatal("fork must share private Options storage")
 	}
 	if c.Options().BlockSize != 9 || !c.ForkChild || c.statsPrinted != printed {
