@@ -63,7 +63,123 @@ type Stats struct {
 	Duration time.Duration
 }
 
-// Transfer copies data bidirectionally between left and right until both directions finish.
+// direction is one copy of a bidirectional transfer.
+type direction uint8
+
+const (
+	dirLeftToRight direction = iota + 1 // ">"
+	dirRightToLeft                      // "<"
+)
+
+func (d direction) String() string {
+	switch d {
+	case dirLeftToRight:
+		return ">"
+	case dirRightToLeft:
+		return "<"
+	default:
+		return "?"
+	}
+}
+
+// sock is the classic MULTIPLE_EOF socket number: 1=left, 2=right.
+func (d direction) sock() int {
+	switch d {
+	case dirLeftToRight:
+		return 1
+	case dirRightToLeft:
+		return 2
+	default:
+		return 0
+	}
+}
+
+// dirOutcome is the typed result of one direction. Err is nil for clean
+// source EOF and for benign peer/stream close. copyDir reports
+// context.Canceled with identity (not wrapping) when the transfer context
+// is already done at the top of the read loop.
+type dirOutcome struct {
+	dir direction
+	err error
+}
+
+// transferOutcomes is owned by Transfer: one slot per direction, plus the
+// completion order of results that may affect the selected error.
+type transferOutcomes struct {
+	leftToRight dirOutcome
+	rightToLeft dirOutcome
+	seen        []direction
+}
+
+func (o *transferOutcomes) record(r dirOutcome, inspect bool) {
+	switch r.dir {
+	case dirLeftToRight:
+		o.leftToRight = r
+	case dirRightToLeft:
+		o.rightToLeft = r
+	}
+	if inspect && (r.dir == dirLeftToRight || r.dir == dirRightToLeft) {
+		o.seen = append(o.seen, r.dir)
+	}
+}
+
+func (o transferOutcomes) outcome(d direction) dirOutcome {
+	switch d {
+	case dirLeftToRight:
+		return o.leftToRight
+	case dirRightToLeft:
+		return o.rightToLeft
+	default:
+		return dirOutcome{}
+	}
+}
+
+func (o transferOutcomes) selectedError() error {
+	var first error
+	for _, d := range o.seen {
+		first = selectTransferError(first, o.outcome(d))
+	}
+	return first
+}
+
+// Transfer error-selection rules (preserve these; do not "improve"):
+//
+// Direction result (copyDir):
+//   - Clean source EOF and benign source close become a nil error. Those
+//     paths also call OnEOF and ShutdownWrite when the transfer context
+//     is still active.
+//   - Benign destination close (zero-copy, poll, or write) is also nil,
+//     but is not source EOF: no OnEOF.
+//   - context.Err() at the start of a read loop is returned as-is
+//     (typically context.Canceled after linger, idle, or parent cancel).
+//   - Dump/write/read failures and non-benign poll errors are returned
+//     as-is, except verbose/raw dump errors which are wrapped with a
+//     fixed prefix.
+//
+// Combining the two directions (Transfer):
+//   - Transfer owns both dirOutcome values. Only results received on the
+//     live select path are inspected. Results drained after linger expiry
+//     or parent ctx.Done() are stored but must not change the selected error.
+//   - A nil result is not a transfer error.
+//   - A result whose error is exactly context.Canceled (identity, not
+//     errors.Is) is ignored. Wrapped Canceled and context.DeadlineExceeded
+//     are transfer errors.
+//   - The first remaining error wins; later errors are discarded.
+//   - The selected error is wrapped as "<dir>: <err>" where dir is ">"
+//     (left→right) or "<" (right→left).
+//   - Linger expiry and idle timeout only cancel the context. They do
+//     not invent an error. If every inspected result is nil or exact
+//     Canceled, Transfer returns nil.
+func selectTransferError(first error, o dirOutcome) error {
+	if first != nil || o.err == nil || o.err == context.Canceled {
+		return first
+	}
+	return fmt.Errorf("%s: %w", o.dir.String(), o.err)
+}
+
+// Transfer copies data bidirectionally between left and right until both
+// directions finish. It owns both direction outcomes, cancel, linger, stats,
+// and write-side shutdown. It does not use io.Copy.
 func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.BufferSize <= 0 {
 		cfg.BufferSize = 8192
@@ -93,8 +209,9 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	touch, stopIdle := startIdleWatch(ctx, cancel, cfg.IdleTimeout)
 	defer stopIdle()
 
-	results := make(chan dirResult, 2)
+	results := make(chan dirOutcome, 2)
 	var wg sync.WaitGroup
+	var outcomes transferOutcomes
 
 	// Session wrappers: when NoClose*, cancel closes only the wrapper so a
 	// shared end-close stream is not destroyed (EXECENDCLOSE).
@@ -129,10 +246,10 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	// Prepare kernel-copy descriptors while the original streams are known to
 	// be open. Unsupported platforms and endpoint pairs return nil and retain
 	// the ordinary configured-buffer path.
-	if cfg.LeftToRight && zeroCopyAllowed(cfg, ">", useExplicitPoll) {
+	if cfg.LeftToRight && zeroCopyAllowed(cfg, dirLeftToRight, useExplicitPoll) {
 		lrZeroCopy = prepareZeroCopy(left, right)
 	}
-	if cfg.RightToLeft && zeroCopyAllowed(cfg, "<", useExplicitPoll) {
+	if cfg.RightToLeft && zeroCopyAllowed(cfg, dirRightToLeft, useExplicitPoll) {
 		rlZeroCopy = prepareZeroCopy(right, left)
 	}
 
@@ -159,16 +276,15 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.LeftToRight {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: ">", dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: dirLeftToRight, dst: right, src: left, dstFD: lrDstFD, srcFD: lrSrcFD, plan: lrZeroCopy, bytes: &tr.BytesLR, blocks: &tr.BlocksLR}, cfg, touch, results, &wg)
 	}
 	if cfg.RightToLeft {
 		nDirs++
 		wg.Add(1)
-		go copyDir(ctx, dirTask{dir: "<", dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
+		go copyDir(ctx, dirTask{dir: dirRightToLeft, dst: left, src: right, dstFD: rlDstFD, srcFD: rlSrcFD, plan: rlZeroCopy, bytes: &tr.BytesRL, blocks: &tr.BlocksRL}, cfg, touch, results, &wg)
 	}
 
 	// Wait for first direction to finish; then linger for the other.
-	var firstErr error
 	finished := 0
 	var lingerTimer *time.Timer
 	var lingerC <-chan time.Time
@@ -177,9 +293,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 		select {
 		case r := <-results:
 			finished++
-			if r.err != nil && r.err != context.Canceled && firstErr == nil {
-				firstErr = fmt.Errorf("%s: %w", r.dir, r.err)
-			}
+			outcomes.record(r, true)
 			if finished == 1 && nDirs == 2 && cfg.Linger > 0 {
 				// After one side EOFs, -t owns the rest of the session.
 				// -T is inactivity while both directions still run.
@@ -191,14 +305,14 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 			}
 		case <-lingerC:
 			cancel()
-			// drain remaining
+			// Drain remaining: store the outcome, do not inspect it.
 			for finished < nDirs {
-				<-results
+				outcomes.record(<-results, false)
 				finished++
 			}
 		case <-ctx.Done():
 			for finished < nDirs {
-				<-results
+				outcomes.record(<-results, false)
 				finished++
 			}
 		}
@@ -215,12 +329,7 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	if cfg.OnStats != nil {
 		cfg.OnStats(st)
 	}
-	return firstErr
-}
-
-type dirResult struct {
-	err error
-	dir string
+	return outcomes.selectedError()
 }
 
 func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Duration) (touch, stop func()) {
@@ -272,7 +381,7 @@ func startIdleWatch(ctx context.Context, cancel context.CancelFunc, idle time.Du
 // descriptors captured for poll backpressure, an optional zero-copy plan, and
 // the direction's live counters.
 type dirTask struct {
-	dir      string // ">" left→right | "<" right→left
+	dir      direction
 	dst, src Stream
 	dstFD    int
 	srcFD    int
@@ -281,7 +390,17 @@ type dirTask struct {
 	blocks   *atomic.Uint64
 }
 
-func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirResult, wg *sync.WaitGroup) {
+func (t dirTask) send(results chan<- dirOutcome, err error) {
+	results <- dirOutcome{dir: t.dir, err: err}
+}
+
+func reportEOF(cfg Config, d direction, fd int) {
+	if cfg.OnEOF != nil {
+		cfg.OnEOF(d.sock(), fd)
+	}
+}
+
+func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results chan<- dirOutcome, wg *sync.WaitGroup) {
 	defer wg.Done()
 	if t.plan != nil {
 		defer func() { _ = t.plan.Close() }()
@@ -300,26 +419,20 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 		err := t.plan.Copy(ctx, onRead, onWrite)
 		if !errors.Is(err, errZeroCopyUnsupported) {
 			if err == nil {
-				if cfg.OnEOF != nil {
-					sock := 1
-					if t.dir == "<" {
-						sock = 2
-					}
-					cfg.OnEOF(sock, t.srcFD)
-				}
+				reportEOF(cfg, t.dir, t.srcFD)
 				if ctx.Err() == nil {
 					_ = t.dst.ShutdownWrite()
 				}
-				results <- dirResult{err: nil, dir: t.dir}
+				t.send(results, nil)
 				return
 			}
 			// A benign destination close is a clean transfer termination, but
 			// it is not evidence that the source reached EOF.
 			if isBenignClose(err) {
-				results <- dirResult{err: nil, dir: t.dir}
+				t.send(results, nil)
 				return
 			}
-			results <- dirResult{err: err, dir: t.dir}
+			t.send(results, err)
 			return
 		}
 	}
@@ -343,7 +456,7 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 
 	for {
 		if ctx.Err() != nil {
-			results <- dirResult{err: ctx.Err(), dir: t.dir}
+			t.send(results, ctx.Err())
 			return
 		}
 		if usePoll {
@@ -352,10 +465,10 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 				// poll returns ErrClosedPipe before Read. That is the same
 				// peer-gone case isBenignClose already accepts on Write.
 				if isBenignClose(err) {
-					results <- dirResult{err: nil, dir: t.dir}
+					t.send(results, nil)
 					return
 				}
-				results <- dirResult{err: err, dir: t.dir}
+				t.send(results, err)
 				return
 			}
 		}
@@ -364,20 +477,20 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
-				if err := dump(cfg, t.dir, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("verbose dump: %w", err), dir: t.dir}
+				if err := dump(cfg, t.dir.String(), data); err != nil {
+					t.send(results, fmt.Errorf("verbose dump: %w", err))
 					return
 				}
 			}
-			if t.dir == ">" && cfg.RawLeft != nil {
+			if t.dir == dirLeftToRight && cfg.RawLeft != nil {
 				if err := writeDump(cfg.RawLeft, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw left dump: %w", err), dir: t.dir}
+					t.send(results, fmt.Errorf("raw left dump: %w", err))
 					return
 				}
 			}
-			if t.dir == "<" && cfg.RawRight != nil {
+			if t.dir == dirRightToLeft && cfg.RawRight != nil {
 				if err := writeDump(cfg.RawRight, data); err != nil {
-					results <- dirResult{err: fmt.Errorf("raw right dump: %w", err), dir: t.dir}
+					t.send(results, fmt.Errorf("raw right dump: %w", err))
 					return
 				}
 			}
@@ -387,10 +500,10 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 			}
 			if ew != nil {
 				if isBenignClose(ew) {
-					results <- dirResult{err: nil, dir: t.dir}
+					t.send(results, nil)
 					return
 				}
-				results <- dirResult{err: ew, dir: t.dir}
+				t.send(results, ew)
 				return
 			}
 		}
@@ -399,20 +512,14 @@ func copyDir(ctx context.Context, t dirTask, cfg Config, touch func(), results c
 				continue
 			}
 			if er == io.EOF || isBenignClose(er) {
-				if cfg.OnEOF != nil {
-					sock := 1
-					if t.dir == "<" {
-						sock = 2
-					}
-					cfg.OnEOF(sock, t.srcFD)
-				}
+				reportEOF(cfg, t.dir, t.srcFD)
 				if ctx.Err() == nil {
 					_ = t.dst.ShutdownWrite()
 				}
-				results <- dirResult{err: nil, dir: t.dir}
+				t.send(results, nil)
 				return
 			}
-			results <- dirResult{err: er, dir: t.dir}
+			t.send(results, er)
 			return
 		}
 	}
