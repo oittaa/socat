@@ -8,7 +8,7 @@ func decodeProcessCommand(a *Address) {
 		a.Process.Argv = splitExecArgs(strings.Join(a.Params, ":"))
 	case AddressKindSYSTEM, AddressKindSHELL:
 		a.Process.Command = strings.Join(a.Params, ":")
-		a.Process.HasCommand = len(a.Params) > 0 && a.Params[0] != ""
+		a.Process.HasCommand = len(a.Params) > 0
 	}
 }
 

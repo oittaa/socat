@@ -78,6 +78,21 @@ func TestDecodeSYSTEMAndSHELLStayShellCommands(t *testing.T) {
 	}
 }
 
+func TestDecodeSYSTEMEmptyQuotedCommandIsPresent(t *testing.T) {
+	empty := decodeProcess(t, `SYSTEM:""`, AddressKindSYSTEM)
+	if !empty.Process.HasCommand {
+		t.Fatal(`SYSTEM:"" must keep a present empty command`)
+	}
+	if empty.Process.Command != "" {
+		t.Fatalf("SYSTEM empty command=%q", empty.Process.Command)
+	}
+
+	extra := decodeProcess(t, "SYSTEM::", AddressKindSYSTEM)
+	if extra.Process.Command == empty.Process.Command && len(extra.Params) == len(empty.Params) {
+		t.Fatalf("SYSTEM:: conflated with SYSTEM:\"\": params=%q", extra.Params)
+	}
+}
+
 func decodeProcess(t *testing.T, text string, kind AddressKind) Address {
 	t.Helper()
 	spec, err := parse.ParseSpec(text)

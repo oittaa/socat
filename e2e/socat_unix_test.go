@@ -33,6 +33,15 @@ func TestVersionHasTERMIOS(t *testing.T) {
 	}
 }
 
+func TestEmptyQuotedSYSTEMCommandExitsZero(t *testing.T) {
+	bin := socatBin(t)
+	cmd := exec.Command(bin, "-u", `SYSTEM:""`, "OPEN:/dev/null")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("SYSTEM:\"\" : %v: %s", err, out)
+	}
+}
+
 func TestSystemChdirUsesChildDirectory(t *testing.T) {
 	bin := socatBin(t)
 	dir := t.TempDir()

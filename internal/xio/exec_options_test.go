@@ -61,6 +61,21 @@ func TestShellCommandEmptyRunsInteractive(t *testing.T) {
 	}
 }
 
+func TestEmptyQuotedSYSTEMCommandOpens(t *testing.T) {
+	if !FeatureEXEC {
+		t.Skip("EXEC not enabled")
+	}
+	s, err := parse.ParseSpec(`SYSTEM:""`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := OpenSpec(context.Background(), s, ModeRead, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+}
+
 func TestRebuildWithFDHelperPreservesDashArgv0(t *testing.T) {
 	cmd := exec.Command("/bin/true")
 	cmd.Args[0] = "-true"

@@ -155,7 +155,7 @@ func parseOwnerRef(value string) OwnerRef {
 type Process struct {
 	Argv          []string
 	Command       string
-	HasCommand    bool
+	HasCommand    bool // parameter present, including an empty command
 	Pipes         OptionalBool
 	PTY           OptionalBool
 	Stderr        OptionalBool
