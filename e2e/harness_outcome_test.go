@@ -7,11 +7,19 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
-var handshakeProgress = []string{"timeout", "deadline", "expired", "handshake", "i/o timeout"}
+// handshakeTimeoutEvidence is application-timeout text from a clean exit, not
+// the word "handshake" (present in stacks and WebSocket dial errors).
+var handshakeTimeoutEvidence = []string{
+	"deadline exceeded",
+	"i/o timeout",
+	"no recent network activity",
+}
 
 func harnessTimedOut(err error) bool {
 	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
@@ -40,6 +48,48 @@ func acceptedOptionResult(out []byte, err error, wantProgress []string) error {
 	if err == nil {
 		return fmt.Errorf("accepted handshake option succeeded against a silent peer: %s", out)
 	}
+	if ab := abnormalProcessOutcome(out, err); ab != nil {
+		return ab
+	}
+	lower := bytes.ToLower(out)
+	for _, want := range wantProgress {
+		if want != "" && bytes.Contains(lower, bytes.ToLower([]byte(want))) {
+			return nil
+		}
+	}
+	return fmt.Errorf("accepted option failed without intended timeout %v: %v: %s", wantProgress, err, out)
+}
+
+func abnormalProcessOutcome(out []byte, err error) error {
+	if err == nil {
+		return nil
+	}
+	if bytes.Contains(out, []byte("panic:")) || bytes.Contains(bytes.ToLower(out), []byte("fatal error:")) {
+		return fmt.Errorf("abnormal termination: %v: %s", err, out)
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return fmt.Errorf("abnormal process outcome: %v: %s", err, out)
+	}
+	if ee.ExitCode() < 0 {
+		return fmt.Errorf("abnormal termination (signal): %v: %s", err, out)
+	}
+	return nil
+}
+
+// oldAcceptedOptionResult is the matcher that treated any nonzero exit as
+// success when output contained a handshakeProgress token, including the
+// word "handshake".
+func oldAcceptedOptionResult(out []byte, err error, wantProgress []string) error {
+	if harnessTimedOut(err) {
+		return fmt.Errorf("accepted option timed out: %w: %s", err, out)
+	}
+	if bytes.Contains(out, []byte("not supported")) {
+		return fmt.Errorf("unexpected option rejection: %s", out)
+	}
+	if err == nil {
+		return fmt.Errorf("accepted handshake option succeeded against a silent peer: %s", out)
+	}
 	lower := bytes.ToLower(out)
 	for _, want := range wantProgress {
 		if want != "" && bytes.Contains(lower, bytes.ToLower([]byte(want))) {
@@ -48,6 +98,8 @@ func acceptedOptionResult(out []byte, err error, wantProgress []string) error {
 	}
 	return fmt.Errorf("accepted option failed without intended progress %v: %v: %s", wantProgress, err, out)
 }
+
+var oldHandshakeProgress = []string{"timeout", "deadline", "expired", "handshake", "i/o timeout"}
 
 func acceptedConnectedResult(out []byte, err error, want []byte, srvStderr string) error {
 	if harnessTimedOut(err) {
@@ -98,7 +150,7 @@ func TestLegacyAcceptedOptionAllowsCrashAndTimeout(t *testing.T) {
 	if !legacyAcceptedOption(crashOut, crashErr) {
 		t.Fatal("old accepted-option assertion should have ignored a crash")
 	}
-	if err := acceptedOptionResult(crashOut, crashErr, handshakeProgress); err == nil {
+	if err := acceptedOptionResult(crashOut, crashErr, handshakeTimeoutEvidence); err == nil {
 		t.Fatal("new accepted-option assertion must reject a crash")
 	}
 
@@ -106,7 +158,7 @@ func TestLegacyAcceptedOptionAllowsCrashAndTimeout(t *testing.T) {
 	if !legacyAcceptedOption(timeoutOut, timeoutErr) {
 		t.Fatal("old accepted-option assertion should have ignored a harness timeout")
 	}
-	if err := acceptedOptionResult(timeoutOut, timeoutErr, handshakeProgress); err == nil {
+	if err := acceptedOptionResult(timeoutOut, timeoutErr, handshakeTimeoutEvidence); err == nil {
 		t.Fatal("new accepted-option assertion must reject a harness timeout")
 	}
 }
@@ -129,5 +181,43 @@ func TestRejectedOptionResultRejectsTimeout(t *testing.T) {
 	err := rejectedOptionResult([]byte("not supported"), context.DeadlineExceeded, "not supported")
 	if err == nil {
 		t.Fatal("rejected-option assertion must fail on harness timeout")
+	}
+}
+
+func TestAcceptedOptionResultRejectsHandshakeNamedCrash(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := runTestCmd(ctx, e2eHelperCmd(ctx, "panic-handshake"))
+	if err == nil {
+		t.Fatal("expected crashing child to fail")
+	}
+	if harnessTimedOut(err) {
+		t.Fatalf("crash looked like a harness timeout: %v %s", err, out)
+	}
+	if !bytes.Contains(out, []byte("handshake")) || !bytes.Contains(out, []byte("panic:")) {
+		t.Fatalf("crash output must be a panic that names handshake: %s", out)
+	}
+	if oldAcceptedOptionResult(out, err, oldHandshakeProgress) != nil {
+		t.Fatalf("old oracle should have accepted this crash: %s", out)
+	}
+	if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr == nil {
+		t.Fatal("acceptedOptionResult must reject a handshake-named crash")
+	}
+}
+
+func TestAcceptedOptionResultKeepsHarnessDeadlineDistinct(t *testing.T) {
+	out := []byte("socat E context deadline exceeded")
+	if err := acceptedOptionResult(out, context.DeadlineExceeded, handshakeTimeoutEvidence); err == nil {
+		t.Fatal("harness deadline must not count as an application timeout")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	appOut, appErr := runTestCmd(ctx, e2eHelperCmd(ctx, "exit-deadline"))
+	if harnessTimedOut(appErr) {
+		t.Fatalf("clean timeout exit looked like a harness deadline: %v %s", appErr, appOut)
+	}
+	if err := acceptedOptionResult(appOut, appErr, handshakeTimeoutEvidence); err != nil {
+		t.Fatal(err)
 	}
 }

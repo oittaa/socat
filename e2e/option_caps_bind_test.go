@@ -43,7 +43,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		port := stallTCPPeer(t)
 		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
 			fmt.Sprintf("TLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeProgress); checkErr != nil {
+		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
 			t.Fatal(checkErr)
 		}
 	})
@@ -51,7 +51,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		port := stallTCPPeer(t)
 		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
 			fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeProgress); checkErr != nil {
+		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
 			t.Fatal(checkErr)
 		}
 	})
@@ -59,7 +59,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		port := silentUDPPeer(t)
 		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
 			fmt.Sprintf("DTLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeProgress); checkErr != nil {
+		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
 			t.Fatal(checkErr)
 		}
 	})
@@ -67,7 +67,7 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 		port := silentUDPPeer(t)
 		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
 			fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeProgress); checkErr != nil {
+		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
 			t.Fatal(checkErr)
 		}
 	})

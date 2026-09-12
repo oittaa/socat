@@ -32,8 +32,17 @@ func TestMain(m *testing.M) {
 	case "exit-error":
 		_, _ = os.Stderr.Write([]byte("helper-fail"))
 		os.Exit(2)
+	case "exit-deadline":
+		_, _ = os.Stderr.Write([]byte("context deadline exceeded"))
+		os.Exit(1)
+	case "panic-handshake":
+		handshakeNamedCrash()
 	}
 	os.Exit(m.Run())
+}
+
+func handshakeNamedCrash() {
+	panic("handshakeNamedCrash")
 }
 
 func portOccupied(ctx context.Context, network, addr string) (bool, error) {
