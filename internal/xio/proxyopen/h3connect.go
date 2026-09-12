@@ -3,17 +3,14 @@ package proxyopen
 import (
 	"context"
 	"crypto/tls"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
-	"net/http"
 
 	"github.com/quic-go/quic-go"
 	"github.com/quic-go/quic-go/http3"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
@@ -98,41 +95,21 @@ func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 				_ = closeH3()
 			}
 		}()
-		pr, pw := io.Pipe()
-		req, e := http.NewRequestWithContext(cctx, http.MethodConnect, u, pr)
+		opened, e := openCONNECTTunnel(connectTunnel{
+			roundTrip: tr,
+			handshake: cctx,
+			stopTimer: stopTimer,
+			proxy:     s.Proxy,
+			url:       u,
+			authority: authority,
+			network:   "h3",
+			closers:   []io.Closer{closerFunc(closeH3)},
+		})
 		if e != nil {
-			_ = pw.Close()
-			return e
-		}
-		req.Host = authority
-		req.ContentLength = -1
-		if auth, e := proxyAuthString(s.Proxy); e != nil {
-			_ = pw.Close()
-			return e
-		} else if auth != "" {
-			req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
-		}
-		resp, e := tr.RoundTrip(req)
-		if e != nil {
-			_ = pw.Close()
-			return e
-		}
-		if resp.StatusCode < 200 || resp.StatusCode > 299 {
-			_ = pw.Close()
-			_ = resp.Body.Close()
-			return fmt.Errorf("proxy CONNECT failed: %s", resp.Status)
-		}
-		if e := finishCONNECTHandshake(cctx, stopTimer, pw, resp); e != nil {
 			return e
 		}
 		success = true
-		conn = &pipeConn{
-			r:      resp.Body,
-			w:      pw,
-			local:  staticAddr("h3", u),
-			remote: staticAddr("h3", authority),
-			extra:  []io.Closer{closerFunc(closeH3)},
-		}
+		conn = opened
 		return nil
 	})
 	if err != nil {
