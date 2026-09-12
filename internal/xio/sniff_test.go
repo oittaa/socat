@@ -3,6 +3,7 @@ package xio
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -37,12 +38,15 @@ func TestOpenSniffFilesClosesLeftWhenRightFails(t *testing.T) {
 
 func TestOpenSniffFilesChildDoesNotCloseParentOrSibling(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "shared.log")
+	path := filepath.ToSlash(filepath.Join(dir, "shared.log"))
 	parent := NewSession(Options{RawLeftPath: path}, nil)
 	if err := openSniffFiles(parent); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(parent.Sniff.closeFiles)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected sniff file inside TempDir: %v", err)
+	}
 
 	child := parent.ForkSession()
 	if err := openSniffFiles(child); err != nil {
@@ -70,5 +74,13 @@ func TestOpenSniffFilesChildDoesNotCloseParentOrSibling(t *testing.T) {
 	}
 	if _, err := sibling.Sniff.RawLeft.WriteString("sibling\n"); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(data)
+	if !strings.Contains(got, "parent\n") || !strings.Contains(got, "sibling\n") {
+		t.Fatalf("parent/sibling writes must remain in %q after child close, got %q", path, got)
 	}
 }
