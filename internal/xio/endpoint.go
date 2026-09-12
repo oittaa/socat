@@ -153,30 +153,23 @@ type sniffFiles struct {
 	RawRight *os.File
 }
 
-// sessionRuntime is per-logical-session state that is not parsed options.
-// ForkSession sets ForkChild, clones Log, copies LogMixed, and starts with a
-// nil signal table.
-type sessionRuntime struct {
-	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
-	// then closes only the per-session duplicate, like a fork child's copy of
-	// the inherited descriptor.
-	ForkChild bool
-	// childSignals is this logical session's four-slot signal table.
-	childSignals *childSignalSession
-	Log          *logx.Logger
-	LogMixed     bool // -lm: stderr until both endpoints are ready
-}
-
-// Global is one logical session. options and Peer are named dependencies
-// (not anonymous embeds). options is shared with ForkSession results;
-// Peer is copied (maps cloned). Remaining groups stay embedded until
-// later migrations.
+// Global is one logical session. Named dependencies (not anonymous embeds):
+// options (shared), Peer (copied), Log (cloned on fork). Remaining groups
+// stay embedded until later migrations.
 type Global struct {
 	options *Options
 	Peer    Peer
 	childResult
 	sniffFiles
-	sessionRuntime
+	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
+	// then closes only the per-session duplicate, like a fork child's copy of
+	// the inherited descriptor.
+	ForkChild bool
+	// childSignals is this logical session's four-slot signal table.
+	// ForkSession starts with nil so the child owns an empty table.
+	childSignals *childSignalSession
+	Log          *logx.Logger
+	LogMixed     bool // -lm: stderr until both endpoints are ready
 	// statsPrinted is shared across forks so --statistics prints once.
 	// Pointer, never an embedded atomic.Bool, so copies cannot copy a lock.
 	statsPrinted *atomic.Bool
@@ -214,8 +207,8 @@ func NewSession(opts Options, log *logx.Logger) *Global {
 // createSession is the single session constructor.
 //
 // Share: opts (immutable process options).
-// Copy: peer maps, child wait status, sniff pointers, and LogMixed when
-// from is non-nil. log is cloned from from when log is nil.
+// Copy: Peer (maps cloned), child wait status, sniff pointers, and LogMixed
+// when from is non-nil. log is cloned from from when log is nil.
 // Own: sessionMu (unset) and childSignals (nil).
 func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool) *Global {
 	if opts == nil {
@@ -240,25 +233,30 @@ func createSession(opts *Options, from *Global, log *logx.Logger, forkChild bool
 		sniff = from.sniffFiles
 		logMixed = from.LogMixed
 		stats = from.statsPrinted
-		if log == nil && from.Log != nil {
-			log = from.Log.Clone()
+		if log == nil {
+			log = cloneLogger(from.Log)
 		}
 	}
 	if stats == nil && forkChild {
 		stats = new(atomic.Bool)
 	}
 	return &Global{
-		options:     opts,
-		Peer:        peer,
-		childResult: result,
-		sniffFiles:  sniff,
-		sessionRuntime: sessionRuntime{
-			ForkChild: forkChild,
-			Log:       log,
-			LogMixed:  logMixed,
-		},
+		options:      opts,
+		Peer:         peer,
+		childResult:  result,
+		sniffFiles:   sniff,
+		ForkChild:    forkChild,
+		Log:          log,
+		LogMixed:     logMixed,
 		statsPrinted: stats,
 	}
+}
+
+func cloneLogger(log *logx.Logger) *logx.Logger {
+	if log == nil {
+		return nil
+	}
+	return log.Clone()
 }
 
 // ForkSession returns a per-connection session derived from g.
