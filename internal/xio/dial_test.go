@@ -37,23 +37,22 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 }
 
 func TestConnectNetworkPreferDualStack(t *testing.T) {
-	g := NewSession(Options{IPVersion: IPv6}, nil)
 	s := parse.Spec{Type: "TCP"}
-	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp"); n != "tcp" {
+	if n := ConnectNetworkForType(mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp"); n != "tcp" {
 		t.Fatalf("generic TCP want tcp got %s", n)
 	}
-	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp4"); n != "tcp4" {
+	if n := ConnectNetworkForType(mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp4"); n != "tcp4" {
 		t.Fatalf("TCP4 forced want tcp4 got %s", n)
 	}
-	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), addrconfig.HostFromText("[::ffff:127.0.0.1]"), "tcp"); n != "tcp4" {
+	if n := ConnectNetworkForType(mustDecodeAddress(t, s), addrconfig.HostFromText("[::ffff:127.0.0.1]"), "tcp"); n != "tcp4" {
 		t.Fatalf("generic TCP mapped literal want tcp4 got %s", n)
 	}
 	s.Options = []parse.Option{{Name: "pf", Value: "ip4", Has: true}}
-	if n := ConnectNetworkForType(g, mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp"); n != "tcp4" {
+	if n := ConnectNetworkForType(mustDecodeAddress(t, s), addrconfig.HostFromText("example.com"), "tcp"); n != "tcp4" {
 		t.Fatalf("pf=ip4 want tcp4 got %s", n)
 	}
 	mapped := addrconfig.HostFromText("[::ffff:127.0.0.1]")
-	if n := ConnectNetworkForType(g, addrconfig.Address{}, mapped, "tcp"); n != "tcp4" {
+	if n := ConnectNetworkForType(addrconfig.Address{}, mapped, "tcp"); n != "tcp4" {
 		t.Fatalf("proxy mapped server want tcp4 got %s", n)
 	}
 }

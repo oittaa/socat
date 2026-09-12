@@ -16,7 +16,7 @@ import (
 )
 
 func openUDPSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"), true)
+	return openUDPDatagramNetwork(ctx, s, mode, g, NetworkUDP(g.Options(), s, "udp4"), true)
 }
 func openUDP4Sendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", true)
@@ -27,7 +27,7 @@ func openUDP6Sendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 
 // UDP*-DATAGRAM: unconnected datagram to address (broadcast/multicast capable).
 func openUDPDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPDatagramNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
+	return openUDPDatagramNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g.Options(), s), false)
 }
 func openUDP4Datagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPDatagramNetwork(ctx, s, mode, g, "udp4", false)
@@ -306,7 +306,7 @@ func bindUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 func (u *udpDatagramConn) ShutdownWrite() error { return nil }
 
 func openUDPRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), false)
+	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g.Options(), s), false)
 }
 func openUDP4Recv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", false)
@@ -316,7 +316,7 @@ func openUDP6Recv(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *x
 }
 
 func openUDPRecvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g, s), true)
+	return openUDPRecvNetwork(ctx, s, mode, g, udpNetworkWithListenDefault(g.Options(), s), true)
 }
 func openUDP4Recvfrom(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPRecvNetwork(ctx, s, mode, g, "udp4", true)

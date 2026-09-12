@@ -20,7 +20,7 @@ import (
 // openTLSConnect implements TLS/TLS-CONNECT (and OPENSSL/SSL aliases).
 func openTLSConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// Dual-stack like TCP-CONNECT; pf=ip4/ip6 still forces a family.
-	return openTLSConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(g, s, xio.FirstHost(s), "tcp"))
+	return openTLSConnectNetwork(ctx, s, mode, g, xio.ConnectNetworkForType(s, xio.FirstHost(s), "tcp"))
 }
 
 func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, network string) (*xio.Opened, error) {
@@ -33,7 +33,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		return nil, fmt.Errorf("%s: invalid host/port", s.Type)
 	}
 	// Dual-stack + pf= like TCP-CONNECT.
-	network = xio.ConnectNetworkForType(g, s, target, network)
+	network = xio.ConnectNetworkForType(s, target, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 
 	tlsCfg, err := tlsClientConfigForContext(ctx, s, host)
@@ -99,7 +99,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 // openTLSListen implements TLS-LISTEN (and OPENSSL-LISTEN/SSL-LISTEN aliases).
 // Family selection matches TCP-LISTEN: pf=, -4/-6/-0, SOCAT_DEFAULT_LISTEN_IP, else IPv4.
 func openTLSListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	netw := xio.ListenNetwork(g, s)
+	netw := xio.ListenNetwork(g.Options(), s)
 	// Same dual-stack rule as TCP6-LISTEN when ipv6-v6only=0.
 	return openTLSListenNetwork(ctx, s, mode, g, xio.DualStackListenNetwork(s, netw))
 }

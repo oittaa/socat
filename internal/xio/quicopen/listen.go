@@ -21,7 +21,7 @@ func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 	if err != nil {
 		return nil, err
 	}
-	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
+	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g.Options(), s))
 	network = xio.DualStackListenNetwork(s, network)
 	host, err := xio.ListenBindHost(s, network)
 	if err != nil {

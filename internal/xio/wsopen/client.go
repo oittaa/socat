@@ -36,7 +36,7 @@ func openWSConnectScheme(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 		return nil, err
 	}
 	dest := wsDialTarget{
-		Network: xio.ConnectNetworkForType(g, s, s.Network.Target, "tcp"),
+		Network: xio.ConnectNetworkForType(s, s.Network.Target, "tcp"),
 		Scheme:  scheme,
 		Host:    s.Network.Target,
 		Port:    s.Network.TargetPort,

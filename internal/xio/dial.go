@@ -252,7 +252,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
 		} else {
-			switch preferredResolveVersion(g) {
+			switch preferredResolveVersion(g.Options()) {
 			case IPv6:
 				sort.SliceStable(ips, func(i, j int) bool {
 					return ips[i].To4() == nil && ips[j].To4() != nil
@@ -416,7 +416,7 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 // (try both, ordered by -4/-6). IPv4 and IPv4-mapped literals use tcp4.
 // pf= still forces a family. host is the TCP peer (connect target or proxy
 // server), already prepared; it is not parsed again.
-func ConnectNetworkForType(_ *Global, config addrconfig.Address, host addrconfig.HostTarget, forced string) string {
+func ConnectNetworkForType(config addrconfig.Address, host addrconfig.HostTarget, forced string) string {
 	if config.Network.ProtocolSet {
 		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
 			return n

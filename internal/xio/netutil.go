@@ -478,16 +478,13 @@ func NetworkFromIPFamily(family addrconfig.IPFamily, proto string) string {
 	return networkFromIPFamily(family, proto)
 }
 
-func ListenNetwork(g *Global, config addrconfig.Address) string {
+func ListenNetwork(opts Options, config addrconfig.Address) string {
 	if config.Network.ProtocolSet {
 		if n := networkFromIPFamily(config.Network.IPFamily, "tcp"); n != "" {
 			return n
 		}
 	}
-	ver := IPv4Default
-	if g != nil {
-		ver = g.Options().IPVersion
-	}
+	ver := opts.IPVersion
 	switch ver {
 	case IPv4:
 		return "tcp4"

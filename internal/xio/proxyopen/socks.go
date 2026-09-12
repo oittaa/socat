@@ -45,7 +45,7 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	}
 	hostName := s.Proxy.Target.String()
 
-	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server, "tcp")
+	network := xio.ConnectNetworkForType(s, s.Proxy.Server, "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS4:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())
@@ -198,7 +198,7 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 		return nil, err
 	}
 
-	network := xio.ConnectNetworkForType(g, s, s.Proxy.Server, "tcp")
+	network := xio.ConnectNetworkForType(s, s.Proxy.Server, "tcp")
 	timeout := xio.ConnectTimeout(s)
 	handshakeTimeout := xio.HandshakeTimeout(s)
 	label := fmt.Sprintf("SOCKS5:%s:%s", s.Proxy.Target.Original(), s.Proxy.TargetPort.Text())

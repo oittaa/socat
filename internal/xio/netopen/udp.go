@@ -13,7 +13,7 @@ import (
 )
 
 func openUDPConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	return openUDPConnectNetwork(ctx, s, mode, g, NetworkUDP(g, s, "udp4"))
+	return openUDPConnectNetwork(ctx, s, mode, g, NetworkUDP(g.Options(), s, "udp4"))
 }
 func openUDP4Connect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	return openUDPConnectNetwork(ctx, s, mode, g, "udp4")
@@ -118,16 +118,13 @@ func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 	return conn, nil
 }
 
-func NetworkUDP(g *xio.Global, s addrconfig.Address, def string) string {
+func NetworkUDP(opts xio.Options, s addrconfig.Address, def string) string {
 	if s.Network.ProtocolSet {
 		if n := xio.NetworkFromIPFamily(s.Network.IPFamily, "udp"); n != "" {
 			return n
 		}
 	}
-	ver := xio.IPv4Default
-	if g != nil {
-		ver = g.Options().IPVersion
-	}
+	ver := opts.IPVersion
 	switch ver {
 	case xio.IPv4:
 		return "udp4"
@@ -140,8 +137,8 @@ func NetworkUDP(g *xio.Global, s addrconfig.Address, def string) string {
 	}
 }
 
-func udpNetworkWithListenDefault(g *xio.Global, s addrconfig.Address) string {
-	return xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
+func udpNetworkWithListenDefault(opts xio.Options, s addrconfig.Address) string {
+	return xio.TCPToUDPNetwork(xio.ListenNetwork(opts, s))
 }
 
 // udpConnectStream is UDP/UDP4/UDP6 CONNECT (and UDP-LISTEN,fork sessions).

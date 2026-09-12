@@ -36,7 +36,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(g, s, host, "tcp"))
+	network := xio.TCPToUDPNetwork(xio.ConnectNetworkForType(s, host, "tcp"))
 	dial := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {
@@ -89,7 +89,7 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g, s))
+	network := xio.TCPToUDPNetwork(xio.ListenNetwork(g.Options(), s))
 	network = xio.DualStackListenNetwork(s, network)
 	host, err := xio.ListenBindHost(s, network)
 	if err != nil {

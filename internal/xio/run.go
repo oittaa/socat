@@ -14,12 +14,8 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func channelModes(g *Global) (lMode, rMode Mode) {
+func channelModes(opts Options) (lMode, rMode Mode) {
 	lMode, rMode = ModeRDWR, ModeRDWR
-	if g == nil {
-		return lMode, rMode
-	}
-	opts := g.Options()
 	if opts.LeftToRight && !opts.RightToLeft {
 		return ModeRead, ModeWrite
 	}
@@ -44,7 +40,7 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 // RunPrepared opens and relays two prepared channels. It retains immutable
 // configuration across accept and fork retry paths.
 func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) error {
-	lMode, _ := channelModes(g)
+	lMode, _ := channelModes(g.Options())
 
 	// Open left first.
 	lo, err := OpenPreparedChannel(ctx, left, lMode, g)
@@ -72,7 +68,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	if lo == nil {
 		return fmt.Errorf("xio: nil left")
 	}
-	lMode, rMode := channelModes(g)
+	lMode, rMode := channelModes(g.Options())
 	defer func() { _ = lo.Close() }()
 
 	switch lo.payload.(type) {

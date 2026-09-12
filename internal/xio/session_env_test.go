@@ -68,16 +68,31 @@ func TestSniffEnvFromSession(t *testing.T) {
 	}
 }
 
+func TestChannelModesUsesOptions(t *testing.T) {
+	l, r := channelModes(Options{})
+	if l != ModeRDWR || r != ModeRDWR {
+		t.Fatalf("default %v %v", l, r)
+	}
+	l, r = channelModes(Options{LeftToRight: true})
+	if l != ModeRead || r != ModeWrite {
+		t.Fatalf("-u %v %v", l, r)
+	}
+	l, r = channelModes(Options{RightToLeft: true})
+	if l != ModeWrite || r != ModeRead {
+		t.Fatalf("-U %v %v", l, r)
+	}
+}
+
 func TestPreferredResolveVersionFromEnvironment(t *testing.T) {
 	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "6")
-	if got := preferredResolveVersion(&Global{}); got != IPv6 {
+	if got := preferredResolveVersion(Options{}); got != IPv6 {
 		t.Fatalf("env=6 got %v", got)
 	}
-	if got := preferredResolveVersion(NewSession(Options{IPVersion: IPv4}, nil)); got != IPv4 {
+	if got := preferredResolveVersion(Options{IPVersion: IPv4}); got != IPv4 {
 		t.Fatalf("explicit -4 must win, got %v", got)
 	}
 	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "0")
-	if got := preferredResolveVersion(&Global{}); got != IPvAny {
+	if got := preferredResolveVersion(Options{}); got != IPvAny {
 		t.Fatalf("env=0 got %v", got)
 	}
 }

@@ -65,7 +65,7 @@ func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net
 		hasSourcePort: policy.SourcePortSet,
 		sourcePort:    policy.SourcePort,
 		lowport:       policy.LowPort.Value,
-		tcpwrap:       parseTCPWrap(policy, g),
+		tcpwrap:       parseTCPWrap(policy, g.Options()),
 	}
 	if policy.RangeSet {
 		matcher, err := compileIPRange(ctx, policy.Range, resolver)

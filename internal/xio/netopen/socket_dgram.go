@@ -212,7 +212,7 @@ func openSocketRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Gl
 }
 
 func openSocketRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, f *os.File, filter *xio.PeerFilter, local net.Addr) (*xio.Opened, error) {
-	buf := make([]byte, dgramBufSize(g))
+	buf := make([]byte, dgramBufSize(g.Options()))
 	n, from, err := recvSocketFiltered(ctx, f, buf, filter, g, local, emptyDatagramPolicy{NullEOF: s.Transfer.NullEOF.Value})
 	if err != nil {
 		logx.CloseQuiet(f)
@@ -314,10 +314,10 @@ func fileFromFD(fd int, name string) (*os.File, error) {
 	return f, nil
 }
 
-func dgramBufSize(g *xio.Global) int {
+func dgramBufSize(opts xio.Options) int {
 	n := 65535
-	if g != nil && g.Options().BlockSize > n {
-		n = g.Options().BlockSize
+	if opts.BlockSize > n {
+		n = opts.BlockSize
 	}
 	return n
 }
@@ -675,7 +675,7 @@ func (l *socketRecvfromListener) Close() error {
 }
 
 func (l *socketRecvfromListener) Accept() (net.Conn, error) {
-	buf := make([]byte, dgramBufSize(l.g))
+	buf := make([]byte, dgramBufSize(l.g.Options()))
 	ctx := l.ctx
 	if ctx == nil {
 		ctx = context.Background()
