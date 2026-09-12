@@ -72,7 +72,10 @@ func (orderListener) Addr() net.Addr            { return &net.TCPAddr{} }
 
 func TestOpenedCloseOrderReady(t *testing.T) {
 	var order []string
-	o := NewReady("", relay.FDStream{C: orderCloser{name: "stream", order: &order}})
+	o, err := NewReady("", relay.FDStream{C: orderCloser{name: "stream", order: &order}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	o.AddTTYRestore(func() { order = append(order, "tty") })
 	o.AddCleanup(func() { order = append(order, "cleanup") })
 	if err := o.Close(); err != nil {
@@ -88,9 +91,12 @@ func TestOpenedCloseOrderReady(t *testing.T) {
 
 func TestOpenedCloseOrderAccept(t *testing.T) {
 	var order []string
-	o := NewAcceptParent("", AcceptParent{
+	o, err := NewAcceptParent("", AcceptParent{
 		Listener: orderListener{orderCloser{name: "listener", order: &order}},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	o.AddCleanup(func() { order = append(order, "cleanup") })
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
@@ -99,6 +105,24 @@ func TestOpenedCloseOrderAccept(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Join(order, " ") != "listener cleanup" {
+		t.Fatalf("%q", order)
+	}
+}
+
+func TestOpenedCloseOrderReadySplit(t *testing.T) {
+	var order []string
+	o, err := NewReadySplit("",
+		relay.FDStream{C: orderCloser{name: "read", order: &order}},
+		relay.FDStream{C: orderCloser{name: "write", order: &order}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.AddCleanup(func() { order = append(order, "cleanup") })
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(order, " ") != "read write cleanup" {
 		t.Fatalf("%q", order)
 	}
 }

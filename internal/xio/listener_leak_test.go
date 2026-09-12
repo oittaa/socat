@@ -90,7 +90,10 @@ func testForkListenerExit(t *testing.T, rightSide bool) {
 					var runErr error
 					if rightSide {
 						c1, c2 := net.Pipe()
-						left := NewReady("", relay.NetStream{Conn: c1})
+						left, err := NewReady("", relay.NetStream{Conn: c1})
+						if err != nil {
+							t.Fatal(err)
+						}
 						runErr = runForkListenRight(ctx, left, o, g)
 						_ = left.Close()
 						_ = c2.Close()

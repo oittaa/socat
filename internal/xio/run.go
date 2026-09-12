@@ -74,7 +74,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	lMode, rMode := channelModes(g)
 	defer func() { _ = lo.Close() }()
 
-	switch lo.Kind {
+	switch lo.Kind() {
 	case KindListen:
 		if lo.Listener() == nil {
 			return fmt.Errorf("%s: listen fork without listener", lo.Label)
@@ -102,7 +102,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	}
 	defer func() { _ = ro.Close() }()
 
-	switch ro.Kind {
+	switch ro.Kind() {
 	case KindExec:
 		if ro.NoForkConfig() == nil {
 			return fmt.Errorf("%s: exec nofork without spec", ro.Label)

@@ -194,7 +194,12 @@ func openPIPE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.G
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	o := xio.NewReady("PIPE", st)
+	o, err := xio.NewReady("PIPE", st)
+	if err != nil {
+		logx.CloseQuiet(r)
+		logx.CloseQuiet(w)
+		return nil, err
+	}
 	o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
 	return o, nil
 }
@@ -323,7 +328,11 @@ func (p *namedPIPE) wrapFile(f *os.File) (*xio.Opened, error) {
 		p.failOpen(f)
 		return nil, err
 	}
-	o := xio.NewReady("PIPE:"+p.path, st)
+	o, err := xio.NewReady("PIPE:"+p.path, st)
+	if err != nil {
+		p.failOpen(f)
+		return nil, err
+	}
 	p.addPathCleanup(o)
 	return o, nil
 }
@@ -403,7 +412,11 @@ func (p *namedPIPE) openBidir() (*xio.Opened, error) {
 		p.failOpen(r, w)
 		return nil, err
 	}
-	o := xio.NewReady("PIPE:"+p.path, st)
+	o, err := xio.NewReady("PIPE:"+p.path, st)
+	if err != nil {
+		p.failOpen(r, w)
+		return nil, err
+	}
 	o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
 	p.addPathCleanup(o)
 	return o, nil
@@ -444,7 +457,7 @@ func openSocketpair(_ context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.
 		logx.CloseQuiet(stream)
 		return nil, err
 	}
-	return xio.NewReady("SOCKETPAIR", st), nil
+	return xio.NewReady("SOCKETPAIR", st)
 }
 
 func socketpairEchoStream(c1, c2 *os.File, typ int) (relay.Stream, error) {
@@ -546,7 +559,10 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	if err != nil {
 		return fail(err)
 	}
-	o := xio.NewReady(path, st)
+	o, err := xio.NewReady(path, st)
+	if err != nil {
+		return fail(err)
+	}
 	if err := xio.AttachConfiguredTermios(o, int(f.Fd()), config.Terminal); err != nil {
 		return fail(err)
 	}

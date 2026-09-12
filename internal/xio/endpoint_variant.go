@@ -14,7 +14,7 @@ import (
 //
 //	Variant              | Payload owns                                      | Opened teardown
 //	-------------------- | ------------------------------------------------- | ----------------
-//	ready I/O            | Stream / Read / Write, EXEC childDone             | tty restore, Cleanup
+//	ready I/O            | Stream (combined for dual), EXEC childDone        | tty restore, Cleanup
 //	accept parent        | Listener, peer filter, accept-timeout,            | Cleanup (may also
 //	                     | fork-socketpair, parent knobs                     | close the listener)
 //	repeated-dial parent | Dial, interval, parent knobs                      | Cleanup
@@ -24,8 +24,9 @@ import (
 // WrapDial, HandshakeTimeout.
 //
 // Invalid combinations (ready I/O plus a listener, nofork plus a dialer, …)
-// have no representation. Constructors set Kind for today's Run switch;
-// a later PR will dispatch on the payload instead.
+// have no representation. Kind() is derived from the payload so it cannot
+// diverge. Today's Run switch still uses Kind(); a later PR will dispatch
+// on the payload instead.
 
 // openedPayload is the exclusive live state of one Opened.
 type openedPayload interface {
@@ -42,10 +43,15 @@ type parentKnobs struct {
 
 type readyIO struct {
 	stream    relay.Stream
-	read      relay.Stream
-	write     relay.Stream
 	childDone <-chan struct{}
 }
+
+var (
+	errReadyRequiresStream    = errors.New("xio: ready endpoint requires a stream")
+	errReadySplitRequiresIO   = errors.New("xio: ready-split endpoint requires read and write streams")
+	errAcceptRequiresListener = errors.New("xio: accept parent requires a listener")
+	errRepeatRequiresDialer   = errors.New("xio: repeated-dial parent requires a dialer")
+)
 
 func (p *readyIO) kind() OpenedKind { return KindReady }
 
@@ -116,26 +122,34 @@ type RepeatedDial struct {
 }
 
 // NewReady returns a transfer-ready endpoint that owns stream.
-func NewReady(label string, stream relay.Stream) *Opened {
-	return newOpened(label, &readyIO{stream: stream})
+func NewReady(label string, stream relay.Stream) (*Opened, error) {
+	if stream == nil {
+		return nil, errReadyRequiresStream
+	}
+	return newOpened(label, &readyIO{stream: stream}), nil
 }
 
-// NewReadySplit returns a dual-address ready endpoint. read and write are
-// the two sides; the combined stream is owned for Close.
-func NewReadySplit(label string, read, write relay.Stream) *Opened {
-	combined := relay.FDStream{
+// NewReadySplit returns a dual-address ready endpoint. read and write become
+// one combined stream owned for Close.
+func NewReadySplit(label string, read, write relay.Stream) (*Opened, error) {
+	if read == nil || write == nil {
+		return nil, errReadySplitRequiresIO
+	}
+	return NewReady(label, relay.FDStream{
 		R: read,
 		W: write,
 		C: NewMultiCloser(read, write),
 		CloseW: func() error {
 			return write.ShutdownWrite()
 		},
-	}
-	return newOpened(label, &readyIO{stream: combined, read: read, write: write})
+	})
 }
 
-// NewAcceptParent returns a bound accept/fork parent that owns ln's listener.
-func NewAcceptParent(label string, p AcceptParent) *Opened {
+// NewAcceptParent returns a bound accept/fork parent that owns p.Listener.
+func NewAcceptParent(label string, p AcceptParent) (*Opened, error) {
+	if p.Listener == nil {
+		return nil, errAcceptRequiresListener
+	}
 	return newOpened(label, &acceptParent{
 		listener:       p.Listener,
 		forkSocketpair: p.ForkSocketpair,
@@ -146,12 +160,15 @@ func NewAcceptParent(label string, p AcceptParent) *Opened {
 			wrapDial:         p.WrapDial,
 			handshakeTimeout: p.HandshakeTimeout,
 		},
-	})
+	}), nil
 }
 
 // NewRepeatedDial returns a repeated-connect parent. Live conns are not owned
 // until a child wraps them.
-func NewRepeatedDial(label string, p RepeatedDial) *Opened {
+func NewRepeatedDial(label string, p RepeatedDial) (*Opened, error) {
+	if p.Dial == nil {
+		return nil, errRepeatRequiresDialer
+	}
 	return newOpened(label, &repeatedDial{
 		dial:     p.Dial,
 		interval: p.Interval,
@@ -160,7 +177,7 @@ func NewRepeatedDial(label string, p RepeatedDial) *Opened {
 			wrapDial:         p.WrapDial,
 			handshakeTimeout: p.HandshakeTimeout,
 		},
-	})
+	}), nil
 }
 
 // NewDeferredNoFork returns EXEC/SYSTEM/SHELL,nofork. Run starts the process
@@ -170,7 +187,16 @@ func NewDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
 }
 
 func newOpened(label string, payload openedPayload) *Opened {
-	return &Opened{Kind: payload.kind(), Label: label, payload: payload}
+	return &Opened{Label: label, payload: payload}
+}
+
+// Kind reports the payload variant. It is derived, so it cannot diverge
+// from the live endpoint.
+func (o *Opened) Kind() OpenedKind {
+	if o == nil || o.payload == nil {
+		return 0
+	}
+	return o.payload.kind()
 }
 
 func (o *Opened) ready() *readyIO {
@@ -219,22 +245,6 @@ func (o *Opened) knobs() *parentKnobs {
 func (o *Opened) Stream() relay.Stream {
 	if p := o.ready(); p != nil {
 		return p.stream
-	}
-	return nil
-}
-
-// Read is the dual-address read side. Other variants return nil.
-func (o *Opened) Read() relay.Stream {
-	if p := o.ready(); p != nil {
-		return p.read
-	}
-	return nil
-}
-
-// Write is the dual-address write side. Other variants return nil.
-func (o *Opened) Write() relay.Stream {
-	if p := o.ready(); p != nil {
-		return p.write
 	}
 	return nil
 }

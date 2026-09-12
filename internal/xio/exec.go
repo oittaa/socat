@@ -833,7 +833,14 @@ func (c *execChild) finishStream(stream relay.Stream, cleanup []func(), waitChil
 		linger = c.g.Linger
 	}
 	endClose := c.config.Transfer.EndClose.Value
-	o := NewReady("EXEC", st)
+	o, err := NewReady("EXEC", st)
+	if err != nil {
+		c.killWait()
+		for _, f := range cleanup {
+			f()
+		}
+		return nil, err
+	}
 	o.setChildDone(w.done)
 	for _, f := range cleanup {
 		o.AddCleanup(f)

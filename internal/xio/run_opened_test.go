@@ -6,10 +6,14 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/relay"
 )
 
 func TestRunOpenedClosesLeftWhenRightPrepareFails(t *testing.T) {
-	lo := NewReady("", nil)
+	lo, err := NewReady("", relay.FDStream{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	closed := false
 	lo.AddCleanup(func() { closed = true })
 	ch, err := parse.ParseChannel("NOSUCH:x")

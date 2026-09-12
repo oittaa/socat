@@ -212,7 +212,7 @@ func openIPSendtoNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	return xio.NewReady(s.Type+":"+host.String()+":"+strconv.Itoa(proto), st), nil
+	return xio.NewReady(s.Type+":"+host.String()+":"+strconv.Itoa(proto), st)
 }
 
 // openIPDatagramNetwork: unconnected SOCK_RAW for IP*-DATAGRAM (broadcast/multicast).
@@ -277,7 +277,7 @@ func openIPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady(s.Type+":"+host.String()+":"+strconv.Itoa(proto), st), nil
+	return xio.NewReady(s.Type+":"+host.String()+":"+strconv.Itoa(proto), st)
 }
 
 func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, network string, recvfrom bool) (*xio.Opened, error) {
@@ -336,7 +336,7 @@ func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode,
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady(s.Type, st), nil
+	return xio.NewReady(s.Type, st)
 }
 
 func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.IPConn, network string) (*xio.Opened, error) {
@@ -371,7 +371,7 @@ func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global
 		Listener:       ln,
 		MaxChildren:    maxChildren,
 		WrapDial:       xio.DefaultWrapOpened(s),
-	}), nil
+	})
 }
 
 func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.IPConn, network string, wantCtrl bool) (*xio.Opened, error) {
@@ -409,7 +409,7 @@ func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Glo
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady(s.Type, st), nil
+	return xio.NewReady(s.Type, st)
 }
 
 // rawIPRecvPolicy names how an unconnected raw-IP receive should treat

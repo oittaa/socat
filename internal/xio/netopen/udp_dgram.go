@@ -121,7 +121,7 @@ func wrapUDPDatagram(ctx context.Context, s addrconfig.Address, g *xio.Global, c
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	return xio.NewReady(datagramLabel(exactPeer, raddr), wrapped), nil
+	return xio.NewReady(datagramLabel(exactPeer, raddr), wrapped)
 }
 
 func udpListenConfig(s addrconfig.Address) net.ListenConfig {
@@ -372,7 +372,7 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		MaxChildren:    maxChildren,
 		PeerFilter:     peerFilter.AllowConn,
 		WrapDial:       xio.DefaultWrapOpened(s),
-	}), nil
+	})
 }
 
 func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn) (*xio.Opened, error) {
@@ -449,7 +449,7 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady("UDP-RECVFROM", st), nil
+	return xio.NewReady("UDP-RECVFROM", st)
 }
 
 func openUDPRecvAll(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, mode xio.Mode) (*xio.Opened, error) {
@@ -475,7 +475,7 @@ func openUDPRecvAll(ctx context.Context, s addrconfig.Address, g *xio.Global, pc
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady("UDP-RECV", st), nil
+	return xio.NewReady("UDP-RECV", st)
 }
 
 // udpFilteredRecv drops packets that fail range/sourceport/lowport checks.

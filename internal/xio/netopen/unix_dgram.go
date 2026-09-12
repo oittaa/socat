@@ -70,7 +70,11 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		life.drop(c)
 		return nil, err
 	}
-	o := xio.NewReady(s.Type+":"+remote, wrapped)
+	o, err := xio.NewReady(s.Type+":"+remote, wrapped)
+	if err != nil {
+		life.drop(c)
+		return nil, err
+	}
 	life.attach(o)
 	_ = mode
 	_ = g
@@ -185,12 +189,16 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 			life.drop(ln)
 			return nil, ferr
 		}
-		o := xio.NewAcceptParent(label, xio.AcceptParent{
+		o, err := xio.NewAcceptParent(label, xio.AcceptParent{
 			ForkSocketpair: true,
 			Listener:       ln,
 			MaxChildren:    maxChildren,
 			WrapDial:       xio.DefaultWrapOpened(s),
 		})
+		if err != nil {
+			life.drop(ln)
+			return nil, err
+		}
 		life.attach(o)
 		_ = mode
 		return o, nil
@@ -208,7 +216,11 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 			life.drop(c)
 			return nil, err
 		}
-		o := xio.NewReady(label, wrapped)
+		o, err := xio.NewReady(label, wrapped)
+		if err != nil {
+			life.drop(c)
+			return nil, err
+		}
 		life.attach(o)
 		_ = mode
 		return o, nil
@@ -220,7 +232,11 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		life.drop(c)
 		return nil, err
 	}
-	o := xio.NewReady(label, wrapped)
+	o, err := xio.NewReady(label, wrapped)
+	if err != nil {
+		life.drop(c)
+		return nil, err
+	}
 	life.attach(o)
 	_ = ctx
 	_ = mode
@@ -440,7 +456,7 @@ func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode
 	}
 	_ = mode
 	_ = g
-	return xio.NewReady("ABSTRACT-SENDTO:"+s.Network.SocketPath, wrapped), nil
+	return xio.NewReady("ABSTRACT-SENDTO:"+s.Network.SocketPath, wrapped)
 }
 
 func applyUnixgramSocketOptions(c *net.UnixConn, s addrconfig.Address) error {

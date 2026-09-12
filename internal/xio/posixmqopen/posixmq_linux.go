@@ -260,12 +260,16 @@ func (q *posixMQQueue) wrapSendFork(ctx context.Context, s addrconfig.Address, p
 	wrap := func(c net.Conn) (relay.Stream, error) {
 		return xio.WrapOpened(s, relay.NetStream{Conn: c})
 	}
-	o := xio.NewRepeatedDial(s.Type, xio.RepeatedDial{
+	o, err := xio.NewRepeatedDial(s.Type, xio.RepeatedDial{
 		MaxChildren: p.maxChildren,
 		Interval:    s.Common.Retry.Policy().Interval,
 		Dial:        dial,
 		WrapDial:    wrap,
 	})
+	if err != nil {
+		q.cleanup()
+		return nil, err
+	}
 	o.AddCleanup(q.cleanup)
 	return o, nil
 }
@@ -282,13 +286,18 @@ func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s addrconfig.Address, p
 		return nil, e
 	}
 	unlinkClose, unregister, name := q.unlinkClose, q.unregister, q.name
-	o := xio.NewAcceptParent(s.Type, xio.AcceptParent{
+	o, err := xio.NewAcceptParent(s.Type, xio.AcceptParent{
 		Listener:    ln,
 		MaxChildren: p.maxChildren,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
 			return xio.WrapOpened(s, relay.NetStream{Conn: c})
 		},
 	})
+	if err != nil {
+		q.cleanup()
+		_ = ln.Close()
+		return nil, err
+	}
 	o.AddCleanup(func() {
 		unregister()
 		_ = ln.Close()
@@ -344,7 +353,15 @@ func (q *posixMQQueue) wrapStream(ctx context.Context, s addrconfig.Address, g *
 		}
 		return nil, err
 	}
-	o := xio.NewReady(s.Type, st)
+	o, err := xio.NewReady(s.Type, st)
+	if err != nil {
+		_ = mqs.Close()
+		q.unregister()
+		if q.unlinkClose {
+			_ = mqUnlink(q.name)
+		}
+		return nil, err
+	}
 	unregister, unlinkClose, name := q.unregister, q.unlinkClose, q.name
 	o.AddCleanup(func() {
 		unregister()

@@ -122,7 +122,7 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
 			return xio.WrapOpened(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 		},
-	}), nil
+	})
 }
 
 func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, network string) (*xio.Opened, error) {
@@ -214,7 +214,7 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	return xio.NewReady("UDP-LISTEN", st), nil
+	return xio.NewReady("UDP-LISTEN", st)
 }
 
 // udpRouteLocalIP is the local address a wildcard listener would use for this

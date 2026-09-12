@@ -20,51 +20,58 @@ type Dialed struct {
 	Cleanup     []func()
 }
 
+func runDialedCleanup(fns []func()) {
+	for i := len(fns) - 1; i >= 0; i-- {
+		if fns[i] != nil {
+			fns[i]()
+		}
+	}
+}
+
+func attachDialedCleanup(o *Opened, fns []func()) *Opened {
+	for _, f := range fns {
+		if f != nil {
+			o.AddCleanup(f)
+		}
+	}
+	return o
+}
+
 // OpenDialed opens a client address: CONNECT,fork loop, or one dial + wrap.
 func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) (*Opened, error) {
-	runCleanup := func() {
-		for _, f := range d.Cleanup {
-			if f != nil {
-				f()
-			}
-		}
+	fail := func(err error) (*Opened, error) {
+		runDialedCleanup(d.Cleanup)
+		return nil, err
 	}
 	fork, maxChildren, err := ForkLimits(s)
 	if err != nil {
-		runCleanup()
-		return nil, err
+		return fail(err)
 	}
 	wrap := d.Wrap
 	if wrap == nil {
 		wrap = DefaultWrapDial(s)
 	}
-	attach := func(o *Opened) *Opened {
-		for _, f := range d.Cleanup {
-			if f != nil {
-				o.AddCleanup(f)
-			}
-		}
-		return o
-	}
 	if fork {
-		return attach(NewRepeatedDial(d.Label, RepeatedDial{
+		o, err := NewRepeatedDial(d.Label, RepeatedDial{
 			Dial:        WrapNetNSDial(netNamespaceName(s), g, d.Dial),
 			Interval:    s.Common.Retry.Policy().Interval,
 			MaxChildren: maxChildren,
 			WrapDial:    wrap,
-		})), nil
+		})
+		if err != nil {
+			return fail(err)
+		}
+		return attachDialedCleanup(o, d.Cleanup), nil
 	}
 	conn, err := d.Dial(ctx)
 	if err != nil {
-		runCleanup()
-		return nil, err
+		return fail(err)
 	}
 	RememberAddrs(g, conn)
 	if d.RememberTLS {
 		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
 			logx.CloseQuiet(conn)
-			runCleanup()
-			return nil, err
+			return fail(err)
 		}
 	}
 	if d.LogOK && g != nil && g.Log != nil {
@@ -73,8 +80,16 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	st, err := wrap(conn)
 	if err != nil {
 		logx.CloseQuiet(conn)
-		runCleanup()
-		return nil, err
+		return fail(err)
 	}
-	return attach(NewReady(d.Label, st)), nil
+	o, err := NewReady(d.Label, st)
+	if err != nil {
+		if st != nil {
+			logx.CloseQuiet(st)
+		} else {
+			logx.CloseQuiet(conn)
+		}
+		return fail(err)
+	}
+	return attachDialedCleanup(o, d.Cleanup), nil
 }

@@ -27,8 +27,8 @@ func TestUDPListenAcceptsBacklogWithoutListenQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Kind != xio.KindListen {
-		t.Fatalf("Kind=%v want KindListen", o.Kind)
+	if o.Kind() != xio.KindListen {
+		t.Fatalf("Kind=%v want KindListen", o.Kind())
 	}
 }
 

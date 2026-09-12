@@ -261,11 +261,11 @@ func (g *Global) ensureStatsFlag() {
 	}
 }
 
-// OpenedKind is the Run discriminator. Constructors set it from the payload.
+// OpenedKind is the Run discriminator. Kind() reports it from the payload.
 type OpenedKind int
 
 const (
-	// KindReady: transfer I/O is already open (Stream / Read / Write).
+	// KindReady: transfer I/O is already open.
 	KindReady OpenedKind = iota
 	// KindListen: bound listener; Run accepts in a fork loop.
 	KindListen
@@ -279,7 +279,6 @@ const (
 // NewAcceptParent, NewRepeatedDial, or NewDeferredNoFork. Variant data lives
 // in one private payload; see the ownership table in endpoint_variant.go.
 type Opened struct {
-	Kind  OpenedKind
 	Label string
 
 	payload openedPayload
@@ -333,29 +332,9 @@ func (o *Opened) AddTTYRestore(f func()) {
 	o.ttyRestore = append(o.ttyRestore, f)
 }
 
-// EffectiveStream returns the stream used for bidirectional transfer.
+// EffectiveStream is the ready-I/O transfer stream. Other variants return nil.
 func (o *Opened) EffectiveStream() relay.Stream {
-	if o == nil {
-		return nil
-	}
-	if st := o.Stream(); st != nil {
-		return st
-	}
-	read, write := o.Read(), o.Write()
-	if read != nil || write != nil {
-		return relay.FDStream{
-			R: readerOrEOF(read),
-			W: writerOrDiscard(write),
-			C: NewMultiCloser(read, write),
-			CloseW: func() error {
-				if write != nil {
-					return write.ShutdownWrite()
-				}
-				return nil
-			},
-		}
-	}
-	return nil
+	return o.Stream()
 }
 
 // MultiCloser closes two streams.
@@ -377,20 +356,6 @@ func (m MultiCloser) Close() error {
 		}
 	}
 	return err
-}
-
-func readerOrEOF(s relay.Stream) io.Reader {
-	if s != nil {
-		return s
-	}
-	return EOFReader{}
-}
-
-func writerOrDiscard(s relay.Stream) io.Writer {
-	if s != nil {
-		return s
-	}
-	return io.Discard
 }
 
 type EOFReader struct{}
@@ -428,7 +393,12 @@ func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened,
 		logx.CloseQuiet(left)
 		return nil, fmt.Errorf("dual write side: %w", err)
 	}
-	o := NewReadySplit(d.Raw, left.EffectiveStream(), right.EffectiveStream())
+	o, err := NewReadySplit(d.Raw, left.EffectiveStream(), right.EffectiveStream())
+	if err != nil {
+		logx.CloseQuiet(left)
+		logx.CloseQuiet(right)
+		return nil, err
+	}
 	o.AddCleanup(func() { logx.CloseQuiet(left) })
 	o.AddCleanup(func() { logx.CloseQuiet(right) })
 	return o, nil

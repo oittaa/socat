@@ -109,7 +109,11 @@ func openTUN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Gl
 		logx.CloseQuiet(ts)
 		return nil, err
 	}
-	o := xio.NewReady("TUN:"+ifname, st)
+	o, err := xio.NewReady("TUN:"+ifname, st)
+	if err != nil {
+		logx.CloseQuiet(ts)
+		return nil, err
+	}
 	o.AddCleanup(func() { _ = ts.Close() })
 	return o, nil
 }
@@ -336,7 +340,11 @@ func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 		return nil, err
 	}
 	_ = mode
-	o := xio.NewReady("INTERFACE:"+ifname, st)
+	o, err := xio.NewReady("INTERFACE:"+ifname, st)
+	if err != nil {
+		logx.CloseQuiet(f)
+		return nil, err
+	}
 	o.AddCleanup(func() { logx.CloseQuiet(f) })
 	return o, nil
 }
