@@ -134,37 +134,49 @@ func applyAbstractListenerFDPhase(ln net.Listener, s addrconfig.Address) error {
 }
 
 // rememberUnixListenAddrs restores filesystem UNIX-LISTEN environment
-// fields after OpenListenSession's RememberAddrs. Unnamed peers fall back to
-// the listen path. Abstract sockets keep LocalAddr/RemoteAddr from RememberAddrs
-// except when the peer address is empty.
+// fields after OpenListenSession's RememberAddrs. Unnamed peers (empty or
+// Go's "@") fall back to the listen path. Abstract sockets keep
+// LocalAddr/RemoteAddr from RememberAddrs except when the peer address is empty.
 func rememberUnixListenAddrs(g *xio.Global, path string, conn net.Conn) {
 	if g == nil {
 		return
+	}
+	var ra net.Addr
+	if conn != nil {
+		ra = conn.RemoteAddr()
 	}
 	if !xio.IsAbstract(path) {
 		g.Peer.SockAddr = path
 		g.Peer.SockPort = ""
 		g.Peer.PeerPort = ""
-		if ra := conn.RemoteAddr(); ra != nil {
-			if ua, ok := ra.(*net.UnixAddr); ok && ua.Name != "" {
-				g.Peer.PeerAddr = ua.Name
-				return
-			}
-			if s := ra.String(); s != "" {
-				g.Peer.PeerAddr = s
-				return
-			}
+		if name := unixListenPeerName(ra); name != "" {
+			g.Peer.PeerAddr = name
+			return
 		}
 		g.Peer.PeerAddr = path
 		return
 	}
 	if g.Peer.PeerAddr == "" {
-		if ra := conn.RemoteAddr(); ra != nil {
-			if s := ra.String(); s != "" {
-				g.Peer.PeerAddr = s
-				return
-			}
+		if name := unixListenPeerName(ra); name != "" {
+			g.Peer.PeerAddr = name
+			return
 		}
 		g.Peer.PeerAddr = path
 	}
+}
+
+// unixListenPeerName returns a filesystem or abstract peer name, or empty
+// when the peer is unnamed. Go reports unnamed UNIX sockets as "@".
+func unixListenPeerName(ra net.Addr) string {
+	if ra == nil {
+		return ""
+	}
+	name := ra.String()
+	if ua, ok := ra.(*net.UnixAddr); ok {
+		name = ua.Name
+	}
+	if name == "" || name == "@" {
+		return ""
+	}
+	return name
 }
