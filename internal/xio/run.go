@@ -242,7 +242,13 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			defer children.Done()
 			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
 			defer stopClose()
-			cg := g.ForkSession()
+			var cg *Global
+			if child, ok := c.(interface{ Session() *Global }); ok {
+				cg = child.Session()
+			}
+			if cg == nil {
+				cg = g.ForkSession()
+			}
 			if o.ChildrenShutup() > 0 && cg.Log != nil {
 				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
 			}

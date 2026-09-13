@@ -137,23 +137,17 @@ func TestIP4RecvfromForkChildPeerEnvironment(t *testing.T) {
 
 	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1))
 	want := "127.1.0.1/\n"
-	deadline := time.Now().Add(4 * time.Second)
-	var last string
-	for time.Now().Before(deadline) {
-		sendRawPayload(t, client, []byte("peer-env"))
-		got, err := readRawDeadline(t, client, 250*time.Millisecond)
-		if err != nil {
-			if xio.IsTimeoutErr(err) {
-				continue
-			}
-			t.Fatal(err)
-		}
-		last = string(got)
-		if bytes.HasSuffix(got, []byte(want)) {
-			return
-		}
+	sendRawPayload(t, client, []byte("peer-env"))
+	got, err := readRawDeadline(t, client, 4*time.Second)
+	if err != nil {
+		t.Fatal(err)
 	}
-	t.Fatalf("child reply=%q want %q", last, want)
+	if !bytes.HasSuffix(got, []byte(want)) {
+		t.Fatalf("child reply=%q want %q", got, want)
+	}
+	if g.Peer.PeerPort != "stale" {
+		t.Fatalf("parent peer port changed: %q", g.Peer.PeerPort)
+	}
 }
 
 func TestIP4RecvWriteOnlyRejected(t *testing.T) {

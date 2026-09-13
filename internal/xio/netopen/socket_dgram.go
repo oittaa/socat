@@ -706,12 +706,14 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 			}
 			continue
 		}
+		session := l.g.ForkSession()
+		rememberSocketPeer(session, from, local)
 		peer := cloneSockaddr(from)
 		return newOneshotForkConn(
 			append([]byte(nil), buf[:n]...),
-			nil,
 			local,
 			packetAddrFromSockaddr(from),
+			session,
 			&l.writeMu,
 			l.f.SetWriteDeadline,
 			func(p []byte) (int, error) { return sendtoFileSock(l.f, p, peer) },

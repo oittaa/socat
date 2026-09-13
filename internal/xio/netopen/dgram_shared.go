@@ -110,29 +110,29 @@ func writeToUDPWithFallback(c *net.UDPConn, p []byte, peer *net.UDPAddr) (int, e
 // Replies use the parent listen socket; Close does not close it.
 type oneshotForkConn struct {
 	first            firstPacket
-	initialOOB       []byte
 	local, remote    net.Addr
 	g                *xio.Global
 	writeMu          *sync.Mutex
 	writeDL          sharedWriteDeadline
 	setWriteDeadline func(time.Time) error
 	writeTo          func([]byte) (int, error)
-	drain            func(error, *xio.Global)
+	drain            func(error)
 }
 
 func newOneshotForkConn(
-	data, oob []byte,
+	data []byte,
 	local, remote net.Addr,
+	session *xio.Global,
 	writeMu *sync.Mutex,
 	setWriteDeadline func(time.Time) error,
 	writeTo func([]byte) (int, error),
-	drain func(error, *xio.Global),
+	drain func(error),
 ) *oneshotForkConn {
 	return &oneshotForkConn{
 		first:            newFirstPacket(data),
-		initialOOB:       oob,
 		local:            local,
 		remote:           remote,
+		g:                session,
 		writeMu:          writeMu,
 		setWriteDeadline: setWriteDeadline,
 		writeTo:          writeTo,
@@ -140,14 +140,7 @@ func newOneshotForkConn(
 	}
 }
 
-func (c *oneshotForkConn) SetSession(g *xio.Global) {
-	c.g = g
-	xio.ProcessAncillary(c.initialOOB, g)
-	c.initialOOB = nil
-	if peer, ok := c.remote.(*net.IPAddr); ok {
-		rememberRawIPPeer(g, peer, c.local)
-	}
-}
+func (c *oneshotForkConn) Session() *xio.Global { return c.g }
 
 func (c *oneshotForkConn) Read(p []byte) (int, error) {
 	if first, ok := c.first.take(); ok {
@@ -164,7 +157,7 @@ func (c *oneshotForkConn) Write(p []byte) (int, error) {
 		return c.writeTo(p)
 	})
 	if c.drain != nil {
-		c.drain(err, c.g)
+		c.drain(err)
 	}
 	return n, err
 }
