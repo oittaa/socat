@@ -109,7 +109,7 @@ func (a *udpForkAccept) step() acceptNext {
 		return acceptAgain()
 	}
 
-	session := a.childSession()
+	session := a.l.g.ForkSession()
 	if a.l.oneShot {
 		xio.ProcessAncillary(got.packet.oob, session)
 		return acceptChild(a.l.newUDPOneshotChild(a.pc, got.packet, session), nil)
@@ -193,10 +193,6 @@ func (a *udpForkAccept) filterPeer(addr *net.UDPAddr, consumed bool) acceptNext 
 		return acceptAgain()
 	}
 	return acceptNext{}
-}
-
-func (a *udpForkAccept) childSession() *xio.Global {
-	return a.l.g.ForkSession()
 }
 
 func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool, session *xio.Global) acceptNext {

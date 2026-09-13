@@ -390,7 +390,6 @@ func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Glo
 		role:     udpRoleConnected,
 		peer:     cloneUDPAddr(packet.peer),
 		first:    newFirstPacket(append([]byte(nil), packet.data...)),
-		env:      session.SessionVarsSnapshot(),
 		writeMu:  &l.writeMu,
 		wantCtrl: wantCtrl,
 		recvErr:  recvErr,
@@ -503,7 +502,6 @@ type udpSessionConn struct {
 	first     firstPacket
 	closeOnce sync.Once
 	closeErr  error
-	env       map[string]string
 
 	writeMu       *sync.Mutex
 	writeDL       sharedWriteDeadline
@@ -525,12 +523,7 @@ func (u *udpSessionConn) setHandoff(c *net.UDPConn) {
 	u.sock = c
 }
 
-func (u *udpSessionConn) SessionEnvironment() map[string]string {
-	if u.g != nil {
-		return u.g.SessionVarsSnapshot()
-	}
-	return u.env
-}
+func (u *udpSessionConn) Session() *xio.Global { return u.g }
 
 func (u *udpSessionConn) drainRecvErr(err error) {
 	xio.DrainRecvErrOnError(err, u.recvErr, u.recvErrConn(), u.g)

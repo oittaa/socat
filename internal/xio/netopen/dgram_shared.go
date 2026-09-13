@@ -111,7 +111,6 @@ func writeToUDPWithFallback(c *net.UDPConn, p []byte, peer *net.UDPAddr) (int, e
 type oneshotForkConn struct {
 	first            firstPacket
 	local, remote    net.Addr
-	env              map[string]string
 	g                *xio.Global
 	writeMu          *sync.Mutex
 	writeDL          sharedWriteDeadline
@@ -129,15 +128,10 @@ func newOneshotForkConn(
 	writeTo func([]byte) (int, error),
 	drain func(error),
 ) *oneshotForkConn {
-	var env map[string]string
-	if session != nil {
-		env = session.SessionVarsSnapshot()
-	}
 	return &oneshotForkConn{
 		first:            newFirstPacket(data),
 		local:            local,
 		remote:           remote,
-		env:              env,
 		g:                session,
 		writeMu:          writeMu,
 		setWriteDeadline: setWriteDeadline,
@@ -146,12 +140,7 @@ func newOneshotForkConn(
 	}
 }
 
-func (c *oneshotForkConn) SessionEnvironment() map[string]string {
-	if c.g != nil {
-		return c.g.SessionVarsSnapshot()
-	}
-	return c.env
-}
+func (c *oneshotForkConn) Session() *xio.Global { return c.g }
 
 func (c *oneshotForkConn) Read(p []byte) (int, error) {
 	if first, ok := c.first.take(); ok {

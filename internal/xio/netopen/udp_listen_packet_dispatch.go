@@ -229,7 +229,6 @@ func (l *udpDispatchListener) readLoop() {
 			packets:         make(chan udpForkPacket, udpDispatchPacketQueueSize),
 			done:            make(chan struct{}),
 			deadlineChanged: make(chan struct{}, 1),
-			env:             session.SessionVarsSnapshot(),
 			g:               session,
 			recvErr:         xio.NeedRecvErr(l.base.config),
 		}
@@ -270,7 +269,6 @@ type udpDispatchConn struct {
 	pc       *net.UDPConn // shared listen socket; Close does not close it
 	peer     *net.UDPAddr
 	key      string
-	env      map[string]string
 	g        *xio.Global
 	recvErr  bool
 
@@ -287,12 +285,7 @@ type udpDispatchConn struct {
 	deadlineChanged chan struct{}
 }
 
-func (c *udpDispatchConn) SessionEnvironment() map[string]string {
-	if c.g != nil {
-		return c.g.SessionVarsSnapshot()
-	}
-	return c.env
-}
+func (c *udpDispatchConn) Session() *xio.Global { return c.g }
 
 func (c *udpDispatchConn) enqueue(packet udpForkPacket) bool {
 	select {
