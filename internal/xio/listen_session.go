@@ -17,10 +17,12 @@ import (
 // listeners. Fork returns an accept parent. Non-fork accepts one permitted
 // peer and returns a ready endpoint.
 type ListenSession struct {
-	Listener               net.Listener
-	Label                  string
-	WrapDial               func(net.Conn) (relay.Stream, error)
-	HandshakeTimeout       time.Duration
+	Listener         net.Listener
+	Label            string
+	WrapDial         func(net.Conn) (relay.Stream, error)
+	HandshakeTimeout time.Duration
+	// AfterAccept runs after RememberAddrs on each accepted connection,
+	// including fork children. Failure closes only that child.
 	AfterAccept            func(*Global, net.Conn) error
 	ListeningLog           string
 	CloseListener          func() error
@@ -91,6 +93,7 @@ func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, ses
 			MaxChildren:      maxChildren,
 			WrapDial:         wrap,
 			HandshakeTimeout: sess.HandshakeTimeout,
+			AfterAccept:      sess.AfterAccept,
 			AcceptTimeout:    AcceptTimeout(s),
 		})
 		if err != nil {
@@ -153,13 +156,10 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
 		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
 	}
-	RememberAddrs(g, conn)
-	if sess.AfterAccept != nil {
-		if err := sess.AfterAccept(g, conn); err != nil {
-			logx.CloseQuiet(conn)
-			_ = safeCloseLn()
-			return nil, err
-		}
+	if err := rememberAccepted(g, conn, sess.AfterAccept); err != nil {
+		logx.CloseQuiet(conn)
+		_ = safeCloseLn()
+		return nil, err
 	}
 	st, err := wrap(conn)
 	if err != nil {
@@ -177,6 +177,16 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 		o.AddCleanup(func() { _ = safeCloseLn() })
 	}
 	return o, nil
+}
+
+// rememberAccepted records generic SOCAT_* address fields, then any
+// listen-specific follow-up such as UNIX peer names or TLS metadata.
+func rememberAccepted(g *Global, c net.Conn, after func(*Global, net.Conn) error) error {
+	RememberAddrs(g, c)
+	if after == nil {
+		return nil
+	}
+	return after(g, c)
 }
 
 var (

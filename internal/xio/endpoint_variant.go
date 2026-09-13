@@ -21,7 +21,7 @@ import (
 //	deferred nofork      | EXEC/SYSTEM/SHELL address (started after peer)    | Cleanup
 //
 // Parent knobs (accept + repeated-dial only): MaxChildren, ChildrenShutup,
-// WrapDial, HandshakeTimeout.
+// WrapDial, HandshakeTimeout. AfterAccept is accept-parent only.
 //
 // Invalid combinations (ready I/O plus a listener, nofork plus a dialer, …)
 // have no representation. Run type-switches on the payload. Kind() is
@@ -66,6 +66,7 @@ type acceptParent struct {
 	forkSocketpair bool
 	peerFilter     func(net.Conn) error
 	acceptTimeout  time.Duration
+	afterAccept    func(*Global, net.Conn) error
 	knobs          parentKnobs
 }
 
@@ -109,6 +110,7 @@ type AcceptParent struct {
 	MaxChildren      int
 	WrapDial         func(net.Conn) (relay.Stream, error)
 	HandshakeTimeout time.Duration
+	AfterAccept      func(*Global, net.Conn) error
 }
 
 // RepeatedDial is the CONNECT,fork (or similar) parent passed to NewRepeatedDial.
@@ -154,6 +156,7 @@ func NewAcceptParent(label string, p AcceptParent) (*Opened, error) {
 		forkSocketpair: p.ForkSocketpair,
 		peerFilter:     p.PeerFilter,
 		acceptTimeout:  p.AcceptTimeout,
+		afterAccept:    p.AfterAccept,
 		knobs: parentKnobs{
 			maxChildren:      p.MaxChildren,
 			wrapDial:         p.WrapDial,
@@ -342,6 +345,13 @@ func (o *Opened) HandshakeTimeout() time.Duration {
 		return k.handshakeTimeout
 	}
 	return 0
+}
+
+func (o *Opened) afterAccept() func(*Global, net.Conn) error {
+	if p := o.accept(); p != nil {
+		return p.afterAccept
+	}
+	return nil
 }
 
 func (o *Opened) childDone() <-chan struct{} {

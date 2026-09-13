@@ -133,38 +133,19 @@ func applyAbstractListenerFDPhase(ln net.Listener, s addrconfig.Address) error {
 	return xio.ApplyFDPhaseLifecycleToConn(sc, s)
 }
 
-// rememberUnixListenAddrs restores filesystem UNIX-LISTEN environment
-// fields after OpenListenSession's RememberAddrs. Unnamed peers fall back to
-// the listen path. Abstract sockets keep LocalAddr/RemoteAddr from RememberAddrs
-// except when the peer address is empty.
+// rememberUnixListenAddrs records UNIX addresses without port fields.
 func rememberUnixListenAddrs(g *xio.Global, path string, conn net.Conn) {
 	if g == nil {
 		return
 	}
 	if !xio.IsAbstract(path) {
 		g.Peer.SockAddr = path
-		g.Peer.SockPort = ""
-		g.Peer.PeerPort = ""
-		if ra := conn.RemoteAddr(); ra != nil {
-			if ua, ok := ra.(*net.UnixAddr); ok && ua.Name != "" {
-				g.Peer.PeerAddr = ua.Name
-				return
-			}
-			if s := ra.String(); s != "" {
-				g.Peer.PeerAddr = s
-				return
-			}
-		}
-		g.Peer.PeerAddr = path
-		return
 	}
-	if g.Peer.PeerAddr == "" {
-		if ra := conn.RemoteAddr(); ra != nil {
-			if s := ra.String(); s != "" {
-				g.Peer.PeerAddr = s
-				return
-			}
+	g.Peer.SockPort, g.Peer.PeerPort = "", ""
+	g.Peer.PeerAddr = "<anon>"
+	if addr := conn.RemoteAddr(); addr != nil {
+		if name := addr.String(); name != "" && name != "@" {
+			g.Peer.PeerAddr = name
 		}
-		g.Peer.PeerAddr = path
 	}
 }

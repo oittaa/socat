@@ -5,6 +5,7 @@ package netopen
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -129,4 +130,73 @@ func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func(
 		t.Fatal("listener did not accept")
 	}
 	return nil
+}
+
+func TestUnixListenForkPeerEnvironment(t *testing.T) {
+	for _, name := range []string{"unnamed", "named"} {
+		t.Run(name, func(t *testing.T) {
+			path := unixSocketTestPath(t, "listen.sock")
+			var local *net.UnixAddr
+			wantPeer := "<anon>"
+			if name == "named" {
+				wantPeer = unixSocketTestPath(t, "client.sock")
+				local = &net.UnixAddr{Name: wantPeer, Net: "unix"}
+			}
+			spec, err := parse.ParseSpec("UNIX-LISTEN:" + path + ",fork")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			defer cancel()
+			g := xio.NewSession(xio.Options{BlockSize: 8192, RightToLeft: true}, logx.New())
+			g.Peer.SockPort, g.Peer.PeerPort = "11", "22"
+			o, err := openUnixListen(ctx, mustAddr(t, spec), xio.ModeRDWR, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			right := parseChannel(t, `SYSTEM:echo $SOCAT_SOCKADDR/$SOCAT_PEERADDR/$SOCAT_SOCKPORT/$SOCAT_PEERPORT`)
+			done := make(chan error, 1)
+			go func() { done <- xio.RunOpened(ctx, o, right, g) }()
+			defer func() {
+				cancel()
+				_ = o.Close()
+				if err := <-done; err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, net.ErrClosed) {
+					t.Error(err)
+				}
+			}()
+			c, err := net.DialUnix("unix", local, &net.UnixAddr{Name: path, Net: "unix"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = c.Close() }()
+			if err := c.SetReadDeadline(time.Now().Add(3 * time.Second)); err != nil {
+				t.Fatal(err)
+			}
+			got, err := io.ReadAll(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := path + "/" + wantPeer + "//\n"; string(got) != want {
+				t.Fatalf("environment=%q want %q", got, want)
+			}
+			if g.Peer.SockAddr != "" || g.Peer.PeerAddr != "" || g.Peer.SockPort != "11" || g.Peer.PeerPort != "22" {
+				t.Fatalf("parent environment changed: %+v", g.Peer)
+			}
+		})
+	}
+}
+
+func TestUnixListenUnnamedPeerEnvironment(t *testing.T) {
+	path := unixSocketTestPath(t, "listen.sock")
+	g := xio.NewSession(xio.Options{}, logx.New())
+	openUnixListenOnce(t, "UNIX-LISTEN:"+path, g, func() {
+		c, err := net.Dial("unix", path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = c.Close() }()
+	})
+	if g.Peer.SockAddr != path || g.Peer.PeerAddr != "<anon>" || g.Peer.SockPort != "" || g.Peer.PeerPort != "" {
+		t.Fatalf("UNIX environment: %+v", g.Peer)
+	}
 }
