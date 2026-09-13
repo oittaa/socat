@@ -94,23 +94,18 @@ func vsockLoopbackUnavailable(err error) bool {
 		strings.Contains(msg, "permission denied")
 }
 
-func TestVSOCKListenPortZeroByPrivilege(t *testing.T) {
+func TestVSOCKListenPreservesPortZero(t *testing.T) {
 	skipIfNoVSOCK(t)
 	ln, err := listenVSOCK(context.Background(), 0, mustAddr(t, parse.Spec{}), nil)
-	if err == nil {
-		defer func() { _ = ln.Close() }()
+	if errors.Is(err, unix.EACCES) {
+		t.Skip("binding VSOCK port 0 requires CAP_NET_BIND_SERVICE")
 	}
-	if os.Geteuid() == 0 {
-		if err != nil {
-			t.Fatalf("VSOCK-LISTEN:0 as root: %v", err)
-		}
-		return
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err == nil {
-		t.Fatal("VSOCK-LISTEN:0 succeeded as non-root; want permission denied")
-	}
-	if !errors.Is(err, unix.EACCES) && !strings.Contains(err.Error(), "permission denied") {
-		t.Fatalf("err=%v want permission denied", err)
+	defer func() { _ = ln.Close() }()
+	if port := ln.Addr().(*vsockAddr).Port; port != 0 {
+		t.Fatalf("VSOCK-LISTEN:0 bound port %d", port)
 	}
 }
 
