@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestIPRecvErrRejectedOffLinux(t *testing.T) {
@@ -19,7 +20,7 @@ func TestIPRecvErrRejectedOffLinux(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}
-		err = validateChannelOptions(ch)
+		_, err = xio.PrepareChannel(ch)
 		if err == nil || !strings.Contains(err.Error(), "not supported") {
 			t.Errorf("%s: error=%v want not supported", spec, err)
 		}

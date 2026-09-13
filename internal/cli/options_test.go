@@ -108,7 +108,7 @@ func TestFSFlagOptionsRejectNonBoolValues(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err = validateChannelOptions(ch)
+			_, err = xio.PrepareChannel(ch)
 			if err == nil || !strings.Contains(err.Error(), "invalid") {
 				t.Fatalf("error=%v want invalid", err)
 			}
@@ -147,7 +147,7 @@ func TestMulticastRemainingOptionsAccepted(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}
-		if err := validateChannelOptions(ch); err != nil {
+		if _, err := xio.PrepareChannel(ch); err != nil {
 			t.Errorf("%s: %v", spec, err)
 		}
 	}
@@ -165,7 +165,7 @@ func TestIPv6JoinGroupAcceptedOnIPv6(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}
-		if err := validateChannelOptions(ch); err != nil {
+		if _, err := xio.PrepareChannel(ch); err != nil {
 			t.Errorf("%s: %v", spec, err)
 		}
 	}
@@ -185,7 +185,7 @@ func TestIPAddMembershipAcceptedOnUDP4AndUDP6(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}
-		if err := validateChannelOptions(ch); err != nil {
+		if _, err := xio.PrepareChannel(ch); err != nil {
 			t.Errorf("%s: %v", spec, err)
 		}
 	}
@@ -201,7 +201,7 @@ func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 			Has:      true,
 		}},
 	}
-	err := validateSpecOptions(spec)
+	_, err := xio.PrepareSpec(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("folded Name must not bypass spelling groups: %v", err)
 	}

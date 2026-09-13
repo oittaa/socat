@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestIPRecvErrAcceptedOnLinux(t *testing.T) {
@@ -20,7 +21,7 @@ func TestIPRecvErrAcceptedOnLinux(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", spec, err)
 		}
-		if err := validateChannelOptions(ch); err != nil {
+		if _, err := xio.PrepareChannel(ch); err != nil {
 			t.Errorf("%s: %v", spec, err)
 		}
 	}
