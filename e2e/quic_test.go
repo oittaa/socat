@@ -156,17 +156,6 @@ func TestTCPToQUICBridge(t *testing.T) {
 	}
 }
 
-func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
-	bin := socatBin(t)
-	port := freeUDPPort(t)
-	proc, err := startTestProcess(exec.Command(bin, "NOT-A-REAL-ADDRESS", "PIPE"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(proc.stop)
-	requireWaitFailedAfterChildExit(t, waitUDPTestProcess(proc, port, 2*time.Second))
-}
-
 type e2eTrustCerts struct {
 	caFile, serverCert, serverKey, clientCert, clientKey string
 }

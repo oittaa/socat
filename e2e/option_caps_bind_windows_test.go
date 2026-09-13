@@ -2,11 +2,16 @@
 
 package e2e_test
 
-import "testing"
+import (
+	"bytes"
+	"testing"
+)
 
 func TestOptionCapabilityAppendOnTCPRejected(t *testing.T) {
 	out, err, stderr := runTCPAcceptedOption(t, "append", []byte("append-ok\n"))
-	if checkErr := rejectedOptionResult(out, err, "fcntl O_APPEND is not supported on windows"); checkErr != nil {
-		t.Fatalf("%v srv=%s", checkErr, stderr)
+	requireCleanFailure(t, out, err)
+	want := "fcntl O_APPEND is not supported on windows"
+	if !bytes.Contains(out, []byte(want)) {
+		t.Fatalf("output=%q want substring %q srv=%s", out, want, stderr)
 	}
 }

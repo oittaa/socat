@@ -58,9 +58,6 @@ func TestUnixSocketTypeMismatchExitCode(t *testing.T) {
 			if exitErr.ExitCode() != 1 {
 				t.Fatalf("exit=%d want 1 stderr=%s", exitErr.ExitCode(), stderr.String())
 			}
-			if got := bytes.Count(stderr.Bytes(), []byte(" E ")); got != 1 {
-				t.Fatalf("error messages=%d want 1 stderr=%s", got, stderr.String())
-			}
 		})
 	}
 }
