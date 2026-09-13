@@ -288,6 +288,7 @@ type SocketAction struct {
 	Named     NamedSocket
 	Ancillary AncillaryOption
 	GetOnly   IPGetOnly
+	Kernel    string
 	Number    int
 	Option    int
 	Duration  time.Duration
@@ -491,7 +492,7 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	return nil
 }
 
-func decodeNetworkOption(a *Address, o parse.Option, name string) (bool, error) {
+func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool, error) {
 	n := &a.Network
 	switch name {
 	case "bind":
@@ -634,7 +635,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name string) (bool, error) 
 	case "nodelay":
 		return true, setActive(&n.NoDelay, o)
 	}
-	if action, ok, err := socketAction(o, name); ok {
+	if action, ok, err := socketAction(o, name, kernel); ok {
 		if err != nil {
 			return true, err
 		}

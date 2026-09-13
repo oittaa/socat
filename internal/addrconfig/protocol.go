@@ -49,14 +49,15 @@ type TLSUnsupported struct {
 	Index     int
 }
 
-func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error) {
+func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Option) (bool, error) {
 	a := &d.Address
-	recordTLSPlaintextName(a, o, name)
-	if def, ok := optionmeta.Lookup(name); ok && def.TLSRejectReason != "" {
+	name := definition.Canonical
+	recordTLSPlaintextName(a, o, definition)
+	if definition.TLSRejectReason != "" {
 		if err := decodeUnsupportedTLSValue(name, o); err != nil {
 			return true, err
 		}
-		recordUnsupportedTLS(d, name, o, def.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
+		recordUnsupportedTLS(d, name, o, definition.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
 		return true, nil
 	}
 	switch name {
@@ -144,21 +145,17 @@ func decodeProtocolOption(d *decoder, o parse.Option, name string) (bool, error)
 	return decodeProxyOption(a, o, name)
 }
 
-func recordTLSPlaintextName(a *Address, o parse.Option, name string) {
-	def, ok := optionmeta.Lookup(name)
-	if !ok {
-		return
-	}
+func recordTLSPlaintextName(a *Address, o parse.Option, definition optionmeta.Option) {
 	spelling := o.OriginalSpelling()
 	if spelling == "" {
 		spelling = o.Name
 	}
-	if def.Hidden && def.TLSRejectReason != "" {
+	if definition.Hidden && definition.TLSRejectReason != "" {
 		a.TLS.LastHiddenName = spelling
 		a.TLS.LastPlaintextName = spelling
 		return
 	}
-	if def.PublicTLS {
+	if definition.PublicTLS {
 		a.TLS.LastPlaintextName = spelling
 	}
 }

@@ -3,45 +3,41 @@ package xio
 import (
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func rejectUnknownOptions(spec parse.Spec, desc AddressDesc, registered bool) error {
-	return rejectAddressOptions(spec, desc, registered, false)
+type resolvedAddressOptions struct {
+	definitions []optionmeta.Option
+	scopeError  error
 }
 
-func rejectOptionScope(spec parse.Spec, desc AddressDesc, registered bool) error {
-	return rejectAddressOptions(spec, desc, registered, true)
-}
-
-func rejectAddressOptions(spec parse.Spec, desc AddressDesc, registered, scope bool) error {
+func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (resolvedAddressOptions, error) {
+	resolved := resolvedAddressOptions{definitions: make([]optionmeta.Option, len(spec.Options))}
 	reg := registrationSnapshot(desc)
-	for _, option := range spec.Options {
+	for i, option := range spec.Options {
 		optionSpec, ok := lookupAddressOption(option)
 		if !ok {
-			return fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
+			return resolvedAddressOptions{}, fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
+		resolved.definitions[i] = optionSpec
 		if !registered {
 			continue
 		}
-		if !scope {
-			if !optionImplementedForGroup(desc.Group, optionSpec) {
-				return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-			}
-			continue
+		if !optionImplementedForGroup(desc.Group, optionSpec) {
+			return resolvedAddressOptions{}, fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 		s := optionSpec.Scope
-		if !OptionSupportedOnAddress(reg, s.AddressGroups, s.AddressTypes, s.Caps) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
-		}
-		if s.RestrictTypes && !addressTypeAllowed(desc.Name, s.AddressTypes) {
-			return fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
+		if resolved.scopeError == nil &&
+			(!OptionSupportedOnAddress(reg, s.AddressGroups, s.AddressTypes, s.Caps) ||
+				s.RestrictTypes && !addressTypeAllowed(desc.Name, s.AddressTypes)) {
+			resolved.scopeError = fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
 	}
-	return nil
+	return resolved, nil
 }
 
 func rejectPreparedStaticChecks(config addrconfig.Address) error {
@@ -69,14 +65,21 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 			return def, true
 		}
 		if IsTermiosOption(name) {
-			return optionmeta.Option{Scope: optionmeta.AddressScope{Caps: []string{CapTermios}}}, true
+			canonical := strings.ToLower(strings.TrimSpace(option.Name))
+			if canonical == "" {
+				canonical = strings.ToLower(strings.TrimSpace(name))
+			}
+			return optionmeta.Option{
+				Canonical: canonical,
+				Scope:     optionmeta.AddressScope{Caps: []string{CapTermios}},
+			}, true
 		}
 	}
 	return optionmeta.Option{}, false
 }
 
 func optionImplementedForGroup(group string, option optionmeta.Option) bool {
-	if !IPAncillarySupported(group, option.Canonical) {
+	if !IPAncillarySupported(group, addrconfig.AncillaryID(option.Canonical)) {
 		return false
 	}
 	groups := option.Scope.ImplGroups

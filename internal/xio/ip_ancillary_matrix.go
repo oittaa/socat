@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 // IPAncillaryKind is a bitmask of runtime effects implemented for one
@@ -148,24 +147,12 @@ func lookupIPAncillary(id addrconfig.AncillaryOption) (IPAncillaryEntry, bool) {
 	return IPAncillaryEntry{}, false
 }
 
-func lookupIPAncillaryName(optionName string) (IPAncillaryEntry, bool) {
-	n := strings.ToLower(strings.TrimSpace(optionName))
-	if n == "" {
-		return IPAncillaryEntry{}, false
-	}
-	d, ok := optionmeta.Lookup(n)
-	if !ok {
-		return IPAncillaryEntry{}, false
-	}
-	return lookupIPAncillary(addrconfig.AncillaryID(d.Canonical))
-}
-
-// IPAncillarySupported reports whether optionName is implemented on the
+// IPAncillarySupported reports whether option is implemented on the
 // address help-section group. Options that are not in the matrix are
 // unrestricted here. Platform and IP-family checks live in
 // RejectUnsupportedIPAncillary.
-func IPAncillarySupported(group, optionName string) bool {
-	e, ok := lookupIPAncillaryName(optionName)
+func IPAncillarySupported(group string, option addrconfig.AncillaryOption) bool {
+	e, ok := lookupIPAncillary(option)
 	if !ok {
 		return true
 	}
@@ -270,7 +257,7 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 		if !e.supportedOnThisPlatform() {
 			return fmt.Errorf("%s: option %q not supported on this platform", s.Type, name)
 		}
-		if !IPAncillarySupported(reg.Group, name) {
+		if !IPAncillarySupported(reg.Group, e.ID) {
 			return fmt.Errorf("%s: option %q not supported with this address type", s.Type, name)
 		}
 		if family != ipFamilyUnknown && !e.supportedOnFamily(family) {
