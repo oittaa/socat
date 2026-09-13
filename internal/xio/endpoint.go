@@ -92,8 +92,7 @@ const (
 type IPVersion int
 
 const (
-	// IPv4Default matches -4. Listen still honours SOCAT_DEFAULT_LISTEN_IP;
-	// explicit IPv4 (-4) does not.
+	// IPv4Default leaves the process preference unset.
 	IPv4Default IPVersion = iota
 	IPv4
 	IPv6
@@ -103,20 +102,27 @@ const (
 // Options is parsed process configuration. It is immutable after NewSession.
 // Sessions share one private *Options; Options() returns a value snapshot.
 type Options struct {
-	IPVersion    IPVersion
-	BlockSize    int
-	Linger       time.Duration
-	Idle         time.Duration
-	LeftToRight  bool
-	RightToLeft  bool
-	Verbose      bool
-	Hex          bool
-	Dump         io.Writer
-	DumpFDs      bool          // -D: filan-style dump of channel descriptors
-	DumpFDOut    io.Writer     // defaults to stderr; independent of -l* destinations
-	LogFacility  logx.Facility // syslog facility for -ly/-lm
-	Statistics   bool
-	Experimental bool // --experimental (netns= warning)
+	IPVersion IPVersion
+	// Process defaults are snapshotted by the CLI before runtime starts.
+	DefaultListenIPVersion    IPVersion
+	PreferredResolveIPVersion IPVersion
+	SOCKSUser                 string
+	Shell                     string
+	ForkWait                  time.Duration
+	TransferWait              time.Duration
+	BlockSize                 int
+	Linger                    time.Duration
+	Idle                      time.Duration
+	LeftToRight               bool
+	RightToLeft               bool
+	Verbose                   bool
+	Hex                       bool
+	Dump                      io.Writer
+	DumpFDs                   bool          // -D: filan-style dump of channel descriptors
+	DumpFDOut                 io.Writer     // defaults to stderr; independent of -l* destinations
+	LogFacility               logx.Facility // syslog facility for -ly/-lm
+	Statistics                bool
+	Experimental              bool // --experimental (netns= warning)
 	// -r / -R path templates. Files live on Sniff, opened after peer is known.
 	RawLeftPath  string
 	RawRightPath string

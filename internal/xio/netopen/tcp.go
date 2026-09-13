@@ -64,7 +64,7 @@ func openTCPListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 	// Listen address family:
 	//   1) address option pf=
 	//   2) explicit -4 / -6 / -0
-	//   3) env SOCAT_DEFAULT_LISTEN_IP
+	//   3) process default listen family
 	//   4) default IPv4
 	netw := xio.ListenNetwork(g.Options(), s)
 	return openTCPListenNetwork(ctx, s, mode, g, netw)

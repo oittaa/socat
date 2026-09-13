@@ -92,28 +92,3 @@ func TestChannelModesUsesOptions(t *testing.T) {
 		t.Fatalf("-U %v %v", l, r)
 	}
 }
-
-func TestPreferredResolveVersionFromEnvironment(t *testing.T) {
-	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "6")
-	if got := preferredResolveVersion(Options{}); got != IPv6 {
-		t.Fatalf("env=6 got %v", got)
-	}
-	if got := preferredResolveVersion(Options{IPVersion: IPv4}); got != IPv4 {
-		t.Fatalf("explicit -4 must win, got %v", got)
-	}
-	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "0")
-	if got := preferredResolveVersion(Options{}); got != IPvAny {
-		t.Fatalf("env=0 got %v", got)
-	}
-}
-
-func TestEnvironmentWaitDuration(t *testing.T) {
-	if got := environmentWaitDuration("2"); got != 2*time.Second {
-		t.Fatalf("got %s", got)
-	}
-	for _, value := range []string{"", "invalid", "0", "-1"} {
-		if got := environmentWaitDuration(value); got != 0 {
-			t.Errorf("%q got %s", value, got)
-		}
-	}
-}

@@ -244,15 +244,19 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 	}
 
 	// Preference order for dual-stack ("tcp"): explicit ai-passive prefers
-	// IPv6 when set, then -4/-6/-0, SOCAT_PREFERRED_RESOLVE_IP, then the
-	// IPv4 default.
+	// IPv6 when set, then -4/-6/-0, the process resolver preference, then
+	// the IPv4 default.
 	if hint == "ip" && len(ips) > 1 {
 		if s.Common.Passive.Value {
 			sort.SliceStable(ips, func(i, j int) bool {
 				return ips[i].To4() == nil && ips[j].To4() != nil
 			})
 		} else {
-			switch preferredResolveVersion(opts) {
+			ver := opts.IPVersion
+			if ver == IPv4Default {
+				ver = opts.PreferredResolveIPVersion
+			}
+			switch ver {
 			case IPv6:
 				sort.SliceStable(ips, func(i, j int) bool {
 					return ips[i].To4() == nil && ips[j].To4() != nil
