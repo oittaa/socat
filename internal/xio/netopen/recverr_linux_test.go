@@ -12,12 +12,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
+
+func closedUDP4Port(t *testing.T) int {
+	t.Helper()
+	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	_ = pc.Close()
+	return port
+}
 
 func recverrTestGlobal() (*xio.Global, *bytes.Buffer) {
 	var logBuf bytes.Buffer
@@ -100,20 +110,28 @@ func TestUDP4DatagramRecvErrICMPLinux(t *testing.T) {
 	probeStreamRecvErr(t, o.Stream(), g, logBuf)
 }
 
-func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, addrconfig.Address, xio.Mode, *xio.Global) (*xio.Opened, error), g *xio.Global) (*xio.Opened, *net.UDPConn) {
+func openUDP4RecvErrFirst(t *testing.T, spec string, recvfrom bool, g *xio.Global) (*xio.Opened, *net.UDPConn) {
 	t.Helper()
 	parsed, err := parse.ParseSpec(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := closedUDP4Port(t)
-	parsed.Params[0] = strconv.Itoa(port)
 	config := mustAddr(t, parsed)
+	pc, _, err := bindUDPPort(context.Background(), config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := open(context.Background(), config, xio.ModeRDWR, g)
+		var o *xio.Opened
+		var err error
+		if recvfrom {
+			o, err = openUDPRecvfromOne(context.Background(), config, g, pc)
+		} else {
+			o, err = openUDPListenOnePeer(context.Background(), config, g, pc, "udp4")
+		}
 		if err != nil {
 			errc <- err
 			return
@@ -121,8 +139,7 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, 
 		opened <- o
 	}()
 
-	waitUDP4Bound(t, port, errc)
-	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	client, err := net.DialUDP("udp4", nil, pc.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +161,7 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, 
 
 func TestUDP4ListenRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
-	o, client := openUDP4RecvErrFirst(t, "UDP4-LISTEN:0,bind=127.0.0.1,ip-recverr", openUDP4Listen, g)
+	o, client := openUDP4RecvErrFirst(t, "UDP4-LISTEN:0,bind=127.0.0.1,ip-recverr", false, g)
 	buf := make([]byte, 16)
 	setRWDeadline(o.Stream(), time.Now().Add(2*time.Second))
 	n, err := o.Stream().Read(buf)
@@ -157,7 +174,7 @@ func TestUDP4ListenRecvErrICMPLinux(t *testing.T) {
 
 func TestUDP4RecvfromRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
-	o, client := openUDP4RecvErrFirst(t, "UDP4-RECVFROM:0,bind=127.0.0.1,ip-recverr", openUDP4Recvfrom, g)
+	o, client := openUDP4RecvErrFirst(t, "UDP4-RECVFROM:0,bind=127.0.0.1,ip-recverr", true, g)
 	buf := make([]byte, 16)
 	setRWDeadline(o.Stream(), time.Now().Add(2*time.Second))
 	n, err := o.Stream().Read(buf)

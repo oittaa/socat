@@ -5,47 +5,13 @@ import (
 	"errors"
 	"io"
 	"net"
-	"strconv"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
-
-func closedUDP4Port(t *testing.T) int {
-	t.Helper()
-	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
-	return port
-}
-
-func waitUDP4Bound(t *testing.T, port int, failed <-chan error) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
-	err := testutil.Until(ctx, func() (bool, error) {
-		select {
-		case err := <-failed:
-			if err == nil {
-				return false, errors.New("open returned before bind")
-			}
-			return false, err
-		default:
-		}
-		return testutil.Occupied(ctx, net.ListenConfig{}, "udp4", addr)
-	})
-	if err != nil {
-		t.Fatalf("waiting for UDP bind: %v", err)
-	}
-}
 
 func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Opened, *net.UDPConn) {
 	t.Helper()
@@ -53,13 +19,16 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := closedUDP4Port(t)
-	parsed.Params[0] = strconv.Itoa(port)
+	config := mustAddr(t, parsed)
+	pc, _, err := bindUDPPort(context.Background(), config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPListenOnePeer(context.Background(), config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc, "udp4")
 		if err != nil {
 			errc <- err
 			return
@@ -67,8 +36,7 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 		opened <- o
 	}()
 
-	waitUDP4Bound(t, port, errc)
-	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	client, err := net.DialUDP("udp4", nil, pc.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,22 +60,28 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 }
 
 func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
-	port := closedUDP4Port(t)
-	parsed, err := parse.ParseSpec("UDP4-LISTEN:" + strconv.Itoa(port) + ",bind=127.0.0.1")
+	parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	config := mustAddr(t, parsed)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	pc, _, err := bindUDPPort(ctx, config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pc.LocalAddr().(*net.UDPAddr).Port == 0 {
+		t.Fatal("UDP-LISTEN bound port 0")
+	}
 	opened := make(chan error, 1)
 	go func() {
-		o, err := openUDP4Listen(ctx, mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPListenOnePeer(ctx, config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc, "udp4")
 		if o != nil {
 			_ = o.Close()
 		}
 		opened <- err
 	}()
-	waitUDP4Bound(t, port, opened)
 	select {
 	case err := <-opened:
 		t.Fatalf("open returned before the first datagram: %v", err)
@@ -327,20 +301,22 @@ func openUDP4RecvfromAfter(t *testing.T, spec string, send func(*net.UDPConn)) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := closedUDP4Port(t)
-	parsed.Params[0] = strconv.Itoa(port)
+	config := mustAddr(t, parsed)
+	pc, _, err := bindUDPPort(context.Background(), config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPRecvfromOne(context.Background(), config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc)
 		if err != nil {
 			errc <- err
 			return
 		}
 		opened <- o
 	}()
-	waitUDP4Bound(t, port, errc)
-	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
+	client, err := net.DialUDP("udp4", nil, pc.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
