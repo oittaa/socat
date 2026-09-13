@@ -7,21 +7,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func TestSplitExecArgs(t *testing.T) {
-	got := splitExecArgs(`prog "a b" "" c`)
-	if !reflect.DeepEqual(got, []string{"prog", "a b", "", "c"}) {
-		t.Fatalf("quoted=%q", got)
-	}
-	got = splitExecArgs(`prog "say \"hi\""`)
-	if !reflect.DeepEqual(got, []string{"prog", `say "hi"`}) {
-		t.Fatalf("escaped=%q", got)
-	}
-	got = splitExecArgs("echo  hello\tworld")
-	if !reflect.DeepEqual(got, []string{"echo", "hello", "world"}) {
-		t.Fatalf("spaces=%q", got)
-	}
-}
-
 func TestDecodeEXECArgv(t *testing.T) {
 	got := decodeProcess(t, "EXEC:echo hello", AddressKindEXEC)
 	if !reflect.DeepEqual(got.Process.Argv, []string{"echo", "hello"}) {
@@ -29,6 +14,11 @@ func TestDecodeEXECArgv(t *testing.T) {
 	}
 	if got.Process.Command != "" || got.Process.HasCommand {
 		t.Fatalf("EXEC must not keep a shell command: %+v", got.Process)
+	}
+
+	mixed := decodeProcess(t, "EXEC:echo  hello\tworld", AddressKindEXEC)
+	if !reflect.DeepEqual(mixed.Process.Argv, []string{"echo", "hello", "world"}) {
+		t.Fatalf("mixed whitespace argv=%q", mixed.Process.Argv)
 	}
 }
 

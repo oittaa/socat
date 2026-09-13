@@ -8,8 +8,9 @@ import (
 )
 
 func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
+	facts := Facts{Type: "TLS", Role: AddressRoleConnect}
 	spec := mustParseSpec(t, "TLS:127.0.0.1:1,fips=1,pseudo=1,pseudo=0")
-	config, err := Decode(spec, Facts{Type: "TLS"})
+	config, err := Decode(spec, facts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +22,7 @@ func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
 	}
 
 	spec = mustParseSpec(t, "TLS:127.0.0.1:1,method=SSLv23,fips=1,fips=0")
-	config, err = Decode(spec, Facts{Type: "TLS"})
+	config, err = Decode(spec, facts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,19 +59,20 @@ func TestDecodeIffLastWinsClearsOppositeMask(t *testing.T) {
 }
 
 func TestDecodeTLSVersionRangeAfterLastWins(t *testing.T) {
-	_, err := Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,max-version=TLS1.2,max-version=TLS1.3"), Facts{Type: "TLS"})
+	facts := Facts{Type: "TLS", Role: AddressRoleConnect}
+	_, err := Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,max-version=TLS1.2,max-version=TLS1.3"), facts)
 	if err != nil {
 		t.Fatalf("last max-version must accept the range: %v", err)
 	}
-	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,min-version=TLS1.2,max-version=TLS1.2"), Facts{Type: "TLS"})
+	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,min-version=TLS1.2,max-version=TLS1.2"), facts)
 	if err != nil {
 		t.Fatalf("last min-version must accept the range: %v", err)
 	}
-	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,max-version=TLS1.2"), Facts{Type: "TLS"})
+	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=TLS1.3,max-version=TLS1.2"), facts)
 	if err == nil || !strings.Contains(err.Error(), "minimum TLS protocol version exceeds maximum") {
 		t.Fatalf("final invalid range: %v", err)
 	}
-	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=DTLS1.2,min-version=TLS1.2"), Facts{Type: "TLS"})
+	_, err = Decode(mustParseSpec(t, "TLS:h:1,min-version=DTLS1.2,min-version=TLS1.2"), facts)
 	if err == nil || !strings.Contains(err.Error(), "unsupported protocol version") {
 		t.Fatalf("invalid earlier min-version: %v", err)
 	}

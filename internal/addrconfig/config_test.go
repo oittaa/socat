@@ -15,10 +15,14 @@ func TestDecodeOptionIdentityUsesCanonicalAlias(t *testing.T) {
 	}
 }
 
+// tcpConnect is the registry facts for TCP:<host>:<port>. TCP has no Kind;
+// Role Connect selects host:port positional decoding.
+var tcpConnect = Facts{Type: "TCP", Group: "TCP", Role: AddressRoleConnect}
+
 func decodeSpec(t *testing.T, text string) Address {
 	t.Helper()
 	spec := mustParseSpec(t, text)
-	got, err := Decode(spec, Facts{Type: "TCP", Group: "TCP", Caps: []string{"socket"}, Role: AddressRoleConnect})
+	got, err := Decode(spec, tcpConnect)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +69,7 @@ func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
 		"TCP:host:9,max-children=2,fork=0",
 	} {
 		spec := mustParseSpec(t, text)
-		_, err := Decode(spec, Facts{Type: "TCP"})
+		_, err := Decode(spec, tcpConnect)
 		if err == nil || !strings.Contains(err.Error(), "max-children not allowed") {
 			t.Fatalf("%s: %v", text, err)
 		}
@@ -77,7 +81,7 @@ func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
 
 func TestDecodeStrictOptionalBoolean(t *testing.T) {
 	spec := mustParseSpec(t, "TCP:host:9,handshake-timeout=1,binary=maybe")
-	_, err := Decode(spec, Facts{Type: "TCP"})
+	_, err := Decode(spec, tcpConnect)
 	if err == nil || !strings.Contains(err.Error(), `invalid binary "maybe"`) {
 		t.Fatalf("error=%v", err)
 	}
@@ -119,7 +123,7 @@ func TestDecodeConstructedProcessInput(t *testing.T) {
 			{Name: "openpty"},
 		},
 	}
-	config, err := Decode(spec, Facts{Type: "EXEC"})
+	config, err := Decode(spec, Facts{Type: "EXEC", Kind: AddressKindEXEC})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,12 +228,15 @@ func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 			Has:      true,
 		}},
 	}
-	config, err := Decode(spec, Facts{Type: "UDP6-RECV", Group: "UDP", Role: AddressRoleReceive, Family: IPFamilyIPv6})
+	config, err := Decode(spec, Facts{Type: "UDP6-RECV", Group: "UDP", Kind: AddressKindUDP, Role: AddressRoleReceive, Family: IPFamilyIPv6})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(config.Network.Actions) != 1 {
 		t.Fatalf("actions=%+v", config.Network.Actions)
+	}
+	if !config.Network.ListenSet || config.Network.ListenPort.Number != 1 || config.Network.Kind != AddressKindUDP {
+		t.Fatalf("udp recv=%+v", config.Network)
 	}
 	request := config.Network.Actions[0].Multicast
 	if config.Network.Actions[0].Kind != SocketActionMulticast ||
@@ -274,8 +281,10 @@ func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "" {
 		t.Fatalf("tcpwrap=1: %+v", got.Network)
 	}
+}
 
-	got = decodeSpec(t, "TCP:host:9,rcvtimeo=250ms,sndtimeo=1")
+func TestDecodeSocketTimeouts(t *testing.T) {
+	got := decodeSpec(t, "TCP:host:9,rcvtimeo=250ms,sndtimeo=1")
 	if !got.Common.ReadTimeout.Set || got.Common.ReadTimeout.Value != 250*time.Millisecond ||
 		!got.Common.WriteTimeout.Set || got.Common.WriteTimeout.Value != time.Second {
 		t.Fatalf("socket timeouts=%+v", got.Common)
@@ -294,13 +303,13 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 	}
 
 	spec := mustParseSpec(t, "TCP:host:9,netns=")
-	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+	if _, err := Decode(spec, tcpConnect); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("empty netns error=%v", err)
 	}
 
 	for _, ns := range []string{"::1", "[::1]:53"} {
 		spec = mustParseSpec(t, "TCP:host:9,res-nsaddr="+ns)
-		if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "IPv6") {
+		if _, err := Decode(spec, tcpConnect); err == nil || !strings.Contains(err.Error(), "IPv6") {
 			t.Fatalf("res-nsaddr=%s error=%v", ns, err)
 		}
 	}
@@ -339,8 +348,9 @@ func TestDecodeUNIXFilesystemBindIsPath(t *testing.T) {
 }
 
 func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
+	tcpListen := Facts{Type: "TCP4-LISTEN", Group: "TCP", Role: AddressRoleListen, Family: IPFamilyIPv4}
 	spec := mustParseSpec(t, "TCP4-LISTEN:443,bind=127.0.0.1:8080")
-	got, err := Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	got, err := Decode(spec, tcpListen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -355,7 +365,7 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 	}
 
 	spec = mustParseSpec(t, "TCP4-LISTEN:443,bind=:8080")
-	got, err = Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	got, err = Decode(spec, tcpListen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,8 +373,9 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 		t.Fatalf("listen bind=:port decoded=%+v", got.Network)
 	}
 
+	udpDatagram := Facts{Type: "UDP4-DATAGRAM", Group: "UDP", Kind: AddressKindUDP, Role: AddressRoleDatagram, Family: IPFamilyIPv4}
 	spec = mustParseSpec(t, "UDP4-DATAGRAM:224.255.0.1:6666,bind=:6666")
-	got, err = Decode(spec, Facts{Type: "UDP4-DATAGRAM", Role: AddressRoleDatagram, Family: IPFamilyIPv4})
+	got, err = Decode(spec, udpDatagram)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,8 +383,9 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 		t.Fatalf("datagram bind=:port=%+v", got.Network)
 	}
 
+	udpListen := Facts{Type: "UDP4-LISTEN", Group: "UDP", Kind: AddressKindUDP, Role: AddressRoleListen, Family: IPFamilyIPv4}
 	spec = mustParseSpec(t, "UDP4-LISTEN:6666,bind=:6666")
-	got, err = Decode(spec, Facts{Type: "UDP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
+	got, err = Decode(spec, udpListen)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +394,7 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 	}
 }
 
-func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {
+func TestDecodeBindPFAndSourcePort(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,bind=[::1],sourceport=080,pf=ip4,ipv6-v6only=0")
 	if !got.Network.BindSet || got.Network.Bind.Name != "[::1]" || got.Network.Bind.String() != "::1" {
 		t.Fatalf("bind=%+v", got.Network.Bind)
@@ -397,19 +409,27 @@ func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {
 	if !got.Common.IPv6V6Only.Set || got.Common.IPv6V6Only.Value {
 		t.Fatalf("ipv6-v6only=%+v", got.Common.IPv6V6Only)
 	}
+}
 
-	got = decodeSpec(t, "TCP6-LISTEN:9,ipv6-v6only")
+func TestDecodeIPv6V6Only(t *testing.T) {
+	facts := Facts{Type: "TCP6-LISTEN", Group: "TCP", Role: AddressRoleListen, Family: IPFamilyIPv6}
+	got, err := Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Network.ListenSet || got.Network.ListenPort.Number != 9 {
+		t.Fatalf("listen port=%+v", got.Network.ListenPort)
+	}
 	if !got.Common.IPv6V6Only.Set || !got.Common.IPv6V6Only.Value {
 		t.Fatalf("bare ipv6-v6only=%+v", got.Common.IPv6V6Only)
 	}
 
-	spec := mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false")
-	if _, err := Decode(spec, Facts{Type: "TCP6-LISTEN"}); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
+	if _, err := Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false"), facts); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
 		t.Fatalf("ipv6-v6only=false error=%v", err)
 	}
 }
 
-func TestDecodeProxyAndDTLSSettings(t *testing.T) {
+func TestDecodeProxySettings(t *testing.T) {
 	proxy := mustParseSpec(t, "PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
 	config, err := Decode(proxy, Facts{Type: "PROXY", Group: "PROXY and SOCKS", Kind: AddressKindPROXY, Role: AddressRoleConnect})
 	if err != nil {
@@ -423,11 +443,16 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 		config.Proxy.Authorization.Value != "user:pass" {
 		t.Fatalf("proxy=%+v", config.Proxy)
 	}
+}
 
+func TestDecodeDTLSSettings(t *testing.T) {
 	dtls := mustParseSpec(t, "DTLS:example.test:4444,openssl-min-proto-version=DTLS1.3,dtls-mtu=1200,dtls-migration=0,dtls-unfragmented-probes=1")
-	config, err = Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3", Kind: AddressKindDTLS, Role: AddressRoleConnect})
+	config, err := Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3", Kind: AddressKindDTLS, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !config.Network.TargetSet || config.Network.Target.Name != "example.test" || config.Network.TargetPort.Number != 4444 {
+		t.Fatalf("DTLS target=%+v", config.Network)
 	}
 	if config.TLS.DTLSMinVersion.Value != 13 || config.TLS.DTLSMTU.Value != 1200 ||
 		config.TLS.DTLSMigration.Value || !config.TLS.DTLSUnfragmentedProbes.Value {
@@ -455,11 +480,11 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 	}
 
 	spec := mustParseSpec(t, "TCP-LISTEN:9,backlog=0")
-	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN"}); err == nil || !strings.Contains(err.Error(), `backlog: invalid value "0"`) {
+	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN", Group: "TCP", Role: AddressRoleListen}); err == nil || !strings.Contains(err.Error(), `backlog: invalid value "0"`) {
 		t.Fatalf("backlog=0 error=%v", err)
 	}
 	spec = mustParseSpec(t, "TCP:host:9,keepidle=-5s")
-	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "positive") {
+	if _, err := Decode(spec, tcpConnect); err == nil || !strings.Contains(err.Error(), "positive") {
 		t.Fatalf("keepidle=-5s error=%v", err)
 	}
 }
@@ -475,11 +500,11 @@ func TestDecodeLockfileAndWaitlock(t *testing.T) {
 	}
 
 	spec := mustParseSpec(t, "TCP:host:9,lockfile=/tmp/a.lock,waitlock=/tmp/b.lock")
-	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "only one use") {
+	if _, err := Decode(spec, tcpConnect); err == nil || !strings.Contains(err.Error(), "only one use") {
 		t.Fatalf("dual lock error=%v", err)
 	}
 	spec = mustParseSpec(t, "TCP:host:9,lockfile")
-	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
+	if _, err := Decode(spec, tcpConnect); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("bare lockfile error=%v", err)
 	}
 }
@@ -506,7 +531,10 @@ func TestDecodeVSOCKBind(t *testing.T) {
 }
 
 func TestDecodeParentSignals(t *testing.T) {
-	got := decodeSpec(t, "EXEC:true,sighup,sigint,sighup")
+	got := decodeProcess(t, "EXEC:true,sighup,sigint,sighup", AddressKindEXEC)
+	if got.Type != "EXEC" || len(got.Process.Argv) != 1 || got.Process.Argv[0] != "true" {
+		t.Fatalf("exec=%s argv=%q", got.Type, got.Process.Argv)
+	}
 	want := []ParentSignal{ParentSignalHUP, ParentSignalINT, ParentSignalHUP}
 	if len(got.Process.ParentSignals) != len(want) {
 		t.Fatalf("signals=%v", got.Process.ParentSignals)
@@ -517,14 +545,21 @@ func TestDecodeParentSignals(t *testing.T) {
 		}
 	}
 	spec := mustParseSpec(t, "EXEC:true,sighup=0")
-	_, err := Decode(spec, Facts{Type: "EXEC"})
+	_, err := Decode(spec, Facts{Type: "EXEC", Kind: AddressKindEXEC})
 	if err == nil || !strings.Contains(err.Error(), "no value permitted") {
 		t.Fatalf("error=%v want no value permitted", err)
 	}
 }
 
 func TestDecodeTLSPlaintextLastWins(t *testing.T) {
-	got := decodeSpec(t, "PROXY:h:h:9,cert=x,fips=1,verify=0")
+	facts := Facts{Type: "PROXY", Group: "PROXY and SOCKS", Kind: AddressKindPROXY, Role: AddressRoleConnect}
+	got, err := Decode(mustParseSpec(t, "PROXY:h:h:9,cert=x,fips=1,verify=0"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Proxy.EndpointsSet || got.Proxy.Server.Name != "h" || got.Proxy.Target.Name != "h" || got.Proxy.TargetPort.Number != 9 {
+		t.Fatalf("proxy endpoints=%+v", got.Proxy)
+	}
 	if got.TLS.LastHiddenName != "fips" {
 		t.Fatalf("hidden=%q", got.TLS.LastHiddenName)
 	}
@@ -534,7 +569,15 @@ func TestDecodeTLSPlaintextLastWins(t *testing.T) {
 }
 
 func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
-	got := decodeSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1:10.0.0.1")
+	facts := Facts{Type: "UDP", Group: "UDP", Kind: AddressKindUDP, Role: AddressRoleConnect}
+	got, err := Decode(mustParseSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1:10.0.0.1"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Type != "UDP" || got.Network.Kind != AddressKindUDP || !got.Network.TargetSet ||
+		got.Network.Target.String() != "127.0.0.1" || got.Network.TargetPort.Number != 9 {
+		t.Fatalf("udp target=%s %+v", got.Type, got.Network)
+	}
 	var req MulticastRequest
 	for _, action := range got.Network.Actions {
 		if action.Kind == SocketActionMulticast && action.Multicast.Kind == MulticastSourceIPv4 {
@@ -544,8 +587,7 @@ func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
 	if req.Group.String() != "232.1.1.1" || req.InterfaceAddr.String() != "127.0.0.1" || req.Source.String() != "10.0.0.1" {
 		t.Fatalf("decoded=%+v want group=232.1.1.1 iface=127.0.0.1 source=10.0.0.1", req)
 	}
-	spec := mustParseSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")
-	if _, err := Decode(spec, Facts{Type: "UDP"}); err == nil || !strings.Contains(err.Error(), "group:iface:source") {
+	if _, err := Decode(mustParseSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1"), facts); err == nil || !strings.Contains(err.Error(), "group:iface:source") {
 		t.Fatalf("two-field SSM: %v", err)
 	}
 }
@@ -571,9 +613,12 @@ func TestHostTargetIsIPv4Literal(t *testing.T) {
 
 func TestDecodeUserGroupOwnerRefs(t *testing.T) {
 	spec := mustParseSpec(t, "OPEN:f,user=1000,group=1001,user-early=0,group-late=daemon")
-	config, err := Decode(spec, Facts{Type: "OPEN"})
+	config, err := Decode(spec, Facts{Type: "OPEN", Kind: AddressKindFile})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if config.File.Path != "f" {
+		t.Fatalf("open path=%q", config.File.Path)
 	}
 	var user, group, early, late FileAction
 	for _, action := range config.File.Actions {
@@ -601,7 +646,7 @@ func TestDecodeUserGroupOwnerRefs(t *testing.T) {
 		t.Fatalf("group-late=%+v", late)
 	}
 
-	if _, err := Decode(mustParseSpec(t, "OPEN:f,user="), Facts{Type: "OPEN"}); err == nil {
+	if _, err := Decode(mustParseSpec(t, "OPEN:f,user="), Facts{Type: "OPEN", Kind: AddressKindFile}); err == nil {
 		t.Fatal("empty user= must be rejected")
 	}
 }
