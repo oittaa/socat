@@ -46,17 +46,7 @@ func (w *reqPipeWriter) SetWriteDeadline(t time.Time) error {
 	return nil
 }
 
-func (p *reqPipe) wait() {
-	if h := pipeConnWaitHook; h != nil {
-		h()
-	}
-	p.cond.Wait()
-}
-
 func (p *reqPipe) waitWrite() {
-	if h := pipeConnWaitHook; h != nil {
-		h()
-	}
 	if err := deadlineErr(p.wdl); err != nil {
 		return
 	}
@@ -154,7 +144,7 @@ func (p *reqPipe) read(b []byte) (int, error) {
 		if p.rclosed {
 			return 0, net.ErrClosed
 		}
-		p.wait()
+		p.cond.Wait()
 	}
 }
 

@@ -54,7 +54,6 @@ func ApplyConfiguredNamedPreopen(path string, config addrconfig.File) error {
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionPermEarly:
-			noteLifecycleSyscall("chmod")
 			if err := os.Chmod(path, UnixModeToFileMode(action.Mode)); err != nil {
 				return fmt.Errorf("chmod %s: %w", path, err)
 			}
@@ -78,7 +77,6 @@ func ApplyConfiguredNamedPreopen(path string, config addrconfig.File) error {
 }
 
 func applyConfiguredNamedPerm(path string, f *os.File, mode uint32) error {
-	noteLifecycleSyscall("chmod")
 	if path != "" {
 		return os.Chmod(path, UnixModeToFileMode(mode))
 	}
@@ -93,7 +91,6 @@ func applyConfiguredNamedOwner(path string, f *os.File, owner addrconfig.OwnerRe
 	if err != nil || !has {
 		return err
 	}
-	noteLifecycleSyscall("chown")
 	if user {
 		return namedChown(path, f, id, -1)
 	}

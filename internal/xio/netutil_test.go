@@ -2,35 +2,12 @@ package xio
 
 import (
 	"errors"
-	"fmt"
-	"math"
-	"strconv"
-	"strings"
 	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
-
-func ParsePositiveInt(v string) (int, error) {
-	n, err := ParseIntAny(v)
-	if err != nil || n <= 0 {
-		return 0, fmt.Errorf("invalid")
-	}
-	return n, nil
-}
-
-func ParseIntAny(v string) (int, error) {
-	n, err := strconv.ParseInt(strings.TrimSpace(v), 0, 64)
-	if err != nil {
-		return 0, err
-	}
-	if n > math.MaxInt || n < math.MinInt {
-		return 0, fmt.Errorf("out of range")
-	}
-	return int(n), nil
-}
 
 func TestFirstAvailableLowportFromWrapsDownward(t *testing.T) {
 	var tried []int
@@ -76,37 +53,6 @@ func TestFirstAvailableLowportPicksPortInRange(t *testing.T) {
 	})
 	if err != nil || port < LowportMin || port > LowportMax {
 		t.Fatalf("port=%d err=%v", port, err)
-	}
-}
-
-func TestParsePositiveIntBase0AndTrailingJunk(t *testing.T) {
-	n, err := ParsePositiveInt("0x10")
-	if err != nil || n != 16 {
-		t.Fatalf("0x10: n=%d err=%v want 16", n, err)
-	}
-	n, err = ParsePositiveInt("010")
-	if err != nil || n != 8 {
-		t.Fatalf("010: n=%d err=%v want 8", n, err)
-	}
-	if _, err := ParsePositiveInt("5abc"); err == nil {
-		t.Fatal("5abc: expected error")
-	}
-	if _, err := ParsePositiveInt("0"); err == nil {
-		t.Fatal("0: expected error")
-	}
-}
-
-func TestParseIntAnyBase0(t *testing.T) {
-	n, err := ParseIntAny("010")
-	if err != nil || n != 8 {
-		t.Fatalf("010: n=%d err=%v want 8", n, err)
-	}
-	n, err = ParseIntAny("0x10")
-	if err != nil || n != 16 {
-		t.Fatalf("0x10: n=%d err=%v want 16", n, err)
-	}
-	if _, err := ParseIntAny("10junk"); err == nil {
-		t.Fatal("10junk: expected error")
 	}
 }
 

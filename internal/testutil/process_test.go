@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 )
 
@@ -42,29 +43,23 @@ func TestWaitCancelBeforeStartup(t *testing.T) {
 }
 
 func TestWaitCancelAfterStartup(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan struct{})
-	started := make(chan struct{})
-	finished := make(chan error, 1)
-	var stopped atomic.Bool
-	go func() {
-		close(started)
-		finished <- Wait(ctx, done, func() {
-			if stopped.CompareAndSwap(false, true) {
-				close(done)
-			}
-		})
-	}()
-	<-started
-	cancel()
-	err := <-finished
-	if !errors.Is(err, context.Canceled) {
-		t.Fatalf("err=%v want canceled", err)
-	}
-	if !stopped.Load() {
-		t.Fatal("stop/cleanup was not called")
-	}
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan struct{})
+		finished := make(chan error, 1)
+		go func() { finished <- Wait(ctx, done, func() { close(done) }) }()
+		synctest.Wait()
+		cancel()
+		if err := <-finished; !errors.Is(err, context.Canceled) {
+			t.Fatalf("Wait=%v", err)
+		}
+		select {
+		case <-done:
+		default:
+			t.Fatal("child was not stopped")
+		}
+	})
 }
 
 func TestWaitCompletedChildWinsOverCancel(t *testing.T) {

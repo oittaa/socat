@@ -3,16 +3,11 @@ package addrconfig
 import (
 	"strings"
 	"testing"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 func TestDecodeINTERFACENameIsNotTUNPrefix(t *testing.T) {
 	for _, text := range []string{"INTERFACE:lo", "IF:lo"} {
-		spec, err := parse.ParseSpec(text)
-		if err != nil {
-			t.Fatal(err)
-		}
+		spec := mustParseSpec(t, text)
 		config, err := Decode(spec, Facts{Type: spec.Type, Group: "Linux TUN / INTERFACE", Kind: AddressKindINTERFACE})
 		if err != nil {
 			t.Fatalf("%s: %v", text, err)
@@ -30,10 +25,7 @@ func TestDecodeINTERFACENameIsNotTUNPrefix(t *testing.T) {
 }
 
 func TestDecodeINTERFACETypeFallbackWithoutKind(t *testing.T) {
-	spec, err := parse.ParseSpec("INTERFACE:lo")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "INTERFACE:lo")
 	config, err := Decode(spec, Facts{Type: "INTERFACE", Group: "Linux TUN / INTERFACE"})
 	if err != nil {
 		t.Fatal(err)
@@ -50,21 +42,15 @@ func TestDecodeINTERFACETypeFallbackWithoutKind(t *testing.T) {
 }
 
 func TestDecodeTUNStillRequiresIPv4Prefix(t *testing.T) {
-	spec, err := parse.ParseSpec("TUN:lo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = Decode(spec, Facts{Type: "TUN", Group: "Linux TUN / INTERFACE", Kind: AddressKindTUN})
+	spec := mustParseSpec(t, "TUN:lo")
+	_, err := Decode(spec, Facts{Type: "TUN", Group: "Linux TUN / INTERFACE", Kind: AddressKindTUN})
 	if err == nil || !strings.Contains(err.Error(), "IPv4 required") {
 		t.Fatalf("TUN:lo error=%v want IPv4 required", err)
 	}
 }
 
 func TestDecodeTUNPrefix(t *testing.T) {
-	spec, err := parse.ParseSpec("TUN:10.1.2.3/24")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TUN:10.1.2.3/24")
 	config, err := Decode(spec, Facts{Type: "TUN", Group: "Linux TUN / INTERFACE", Kind: AddressKindTUN})
 	if err != nil {
 		t.Fatal(err)

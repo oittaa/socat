@@ -29,7 +29,6 @@ func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error 
 		if !ok {
 			return nil
 		}
-		noteLifecycleSyscall("FS_IOC_SETFLAGS")
 		if err := applyFSIoctlMask(fd, mask, action.Enabled); err != nil {
 			return fmt.Errorf("%s: %w", action.Name, err)
 		}
@@ -43,7 +42,6 @@ func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error 
 		} else {
 			flags &^= unix.O_NOATIME
 		}
-		noteLifecycleSyscall("F_SETFL")
 		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
 			return fmt.Errorf("o-noatime: %w", err)
 		}
@@ -55,7 +53,6 @@ func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error 
 		if stat.Mode&unix.S_IFMT != unix.S_IFIFO {
 			return fmt.Errorf("f-setpipe-sz: not a pipe")
 		}
-		noteLifecycleSyscall("F_SETPIPE_SZ")
 		if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETPIPE_SZ, action.Value); err != nil {
 			return fmt.Errorf("f-setpipe-sz: %w", err)
 		}

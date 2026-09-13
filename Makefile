@@ -1,4 +1,4 @@
-.PHONY: all build fmt fmt-check lint gosec goos-check test test-classic-parity e2e e2e-harness-race e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
+.PHONY: all build fmt fmt-check lint gosec goos-check test test-classic-parity e2e e2e-race e2e-cover coverage check classic-parity update-scorecard fuzz fuzz-matrix test-netns-docker lab bench clean install hooks
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
@@ -7,8 +7,8 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 GOFLAGS ?=
 LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
 
-# Project Go (exclude testdata/ clones).
-GOFMT_DIRS := cmd e2e internal scripts/benchclient scripts/fuzzall scripts/gooscheck version.go
+# Discover project Go files, excluding third-party and temporary trees.
+GO_SOURCES = find . -type d \( -name .git -o -name testdata \) -prune -o -type f -name '*.go' -print0
 
 all: build
 
@@ -18,10 +18,10 @@ build:
 	go build $(GOFLAGS) -ldflags '$(LDFLAGS)' -o procan ./cmd/procan
 
 fmt:
-	gofmt -w $(GOFMT_DIRS)
+	$(GO_SOURCES) | xargs -0 gofmt -w
 
 fmt-check:
-	@out=$$(gofmt -l $(GOFMT_DIRS)); \
+	@out=$$($(GO_SOURCES) | xargs -0 gofmt -l); \
 	if [ -n "$$out" ]; then \
 		echo "gofmt needed:" >&2; \
 		echo "$$out" >&2; \
@@ -54,53 +54,18 @@ goos-check:
 	go run $(GOFLAGS) ./scripts/gooscheck
 
 test: fmt-check test-classic-parity
-	go test $(GOFLAGS) ./...
+	go test $(GOFLAGS) -count=1 ./...
 
 # Offline tests of the parity checker and its committed policy.
 test-classic-parity:
-	$(PYTHON) -B -m unittest discover -s scripts -p 'test_classic_parity.py'
+	$(PYTHON) -B -m unittest discover -s scripts
 
 e2e: build
-	go test $(GOFLAGS) -tags=e2e ./e2e/...
+	go test $(GOFLAGS) -count=1 -tags=e2e ./e2e/...
 
-# Race detector on e2e process/outcome/wait helpers. Ordinary race jobs omit
-# -tags=e2e; full e2e jobs omit -race. Not part of make check.
-# A rename that drops a required helper from the -run set fails this target.
-E2E_HARNESS_RACE_RUN ?= ^(TestRunTestCmd|TestStartTestProcessPreservesStderrFile|TestAcceptedOptionResult|TestRejectedOptionResult|TestInvalidFamilyBindResult|TestWaitTCPListen|TestWaitUDPListen|TestPortOccupied)
-E2E_HARNESS_RACE_REQUIRED ?= \
-	TestRunTestCmdSuccess \
-	TestRunTestCmdStartupFailure \
-	TestRunTestCmdCancelBeforeStartup \
-	TestRunTestCmdCancelAfterStartupCleansUp \
-	TestStartTestProcessPreservesStderrFile \
-	TestAcceptedOptionResultRejectsCrashAndTimeout \
-	TestAcceptedOptionResultRejectsHandshakeNamedCrash \
-	TestAcceptedOptionResultKeepsHarnessDeadlineDistinct \
-	TestRejectedOptionResultRejectsTimeout \
-	TestRejectedOptionResultRejectsPanicAfterDiagnostic \
-	TestRejectedOptionResultAcceptsCleanRejection \
-	TestInvalidFamilyBindResultRejectsUnrelatedCrash \
-	TestInvalidFamilyBindResultRejectsBindNamedCrash \
-	TestInvalidFamilyBindResultAcceptsCleanFamilyError \
-	TestInvalidFamilyBindResultRejectsHarnessDeadline \
-	TestWaitTCPListenDelayedBind \
-	TestWaitTCPListenDetectsEarlyExit \
-	TestWaitTCPListenTimesOutAndCleansUp \
-	TestWaitTCPListenUnrelatedPortOccupation \
-	TestWaitUDPListenDetectsEarlyExit \
-	TestWaitUDPListenDelayedBind \
-	TestPortOccupiedUnexpectedError \
-	TestPortOccupiedBindBusy
-e2e-harness-race: build
-	@listed=$$(go test $(GOFLAGS) -tags=e2e -list '$(E2E_HARNESS_RACE_RUN)' ./e2e/) || exit 1; \
-	for test in $(E2E_HARNESS_RACE_REQUIRED); do \
-		echo "$$listed" | grep -Fx "$$test" >/dev/null || { \
-			echo "e2e harness race selection missing $$test" >&2; \
-			echo "$$listed" >&2; \
-			exit 1; \
-		}; \
-	done
-	go test $(GOFLAGS) -race -count=1 -tags=e2e ./e2e/ -run '$(E2E_HARNESS_RACE_RUN)'
+# Race detector on the complete E2E package. Not part of make check.
+e2e-race: build
+	go test $(GOFLAGS) -race -count=1 -tags=e2e ./e2e/...
 
 # Unit coverage (not part of make check). CI uploads the profile and HTML.
 # -coverpkg=./... credits integration tests (for example xio usecases) to the
@@ -159,7 +124,7 @@ fuzz:
 # Bounded live relay matrix (byte-pipe families x directions). Weekly/manual in
 # deep-tests.yml, not per-commit CI.
 fuzz-matrix: build
-	go test $(GOFLAGS) -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
+	go test $(GOFLAGS) -tags=e2e,relaymatrix ./e2e/... -count=1 -timeout=10m
 
 # Root netns= and IP4-RECVFROM tests. Host skips without root; Docker uses --privileged.
 test-netns-docker:

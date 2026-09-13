@@ -35,10 +35,7 @@ func TestPortTargetEmptyAndZero(t *testing.T) {
 }
 
 func TestUNIXListenPathIsNotListenPort(t *testing.T) {
-	spec, err := parse.ParseSpec("UNIX-LISTEN:/tmp/sock")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "UNIX-LISTEN:/tmp/sock")
 	got, err := Decode(spec, Facts{Type: "UNIX-LISTEN", Kind: AddressKindUNIX, Role: AddressRoleListen})
 	if err != nil {
 		t.Fatal(err)
@@ -52,10 +49,7 @@ func TestUNIXListenPathIsNotListenPort(t *testing.T) {
 }
 
 func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
-	create, err := parse.ParseSpec("CREATE:out.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
+	create := mustParseSpec(t, "CREATE:out.txt")
 	got, err := Decode(create, Facts{Type: "CREATE", Kind: AddressKindCREATE})
 	if err != nil {
 		t.Fatal(err)
@@ -64,10 +58,7 @@ func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
 		t.Fatalf("file path=%q", got.File.Path)
 	}
 
-	mq, err := parse.ParseSpec("POSIXMQ:/queue")
-	if err != nil {
-		t.Fatal(err)
-	}
+	mq := mustParseSpec(t, "POSIXMQ:/queue")
 	got, err = Decode(mq, Facts{Type: "POSIXMQ", Kind: AddressKindPOSIXMQ})
 	if err != nil {
 		t.Fatal(err)
@@ -79,10 +70,7 @@ func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
 		t.Fatalf("POSIXMQ used host/port: listen=%v %+v target=%v", got.Network.ListenSet, got.Network.ListenPort, got.Network.TargetSet)
 	}
 
-	read, err := parse.ParseSpec("POSIXMQ-READ:/q")
-	if err != nil {
-		t.Fatal(err)
-	}
+	read := mustParseSpec(t, "POSIXMQ-READ:/q")
 	got, err = Decode(read, Facts{Type: "POSIXMQ-READ", Kind: AddressKindPOSIXMQ, Role: AddressRoleReceive})
 	if err != nil {
 		t.Fatal(err)
@@ -103,10 +91,7 @@ func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
 func TestWebSocketPathPreparedOnce(t *testing.T) {
 	decode := func(text string, role AddressRole) Address {
 		t.Helper()
-		spec, err := parse.ParseSpec(text)
-		if err != nil {
-			t.Fatal(err)
-		}
+		spec := mustParseSpec(t, text)
 		got, err := Decode(spec, Facts{Type: spec.Type, Kind: AddressKindWebSocket, Role: role})
 		if err != nil {
 			t.Fatal(err)

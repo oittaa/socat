@@ -15,10 +15,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// fdLifecycleTestHook is invoked each time lifecycle options are applied to
-// an fd. Tests use it to observe SetupStream's per-call same-fd dedup.
-var fdLifecycleTestHook func(fd int)
-
 // ApplyConfiguredFDOptions applies prepared descriptor actions. Callers that
 // crossed PrepareChannel must use this path instead of reparsing Spec options.
 func ApplyConfiguredFDOptions(f *os.File, config addrconfig.File, skip FDSkip) error {
@@ -40,9 +36,6 @@ func applyConfiguredFDOnFD(fd int, config addrconfig.File, skip FDSkip) error {
 	if !hasConfiguredFDActions(config, skip) {
 		return nil
 	}
-	if fdLifecycleTestHook != nil {
-		fdLifecycleTestHook(fd)
-	}
 	if err := applyConfiguredFDPhase(fd, config, skip); err != nil {
 		return err
 	}
@@ -50,7 +43,6 @@ func applyConfiguredFDOnFD(fd int, config addrconfig.File, skip FDSkip) error {
 }
 
 func applyConfiguredFDPhase(fd int, config addrconfig.File, skip FDSkip) error {
-	noteOptionPhase("FD")
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionPerm:
@@ -91,7 +83,6 @@ func applyConfiguredFDPhase(fd int, config addrconfig.File, skip FDSkip) error {
 }
 
 func applyConfiguredLate(fd int, config addrconfig.File, skip FDSkip) error {
-	noteOptionPhase("LATE")
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionAppend:
@@ -153,7 +144,6 @@ func applyConfiguredCloexec(fd int, action addrconfig.FileAction) error {
 	} else {
 		flags &^= unix.FD_CLOEXEC
 	}
-	noteLifecycleSyscall("F_SETFD")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, flags); err != nil {
 		return fmt.Errorf("cloexec: %w", err)
 	}
@@ -170,7 +160,6 @@ func applyConfiguredAppend(fd int, action addrconfig.FileAction) error {
 	} else {
 		flags &^= unix.O_APPEND
 	}
-	noteLifecycleSyscall("F_SETFL")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
 		return fmt.Errorf("append: %w", err)
 	}
@@ -193,7 +182,6 @@ func applyConfiguredAsync(fd int, action addrconfig.FileAction) error {
 	} else {
 		flags &^= fdAsyncFlag
 	}
-	noteLifecycleSyscall("F_SETFL")
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags); err != nil {
 		return fmt.Errorf("%s: %w", action.Name, err)
 	}
@@ -213,7 +201,6 @@ func applyConfiguredFlock(fd int, action addrconfig.FileAction) error {
 	case 4:
 		how = unix.LOCK_SH | unix.LOCK_NB
 	}
-	noteLifecycleSyscall("flock")
 	if err := flockFD(fd, how); err != nil {
 		return fmt.Errorf("%s: %w", action.Name, err)
 	}
@@ -221,7 +208,6 @@ func applyConfiguredFlock(fd int, action addrconfig.FileAction) error {
 }
 
 func applyConfiguredSeek(fd int, action addrconfig.FileAction, whence int) error {
-	noteLifecycleSyscall("lseek")
 	if _, err := unix.Seek(fd, action.Offset, whence); err != nil {
 		return fmt.Errorf("%s: %w", action.Name, err)
 	}
@@ -236,7 +222,6 @@ func applyConfiguredTruncate(fd int, action addrconfig.FileAction) error {
 	if st.Mode&unix.S_IFMT != unix.S_IFREG {
 		return fmt.Errorf("ftruncate: not a regular file")
 	}
-	noteLifecycleSyscall("ftruncate")
 	if err := unix.Ftruncate(fd, action.Offset); err != nil {
 		return fmt.Errorf("ftruncate: %w", err)
 	}
@@ -244,7 +229,6 @@ func applyConfiguredTruncate(fd int, action addrconfig.FileAction) error {
 }
 
 func applyConfiguredPerm(fd int, action addrconfig.FileAction) error {
-	noteLifecycleSyscall("fchmod")
 	if err := unix.Fchmod(fd, FileModeToUnix(UnixModeToFileMode(action.Mode))); err != nil {
 		return fmt.Errorf("fchmod: %w", err)
 	}
@@ -259,7 +243,6 @@ func applyConfiguredUser(fd int, action addrconfig.FileAction) error {
 	if !hasUID {
 		return nil
 	}
-	noteLifecycleSyscall("fchown")
 	if err := unix.Fchown(fd, uid, -1); err != nil {
 		return fmt.Errorf("fchown: %w", err)
 	}
@@ -274,7 +257,6 @@ func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
 	if !hasGID {
 		return nil
 	}
-	noteLifecycleSyscall("fchown")
 	if err := unix.Fchown(fd, -1, gid); err != nil {
 		return fmt.Errorf("fchown: %w", err)
 	}

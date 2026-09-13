@@ -8,43 +8,17 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"strings"
 	"time"
 )
-
-type target struct {
-	pkg      string
-	name     string
-	unixOnly bool
-}
-
-var targets = []target{
-	{pkg: "./internal/parse", name: "FuzzParseSpec"},
-	{pkg: "./internal/parse", name: "FuzzParseChannel"},
-	{pkg: "./internal/cli", name: "FuzzParseArgs"},
-	{pkg: "./internal/cli", name: "FuzzValidateChannelOptions"},
-	{pkg: "./internal/xio", name: "FuzzParseSocatData"},
-	{pkg: "./internal/xio", name: "FuzzParseDurationValue"},
-	{pkg: "./internal/xio", name: "FuzzParsePositiveInt"},
-	{pkg: "./internal/xio", name: "FuzzParseHexOpt", unixOnly: true},
-	{pkg: "./internal/xio/wsopen", name: "FuzzWSTarget"},
-	{pkg: "./internal/xio/quicopen", name: "FuzzQUICTarget"},
-	{pkg: "./internal/xio/proxyopen", name: "FuzzProxyStatusOK"},
-	{pkg: "./internal/xio/proxyopen", name: "FuzzProxyResponseLine"},
-	{pkg: "./internal/xio/proxyopen", name: "FuzzSOCKS4Reply"},
-	{pkg: "./internal/xio/proxyopen", name: "FuzzSOCKS5Reply"},
-	{pkg: "./internal/dtls13", name: "FuzzCertificate"},
-	{pkg: "./internal/dtls13", name: "FuzzConnectionIDs"},
-	{pkg: "./internal/dtls13", name: "FuzzExtensions"},
-	{pkg: "./internal/dtls13", name: "FuzzHandshakeFragments"},
-	{pkg: "./internal/dtls13", name: "FuzzHello"},
-	{pkg: "./internal/dtls13", name: "FuzzRecord"},
-}
 
 func main() {
 	fuzztime := flag.String("fuzztime", "30s", "duration per fuzz target")
@@ -60,19 +34,38 @@ func main() {
 		os.Exit(2)
 	}
 
+	list := exec.Command("go", "test", "-json", "-list=^Fuzz", "./...")
+	list.Dir = root
+	list.Stderr = os.Stderr
+	out, err := list.Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "fuzzall: discover targets: %v\n%s", err, out)
+		os.Exit(1)
+	}
+
 	failed := 0
-	for _, tgt := range targets {
-		if tgt.unixOnly && runtime.GOOS == "windows" {
-			fmt.Printf("skip %s %s (unix only)\n", tgt.pkg, tgt.name)
+	decoder := json.NewDecoder(bytes.NewReader(out))
+	for {
+		var event struct {
+			Action, Package, Output string
+		}
+		if err := decoder.Decode(&event); err == io.EOF {
+			break
+		} else if err != nil {
+			fmt.Fprintf(os.Stderr, "fuzzall: decode target list: %v\n", err)
+			os.Exit(1)
+		}
+		name := strings.TrimSpace(event.Output)
+		if event.Action != "output" || !strings.HasPrefix(name, "Fuzz") {
 			continue
 		}
-		fmt.Printf("==> %s %s\n", tgt.pkg, tgt.name)
-		cmd := exec.Command("go", "test", tgt.pkg, "-run=^$", "-fuzz="+tgt.name, "-fuzztime="+*fuzztime) // #nosec G204 -- argv is a fixed target table plus a parsed duration
+		fmt.Printf("==> %s %s\n", event.Package, name)
+		cmd := exec.Command("go", "test", event.Package, "-run=^$", "-fuzz=^"+name+"$", "-fuzztime="+*fuzztime) // #nosec G204 -- package and target come from go test discovery; duration is parsed above
 		cmd.Dir = root
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "FAIL %s %s: %v\n", tgt.pkg, tgt.name, err)
+			fmt.Fprintf(os.Stderr, "FAIL %s %s: %v\n", event.Package, name, err)
 			failed++
 		}
 	}

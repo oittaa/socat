@@ -21,6 +21,7 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parent.parent
+PEER = ROOT / "internal" / "dtls13" / "testdata" / "pmtu-peer"
 STOP = threading.Event()
 # The search intentionally stops once its remaining uncertainty is <=20 bytes.
 SEARCH_TOLERANCE = 20
@@ -402,7 +403,7 @@ def main():
     args.output = args.output.resolve()
     args.output.mkdir(parents=True, exist_ok=False)
     args.binary = args.output / "pmtu-peer"
-    run(["go", "build", "-o", args.binary, "./internal/dtls13/testdata/pmtu_peer.go"], cwd=ROOT)
+    run(["go", "build", "-o", args.binary, "."], cwd=PEER)
     run([args.binary, "-credentials", args.output, "-generate"])
     git = ["git", "-c", f"safe.directory={ROOT}"]
     metadata = {"revision": run(git + ["rev-parse", "HEAD"], cwd=ROOT),
@@ -410,7 +411,7 @@ def main():
                 "go": run(["go", "version"]), "ip": run(["ip", "-Version"]),
                 "command": sys.argv, "timers": "production, including 600-second raise timer",
                 "sha256": {str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
-                           for path in (Path(__file__).resolve(), ROOT / "internal/dtls13/testdata/pmtu_peer.go")}}
+                           for path in (Path(__file__).resolve(), *sorted(PEER.glob("*.go")))}}
     (args.output / "environment.json").write_text(json.dumps(metadata, indent=2) + "\n")
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: STOP.set())

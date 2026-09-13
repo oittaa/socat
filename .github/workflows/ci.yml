@@ -194,8 +194,8 @@ jobs:
           fail_ci_if_error: true
           disable_search: true
 
-  e2e-harness-race:
-    name: race (e2e harness, linux-amd64)
+  e2e-race:
+    name: race (e2e, linux-amd64)
     # Ordinary race jobs omit -tags=e2e. Full e2e jobs omit -race.
     runs-on: ubuntu-latest
     steps:
@@ -204,8 +204,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: E2E harness race tests
-        run: make e2e-harness-race
+      - name: E2E race tests
+        run: make e2e-race
 
   privileged-unit:
     name: privileged unit (${{ matrix.name }})
@@ -229,9 +229,8 @@ jobs:
       - name: Privileged unit tests
         run: |
           sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
-      # Netns echo tests live in ./internal/xio, not the privileged tag.
-      # Ordinary unit jobs skip them without root; this step must run them.
-      - name: Network-namespace echo tests
+      # Run the xio package with root and network namespaces available.
+      - name: Xio tests with network namespaces
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
@@ -241,13 +240,7 @@ jobs:
           ns="socat-ci-netns-check-$$"
           sudo ip netns add "$ns"
           sudo ip netns delete "$ns"
-          log="$(mktemp)"
-          sudo "$(command -v go)" test -race -count=1 -timeout 3m -v ./internal/xio/ \
-            -run '^(TestNetNSTCPEcho|TestNetNSUDPEcho|TestNetNSTLSEcho|TestNetNSQUICEcho)$' \
-            2>&1 | tee "$log"
-          for test in TestNetNSTCPEcho TestNetNSUDPEcho TestNetNSTLSEcho TestNetNSQUICEcho; do
-            grep -F -- "--- PASS: ${test}" "$log"
-          done
+          sudo "$(command -v go)" test -race -count=1 -timeout 3m -v ./internal/xio/
 
   privileged-e2e:
     name: privileged e2e (macos)

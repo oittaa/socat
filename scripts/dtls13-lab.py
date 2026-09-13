@@ -8,6 +8,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -74,13 +75,13 @@ def build(root, name, sources, jobs):
         libcrypto = prefix / "lib" / "libcrypto.a"
         demo = prefix / "bin" / "dtlslistenerecho"
         command("cc", "-O2", "-Wall", "-Wno-unused-parameter",
-                f"-I{include}", str(source / "demos" / "dtlslistenerecho" / "main.c"),
+                f"-I{include}", *map(str, sorted((source / "demos" / "dtlslistenerecho").glob("*.c"))),
                 str(libssl), str(libcrypto), "-ldl", "-pthread", "-o", str(demo))
         adapter = destination / "openssl-listener-oracle"
         command("cc", "-O2", "-Wall", "-Werror", "-Wextra",
                 f"-I{include}",
-                str(SCRIPT_DIR.parent / "internal" / "dtls13" / "testdata" /
-                    "openssl_listener_oracle.c"),
+                *map(str, sorted((SCRIPT_DIR.parent / "internal" / "dtls13" / "testdata" /
+                                  "openssl-listener-oracle").glob("*.c"))),
                 str(libssl), str(libcrypto), "-ldl", "-pthread", "-o", str(adapter))
         return {
             "openssl": str(binary),
@@ -110,12 +111,12 @@ def build(root, name, sources, jobs):
                 "--target", "bssl_shim")
         return {"shim": str(destination / "ssl" / "test" / "bssl_shim")}
     if name == "pion":
-        helper = source / "cmd" / "socat-dtls13-oracle"
-        helper.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(SCRIPT_DIR.parent / "internal" / "dtls13" / "testdata" / "pion_oracle.go",
-                        helper / "main.go")
         binary = destination / "pion-oracle"
-        command("go", "build", "-o", str(binary), "./cmd/socat-dtls13-oracle", cwd=source)
+        with tempfile.TemporaryDirectory(prefix="socat-oracle-", dir=source) as temporary:
+            helper = Path(temporary)
+            shutil.copytree(SCRIPT_DIR.parent / "internal" / "dtls13" / "testdata" / "pion-oracle",
+                            helper, dirs_exist_ok=True)
+            command("go", "build", "-o", str(binary), "./" + helper.name, cwd=source)
         return {"server": str(binary)}
     if name == "classic":
         prefix = root / "install" / "openssl"

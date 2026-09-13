@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oittaa/socat/internal/testutil"
@@ -340,50 +341,25 @@ func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout
 	t.Helper()
 	if err := waitSIGHUPExit(proc.done, timeout, func() error {
 		return proc.cmd.Process.Signal(syscall.SIGHUP)
-	}, nil); err != nil {
+	}); err != nil {
 		t.Fatalf("%v stderr=%s", err, readFile(t, stderrPath))
 	}
 }
 
-func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error, onWait func()) error {
+func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	ticker := time.NewTicker(testutil.PollInterval)
 	defer ticker.Stop()
-
-	waitDone := func() error {
-		if onWait != nil {
-			onWait()
-		}
-		select {
-		case <-done:
-			return nil
-		case <-ctx.Done():
-			select {
-			case <-done:
-				return nil
-			default:
-				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
-			}
-		}
-	}
-
-	send := func() (exited bool, err error) {
-		if err := signal(); err != nil {
-			if errors.Is(err, os.ErrProcessDone) {
-				return true, waitDone()
-			}
-			return false, fmt.Errorf("SIGHUP: %w", err)
-		}
-		return false, nil
-	}
-
-	if exited, err := send(); err != nil {
-		return err
-	} else if exited {
-		return nil
-	}
+	ticks := ticker.C
 	for {
+		if ticks != nil {
+			if err := signal(); errors.Is(err, os.ErrProcessDone) {
+				ticks = nil
+			} else if err != nil {
+				return fmt.Errorf("SIGHUP: %w", err)
+			}
+		}
 		select {
 		case <-done:
 			return nil
@@ -394,49 +370,25 @@ func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() e
 			default:
 				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
 			}
-		case <-ticker.C:
-			exited, err := send()
-			if err != nil {
-				return err
-			}
-			if exited {
-				return nil
-			}
+		case <-ticks:
 		}
 	}
 }
 
 func TestWaitSIGHUPExitDelayedDone(t *testing.T) {
-	done := make(chan struct{})
-	waiting := make(chan struct{})
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- waitSIGHUPExit(done, 5*time.Second, func() error {
-			return os.ErrProcessDone
-		}, func() { close(waiting) })
-	}()
-
-	select {
-	case <-waiting:
-	case err := <-errCh:
-		t.Fatalf("returned before done was published: %v", err)
-	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for ErrProcessDone wait")
-	}
-	select {
-	case err := <-errCh:
-		t.Fatalf("returned before done was published: %v", err)
-	default:
-	}
-	close(done)
-	select {
-	case err := <-errCh:
-		if err != nil {
-			t.Fatalf("after done published: %v", err)
+	synctest.Test(t, func(t *testing.T) {
+		done := make(chan struct{})
+		result := make(chan error, 1)
+		go func() { result <- waitSIGHUPExit(done, time.Second, func() error { return os.ErrProcessDone }) }()
+		synctest.Wait()
+		if len(result) != 0 {
+			t.Fatal("returned before process completion")
 		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("did not return after done was published")
-	}
+		close(done)
+		if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+	})
 }
 
 func waitFileLines(t *testing.T, path string, want int, proc *testProcess, stderrPath string, timeout time.Duration) {

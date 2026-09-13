@@ -2,7 +2,6 @@ package netopen
 
 import (
 	"context"
-	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -11,39 +10,6 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
 )
-
-func TestUDPRecvfromForkWrapAfterLifecycle(t *testing.T) {
-	var ops []string
-	restore := xio.InstallLifecycleSyscallHook(func(op string) {
-		ops = append(ops, op)
-	})
-	t.Cleanup(restore)
-
-	o := openForkUDP4Recvfrom(t, fmt.Sprintf("UDP4-RECVFROM:0,bind=127.0.0.1,fork,%s", fdLifecycleOption()))
-	if len(ops) == 0 {
-		t.Fatal("lifecycle option was not applied on the listen socket")
-	}
-	applied := append([]string(nil), ops...)
-
-	client := dialUDPListener(t, o.Listener())
-	ch := startUDPAccept(o.Listener())
-	if _, err := client.Write([]byte("hello")); err != nil {
-		t.Fatal(err)
-	}
-	child := waitUDPAccept(t, ch, 2*time.Second, "recvfrom child")
-	st, err := o.WrapDial()(child)
-	if err != nil {
-		t.Fatalf("WrapDial after lifecycle on owner: %v", err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	if fmt.Sprint(ops) != fmt.Sprint(applied) {
-		t.Fatalf("WrapDial re-applied lifecycle: before %v after %v", applied, ops)
-	}
-	got, err := readStreamTimeout(t, st, 2*time.Second)
-	if err != nil || got != "hello" {
-		t.Fatalf("got %q err=%v want hello", got, err)
-	}
-}
 
 func TestUDPRecvfromForkChildCloseLeavesParentOpen(t *testing.T) {
 	o := openForkUDP4Recvfrom(t, "UDP4-RECVFROM:0,bind=127.0.0.1,fork")

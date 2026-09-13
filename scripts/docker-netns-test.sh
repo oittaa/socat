@@ -22,5 +22,4 @@ docker run --rm --privileged \
   "$IMAGE" \
   bash -c 'set -euo pipefail
 apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq iproute2 >/dev/null
-go test -count=1 -timeout 180s ./internal/xio/ -run "TestNetNS|TestWithNetNSRestoreOnPanic|TestLookupResolver|TestWrapNetNS"
-go test -v -count=1 -timeout 30s ./internal/xio/ -run "^TestIP4RecvfromNonForkPIPEEcho$"'
+go test -v -count=1 -timeout 180s ./internal/xio/'

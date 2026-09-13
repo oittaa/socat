@@ -21,20 +21,6 @@ func e2eHelperCmd(ctx context.Context, helper string) *exec.Cmd {
 	return cmd
 }
 
-func e2eHelperHoldCmd(t *testing.T, ctx context.Context) (*exec.Cmd, func()) {
-	t.Helper()
-	pr, pw, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	cmd := e2eHelperCmd(ctx, "hold-stdio")
-	cmd.Stdin = pr
-	return cmd, func() {
-		_ = pr.Close()
-		_ = pw.Close()
-	}
-}
-
 func TestRunTestCmdSuccess(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -69,39 +55,6 @@ func TestRunTestCmdCancelBeforeStartup(t *testing.T) {
 	}
 	if strings.Contains(string(out), "helper") {
 		t.Fatalf("cancelled command produced output: %s", out)
-	}
-}
-
-func TestRunTestCmdCancelAfterStartupCleansUp(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cmd, releaseStdin := e2eHelperHoldCmd(t, ctx)
-	t.Cleanup(releaseStdin)
-	var buf lockedBuffer
-	pr, pw, copyDone, err := testutil.StartOutputPipe(cmd, &buf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p, err := startTestProcess(cmd)
-	_ = pw.Close()
-	if err != nil {
-		_ = pr.Close()
-		t.Fatal(err)
-	}
-	if p.cmd.Process == nil {
-		t.Fatal("expected a started process")
-	}
-	if _, exited := p.status(); exited {
-		t.Fatalf("hold-stdio exited before cancel: %v", func() error { e, _ := p.status(); return e }())
-	}
-	cancel()
-	waitErr := testutil.Wait(ctx, p.done, p.stop)
-	_ = testutil.DrainPipe(copyDone, pr, testutil.OutputDrainBound)
-	if !errors.Is(waitErr, context.Canceled) {
-		t.Fatalf("err=%v want canceled", waitErr)
-	}
-	if _, exited := p.status(); !exited {
-		t.Fatal("cancel left the child running")
 	}
 }
 

@@ -17,10 +17,7 @@ func TestDecodeOptionIdentityUsesCanonicalAlias(t *testing.T) {
 
 func decodeSpec(t *testing.T, text string) Address {
 	t.Helper()
-	spec, err := parse.ParseSpec(text)
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, text)
 	got, err := Decode(spec, Facts{Type: "TCP", Group: "TCP", Caps: []string{"socket"}, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
@@ -67,11 +64,8 @@ func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
 		"TCP:host:9,max-children=2",
 		"TCP:host:9,max-children=2,fork=0",
 	} {
-		spec, err := parse.ParseSpec(text)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, err = Decode(spec, Facts{Type: "TCP"})
+		spec := mustParseSpec(t, text)
+		_, err := Decode(spec, Facts{Type: "TCP"})
 		if err == nil || !strings.Contains(err.Error(), "max-children not allowed") {
 			t.Fatalf("%s: %v", text, err)
 		}
@@ -82,21 +76,15 @@ func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
 }
 
 func TestDecodeStrictOptionalBoolean(t *testing.T) {
-	spec, err := parse.ParseSpec("TCP:host:9,handshake-timeout=1,binary=maybe")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = Decode(spec, Facts{Type: "TCP"})
+	spec := mustParseSpec(t, "TCP:host:9,handshake-timeout=1,binary=maybe")
+	_, err := Decode(spec, Facts{Type: "TCP"})
 	if err == nil || !strings.Contains(err.Error(), `invalid binary "maybe"`) {
 		t.Fatalf("error=%v", err)
 	}
 }
 
 func TestDecodeFileAndTerminalActionsPreserveSourceOrder(t *testing.T) {
-	spec, err := parse.ParseSpec("PTY,perm=0600,append=0,lseek=-2,ftruncate=0,echo=0,vintr=0x100,tiocswinsz=-1:70000")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "PTY,perm=0600,append=0,lseek=-2,ftruncate=0,echo=0,vintr=0x100,tiocswinsz=-1:70000")
 	config, err := Decode(spec, Facts{Type: "PTY"})
 	if err != nil {
 		t.Fatal(err)
@@ -147,10 +135,7 @@ func TestDecodeConstructedProcessInput(t *testing.T) {
 }
 
 func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
-	spec, err := parse.ParseSpec("PTY,pty-wait-slave,pty-interval,sitout-eio=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "PTY,pty-wait-slave,pty-interval,sitout-eio=0")
 	config, err := Decode(spec, Facts{Type: "PTY"})
 	if err != nil {
 		t.Fatal(err)
@@ -162,10 +147,7 @@ func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
 		t.Fatalf("sitout-eio=%+v", config.Terminal.SitoutEIO)
 	}
 
-	zero, err := parse.ParseSpec("PTY,pty-interval=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	zero := mustParseSpec(t, "PTY,pty-interval=0")
 	config, err = Decode(zero, Facts{Type: "PTY"})
 	if err != nil {
 		t.Fatal(err)
@@ -175,10 +157,7 @@ func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
 	}
 
 	for _, raw := range []string{"PTY,link", "PTY,link="} {
-		spec, err := parse.ParseSpec(raw)
-		if err != nil {
-			t.Fatal(err)
-		}
+		spec := mustParseSpec(t, raw)
 		if _, err := Decode(spec, Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "link: path required") {
 			t.Fatalf("%s: link error=%v", raw, err)
 		}
@@ -186,10 +165,7 @@ func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
 }
 
 func TestDecodeNoInheritActionsPreserveBareAndZero(t *testing.T) {
-	spec, err := parse.ParseSpec("FD:3,o-noinherit=0,noinherit")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "FD:3,o-noinherit=0,noinherit")
 	config, err := Decode(spec, Facts{Type: "FD", Kind: AddressKindFD})
 	if err != nil {
 		t.Fatal(err)
@@ -202,10 +178,7 @@ func TestDecodeNoInheritActionsPreserveBareAndZero(t *testing.T) {
 }
 
 func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
-	spec, err := parse.ParseSpec("SOCKET-SENDTO:2:2:17:x00007f000001,broadcast=0,setsockopt-socket=1:2:3,so-priority=5")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "SOCKET-SENDTO:2:2:17:x00007f000001,broadcast=0,setsockopt-socket=1:2:3,so-priority=5")
 	config, err := Decode(spec, Facts{Type: "SOCKET-SENDTO", Group: "Generic socket", Kind: AddressKindSocket, Role: AddressRoleSendTo})
 	if err != nil {
 		t.Fatal(err)
@@ -227,42 +200,16 @@ func TestDecodeNetworkSocketActionsPreserveSourceOrder(t *testing.T) {
 
 func TestDecodeTypedDispatchIdentities(t *testing.T) {
 	got := decodeSpec(t, "TCP:h:9,o-direct,so-debug,ip-pktinfo,ioctl-intp=1:2,fs-append")
-	var sawOpen, sawIoctl, sawFS, sawNamed, sawAncillary bool
-	for _, action := range got.File.Actions {
-		switch action.Kind {
-		case FileActionOpenFlag:
-			sawOpen = true
-			if action.Flag != OpenFlagDirect {
-				t.Fatalf("open flag=%+v", action)
-			}
-		case FileActionIoctl:
-			sawIoctl = true
-			if action.Ioctl != IoctlIntp || action.Request != 1 || action.Value != 2 {
-				t.Fatalf("ioctl=%+v", action)
-			}
-		case FileActionFSFlag:
-			sawFS = true
-			if action.FS != FSFlagAppend {
-				t.Fatalf("fs flag=%+v", action)
-			}
-		}
+	file := got.File.Actions
+	if len(file) != 3 || file[0].Kind != FileActionOpenFlag || file[0].Flag != OpenFlagDirect ||
+		file[1].Kind != FileActionIoctl || file[1].Ioctl != IoctlIntp || file[1].Request != 1 || file[1].Value != 2 ||
+		file[2].Kind != FileActionFSFlag || file[2].FS != FSFlagAppend {
+		t.Fatalf("file actions=%+v", file)
 	}
-	for _, action := range got.Network.Actions {
-		switch action.Kind {
-		case SocketActionNamed:
-			sawNamed = true
-			if action.Named != NamedSocketDebug {
-				t.Fatalf("named=%+v", action)
-			}
-		case SocketActionAncillary:
-			sawAncillary = true
-			if action.Ancillary != AncillaryIPPktinfo {
-				t.Fatalf("ancillary=%+v", action)
-			}
-		}
-	}
-	if !sawOpen || !sawIoctl || !sawFS || !sawNamed || !sawAncillary {
-		t.Fatalf("missing dispatch identities file=%+v net=%+v", got.File.Actions, got.Network.Actions)
+	network := got.Network.Actions
+	if len(network) != 2 || network[0].Kind != SocketActionNamed || network[0].Named != NamedSocketDebug ||
+		network[1].Kind != SocketActionAncillary || network[1].Ancillary != AncillaryIPPktinfo {
+		t.Fatalf("network actions=%+v", network)
 	}
 }
 
@@ -292,10 +239,7 @@ func TestMembershipFamilyPrefersOriginalSpelling(t *testing.T) {
 }
 
 func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) {
-	spec, err := parse.ParseSpec("WSS:example.test:443/chat,verify=0,ciphers=ECDHE-RSA-AES128-GCM-SHA256,openssl-min-proto-version=TLS1.2,alpn=chat,path=/override,origin=https://example.test,protocol=Chat")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "WSS:example.test:443/chat,verify=0,ciphers=ECDHE-RSA-AES128-GCM-SHA256,openssl-min-proto-version=TLS1.2,alpn=chat,path=/override,origin=https://example.test,protocol=Chat")
 	config, err := Decode(spec, Facts{Type: "WSS", Group: "WebSocket (Go extra)", Kind: AddressKindWebSocket, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
@@ -349,19 +293,13 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 		t.Fatalf("netns=%+v", got.Common.NetNamespace)
 	}
 
-	spec, err := parse.ParseSpec("TCP:host:9,netns=")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TCP:host:9,netns=")
 	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("empty netns error=%v", err)
 	}
 
 	for _, ns := range []string{"::1", "[::1]:53"} {
-		spec, err = parse.ParseSpec("TCP:host:9,res-nsaddr=" + ns)
-		if err != nil {
-			t.Fatal(err)
-		}
+		spec = mustParseSpec(t, "TCP:host:9,res-nsaddr="+ns)
 		if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "IPv6") {
 			t.Fatalf("res-nsaddr=%s error=%v", ns, err)
 		}
@@ -369,112 +307,39 @@ func TestDecodeResolverAndNetNS(t *testing.T) {
 }
 
 func TestDecodeBindHostPort(t *testing.T) {
-	got := decodeSpec(t, "TCP:h:9,bind=127.0.0.1:0")
-	if !got.Network.BindSet || !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "127.0.0.1" {
-		t.Fatalf("bind host=%+v", got.Network.Bind)
-	}
-	if !got.Network.BindPortSet || !got.Network.BindPort.Numeric || got.Network.BindPort.Number != 0 {
-		t.Fatalf("bind port=%+v", got.Network.BindPort)
-	}
-	p, ok := got.Network.LocalPort()
-	if !ok || p.Number != 0 {
-		t.Fatalf("LocalPort=%+v ok=%v", p, ok)
-	}
-
-	got = decodeSpec(t, "TCP:h:9,bind=[::1]:123")
-	if !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "::1" {
-		t.Fatalf("ipv6 bind host=%+v", got.Network.Bind)
-	}
-	if !got.Network.BindPortSet || got.Network.BindPort.Number != 123 {
-		t.Fatalf("ipv6 bind port=%+v", got.Network.BindPort)
-	}
-
-	unixFacts := Facts{Type: "UNIX-CONNECT", Kind: AddressKindUNIX, Role: AddressRoleConnect}
-	unix, err := parse.ParseSpec("UNIX-CONNECT:/tmp/x,bind=/tmp/foo:bar")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = Decode(unix, unixFacts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Network.BindPortSet || got.Network.Bind.Original() != "/tmp/foo:bar" {
-		t.Fatalf("unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
-	}
-
-	got, err = Decode(parse.Spec{
-		Type:    "UNIX-CONNECT",
-		Params:  []string{`C:\listen.sock`},
-		Options: []parse.Option{{Name: "bind", Value: `C:\occupied.sock`, Has: true}},
-	}, unixFacts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Network.BindPortSet || got.Network.Bind.Original() != `C:\occupied.sock` {
-		t.Fatalf("windows unix bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
-	}
-
-	got, err = Decode(parse.Spec{
-		Type:    "UNIX-CONNECT",
-		Params:  []string{"listen.sock"},
-		Options: []parse.Option{{Name: "bind", Value: "foo:bar", Has: true}},
-	}, unixFacts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Network.BindPortSet || got.Network.Bind.Original() != "foo:bar" {
-		t.Fatalf("unix bind with colon=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
-	}
-
-	got = decodeSpec(t, "TCP:h:9,bind=:12345")
-	if !got.Network.BindSet || !got.Network.Bind.Empty() {
-		t.Fatalf("empty bind host=%+v", got.Network.Bind)
-	}
-	if !got.Network.BindPortSet || got.Network.BindPort.Number != 12345 {
-		t.Fatalf("empty-host bind port=%+v", got.Network.BindPort)
+	for _, tc := range []struct {
+		bind, host string
+		port       int
+	}{
+		{"127.0.0.1:0", "127.0.0.1", 0},
+		{"[::1]:123", "::1", 123},
+		{":12345", "", 12345},
+	} {
+		got := decodeSpec(t, "TCP:h:9,bind="+tc.bind).Network
+		port, ok := got.LocalPort()
+		if !got.BindSet || got.Bind.String() != tc.host || !got.BindPortSet || !ok || !port.Numeric || int(port.Number) != tc.port || got.Bind.IsLiteral() != (tc.host != "") {
+			t.Errorf("bind=%q: host=%+v port=%+v present=%v", tc.bind, got.Bind, port, ok)
+		}
 	}
 }
 
 func TestDecodeUNIXFilesystemBindIsPath(t *testing.T) {
-	unixFacts := Facts{Type: "UNIX-CONNECT", Kind: AddressKindUNIX, Role: AddressRoleConnect}
-	spec, err := parse.ParseSpec("UNIX-CONNECT:server.sock,bind=127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err := Decode(spec, unixFacts)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Network.BindSet || got.Network.Bind.IsLiteral() {
-		t.Fatalf("UNIX bind=127.0.0.1 is an IP literal: %+v", got.Network.Bind)
-	}
-	if got.Network.Bind.Original() != "127.0.0.1" || got.Network.BindPortSet {
-		t.Fatalf("UNIX bind=%+v portset=%v", got.Network.Bind, got.Network.BindPortSet)
-	}
-
-	gopen, err := parse.ParseSpec("GOPEN:server.sock,bind=127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = Decode(gopen, Facts{Type: "GOPEN", Kind: AddressKindGOPEN})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !got.Network.BindSet || got.Network.Bind.IsLiteral() || got.Network.Bind.Original() != "127.0.0.1" {
-		t.Fatalf("GOPEN bind=%+v", got.Network.Bind)
-	}
-
-	got = decodeSpec(t, "TCP:h:9,bind=127.0.0.1")
-	if !got.Network.BindSet || !got.Network.Bind.IsLiteral() || got.Network.Bind.String() != "127.0.0.1" {
-		t.Fatalf("TCP bind=%+v", got.Network.Bind)
+	for _, path := range []string{"127.0.0.1", "/tmp/foo:bar", `C:\occupied.sock`, "foo:bar"} {
+		for _, facts := range []Facts{{Type: "UNIX-CONNECT", Kind: AddressKindUNIX, Role: AddressRoleConnect}, {Type: "GOPEN", Kind: AddressKindGOPEN}} {
+			spec := parse.Spec{Type: facts.Type, Params: []string{"server.sock"}, Options: []parse.Option{{Name: "bind", Value: path, Has: true}}}
+			got, err := Decode(spec, facts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !got.Network.BindSet || got.Network.Bind.IsLiteral() || got.Network.Bind.Original() != path || got.Network.BindPortSet {
+				t.Errorf("kind=%v path=%q: bind=%+v", facts.Kind, path, got.Network)
+			}
+		}
 	}
 }
 
 func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
-	spec, err := parse.ParseSpec("TCP4-LISTEN:443,bind=127.0.0.1:8080")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TCP4-LISTEN:443,bind=127.0.0.1:8080")
 	got, err := Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
 	if err != nil {
 		t.Fatal(err)
@@ -489,10 +354,7 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 		t.Fatalf("listen bind host=%+v", got.Network.Bind)
 	}
 
-	spec, err = parse.ParseSpec("TCP4-LISTEN:443,bind=:8080")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "TCP4-LISTEN:443,bind=:8080")
 	got, err = Decode(spec, Facts{Type: "TCP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
 	if err != nil {
 		t.Fatal(err)
@@ -501,10 +363,7 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 		t.Fatalf("listen bind=:port decoded=%+v", got.Network)
 	}
 
-	spec, err = parse.ParseSpec("UDP4-DATAGRAM:224.255.0.1:6666,bind=:6666")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "UDP4-DATAGRAM:224.255.0.1:6666,bind=:6666")
 	got, err = Decode(spec, Facts{Type: "UDP4-DATAGRAM", Role: AddressRoleDatagram, Family: IPFamilyIPv4})
 	if err != nil {
 		t.Fatal(err)
@@ -513,10 +372,7 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 		t.Fatalf("datagram bind=:port=%+v", got.Network)
 	}
 
-	spec, err = parse.ParseSpec("UDP4-LISTEN:6666,bind=:6666")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "UDP4-LISTEN:6666,bind=:6666")
 	got, err = Decode(spec, Facts{Type: "UDP4-LISTEN", Role: AddressRoleListen, Family: IPFamilyIPv4})
 	if err != nil {
 		t.Fatal(err)
@@ -547,20 +403,14 @@ func TestDecodeBindPFAndIPv6V6Only(t *testing.T) {
 		t.Fatalf("bare ipv6-v6only=%+v", got.Common.IPv6V6Only)
 	}
 
-	spec, err := parse.ParseSpec("TCP6-LISTEN:9,ipv6-v6only=false")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false")
 	if _, err := Decode(spec, Facts{Type: "TCP6-LISTEN"}); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
 		t.Fatalf("ipv6-v6only=false error=%v", err)
 	}
 }
 
 func TestDecodeProxyAndDTLSSettings(t *testing.T) {
-	proxy, err := parse.ParseSpec("PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
-	if err != nil {
-		t.Fatal(err)
-	}
+	proxy := mustParseSpec(t, "PROXY:proxy.test:target.test:443,http-version=2,h2c=1,proxy-resolve=0,proxy-authorization=user:pass")
 	config, err := Decode(proxy, Facts{Type: "PROXY", Group: "PROXY and SOCKS", Kind: AddressKindPROXY, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
@@ -574,10 +424,7 @@ func TestDecodeProxyAndDTLSSettings(t *testing.T) {
 		t.Fatalf("proxy=%+v", config.Proxy)
 	}
 
-	dtls, err := parse.ParseSpec("DTLS:example.test:4444,openssl-min-proto-version=DTLS1.3,dtls-mtu=1200,dtls-migration=0,dtls-unfragmented-probes=1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	dtls := mustParseSpec(t, "DTLS:example.test:4444,openssl-min-proto-version=DTLS1.3,dtls-mtu=1200,dtls-migration=0,dtls-unfragmented-probes=1")
 	config, err = Decode(dtls, Facts{Type: "DTLS", Group: "Datagram TLS 1.3", Kind: AddressKindDTLS, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
@@ -607,17 +454,11 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 		t.Fatalf("nodelay=%+v", got.Network.NoDelay)
 	}
 
-	spec, err := parse.ParseSpec("TCP-LISTEN:9,backlog=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TCP-LISTEN:9,backlog=0")
 	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN"}); err == nil || !strings.Contains(err.Error(), `backlog: invalid value "0"`) {
 		t.Fatalf("backlog=0 error=%v", err)
 	}
-	spec, err = parse.ParseSpec("TCP:host:9,keepidle=-5s")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "TCP:host:9,keepidle=-5s")
 	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "positive") {
 		t.Fatalf("keepidle=-5s error=%v", err)
 	}
@@ -633,27 +474,18 @@ func TestDecodeLockfileAndWaitlock(t *testing.T) {
 		t.Fatalf("waitlock=%+v", got.File)
 	}
 
-	spec, err := parse.ParseSpec("TCP:host:9,lockfile=/tmp/a.lock,waitlock=/tmp/b.lock")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TCP:host:9,lockfile=/tmp/a.lock,waitlock=/tmp/b.lock")
 	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "only one use") {
 		t.Fatalf("dual lock error=%v", err)
 	}
-	spec, err = parse.ParseSpec("TCP:host:9,lockfile")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "TCP:host:9,lockfile")
 	if _, err := Decode(spec, Facts{Type: "TCP"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("bare lockfile error=%v", err)
 	}
 }
 
 func TestDecodeVSOCKBind(t *testing.T) {
-	spec, err := parse.ParseSpec("VSOCK-CONNECT:2:22,bind=3:9")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "VSOCK-CONNECT:2:22,bind=3:9")
 	got, err := Decode(spec, Facts{Type: "VSOCK-CONNECT", Group: "VSOCK (Linux)", Kind: AddressKindVSOCK, Role: AddressRoleConnect})
 	if err != nil {
 		t.Fatal(err)
@@ -663,10 +495,7 @@ func TestDecodeVSOCKBind(t *testing.T) {
 		t.Fatalf("vsock bind=%+v", got.Network)
 	}
 
-	listen, err := parse.ParseSpec("VSOCK-LISTEN:22,bind=5")
-	if err != nil {
-		t.Fatal(err)
-	}
+	listen := mustParseSpec(t, "VSOCK-LISTEN:22,bind=5")
 	got, err = Decode(listen, Facts{Type: "VSOCK-LISTEN", Group: "VSOCK (Linux)", Kind: AddressKindVSOCK, Role: AddressRoleListen})
 	if err != nil {
 		t.Fatal(err)
@@ -687,11 +516,8 @@ func TestDecodeParentSignals(t *testing.T) {
 			t.Fatalf("signals=%v want %v", got.Process.ParentSignals, want)
 		}
 	}
-	spec, err := parse.ParseSpec("EXEC:true,sighup=0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = Decode(spec, Facts{Type: "EXEC"})
+	spec := mustParseSpec(t, "EXEC:true,sighup=0")
+	_, err := Decode(spec, Facts{Type: "EXEC"})
 	if err == nil || !strings.Contains(err.Error(), "no value permitted") {
 		t.Fatalf("error=%v want no value permitted", err)
 	}
@@ -718,10 +544,7 @@ func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
 	if req.Group.String() != "232.1.1.1" || req.InterfaceAddr.String() != "127.0.0.1" || req.Source.String() != "10.0.0.1" {
 		t.Fatalf("decoded=%+v want group=232.1.1.1 iface=127.0.0.1 source=10.0.0.1", req)
 	}
-	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")
 	if _, err := Decode(spec, Facts{Type: "UDP"}); err == nil || !strings.Contains(err.Error(), "group:iface:source") {
 		t.Fatalf("two-field SSM: %v", err)
 	}
@@ -747,10 +570,7 @@ func TestHostTargetIsIPv4Literal(t *testing.T) {
 }
 
 func TestDecodeUserGroupOwnerRefs(t *testing.T) {
-	spec, err := parse.ParseSpec("OPEN:f,user=1000,group=1001,user-early=0,group-late=daemon")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "OPEN:f,user=1000,group=1001,user-early=0,group-late=daemon")
 	config, err := Decode(spec, Facts{Type: "OPEN"})
 	if err != nil {
 		t.Fatal(err)
