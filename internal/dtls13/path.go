@@ -146,7 +146,7 @@ func (p *pathState) receive(from packetPath, body []byte, size uint64, now time.
 	if probe.phase == pathValidateCandidate {
 		p.peer = probe.candidate
 		p.session.handshake.peerCID = probe.cid
-		p.session.resetMTUProbes()
+		p.session.restartMTUConfirm()
 		if p.changed != nil {
 			p.changed(p.peer)
 		}

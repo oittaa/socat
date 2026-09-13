@@ -17,8 +17,7 @@ const (
 type mtuProbeKind byte
 
 const (
-	probeManual mtuProbeKind = iota
-	probeConfirm
+	probeConfirm mtuProbeKind = iota
 	probeSearch
 )
 
@@ -46,8 +45,6 @@ func (s *session) mtuProbeCeiling() int {
 func (s *session) restartMTUConfirm() {
 	s.mtu.generation++
 	s.mtu.outstanding = nil
-	s.mtu.lastAckedSize = 0
-	s.mtu.lastFailed = false
 	s.mtu.confirmFails = 0
 	s.mtu.finder = mtuFinder{}
 	s.mtu.nextProbe = time.Time{}
@@ -95,12 +92,8 @@ func (s *session) scheduleMTUWatch(now time.Time) {
 }
 
 func (s *session) onMTUProbeAcked(probe *mtuProbe, now time.Time) {
-	s.mtu.lastFailed = false
-	s.mtu.lastAckedSize = probe.size
 	s.mtu.nextProbe = now.Add(probePace)
 	switch probe.kind {
-	case probeManual:
-		return
 	case probeConfirm:
 		s.mtu.confirmFails = 0
 		if probe.size > s.effectiveMTU() {
@@ -123,11 +116,8 @@ func (s *session) onMTUProbeAcked(probe *mtuProbe, now time.Time) {
 }
 
 func (s *session) onMTUProbeLost(probe *mtuProbe, now time.Time, hard bool) {
-	s.mtu.lastFailed = true
 	s.mtu.nextProbe = now.Add(probePace)
 	switch probe.kind {
-	case probeManual:
-		return
 	case probeConfirm:
 		s.mtu.confirmFails++
 		if hard {

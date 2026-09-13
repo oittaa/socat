@@ -18,8 +18,6 @@ type mtuProbe struct {
 type mtuDiscovery struct {
 	generation         uint64
 	outstanding        *mtuProbe
-	lastAckedSize      int
-	lastFailed         bool
 	phase              mtuPhase
 	finder             mtuFinder
 	nextProbe          time.Time
@@ -30,10 +28,6 @@ type mtuDiscovery struct {
 	searchAfterConfirm bool
 }
 
-func (s *session) resetMTUProbes() {
-	s.restartMTUConfirm()
-}
-
 func (s *session) probeCID() []byte {
 	if s.handshake.cidNegotiated {
 		return s.handshake.peerCID
@@ -42,13 +36,7 @@ func (s *session) probeCID() []byte {
 }
 
 func (s *session) canSendMTUProbe() error {
-	if !s.working.canProbe {
-		return errProbeDisabled
-	}
-	if s.handshake == nil || !s.handshakeAcknowledged() || !s.handshake.rrc || !s.handshake.cidNegotiated {
-		return errProbeDisabled
-	}
-	if s.path == nil {
+	if !s.mtuDiscoveryEnabled() {
 		return errProbeDisabled
 	}
 	if s.path.probe != nil || s.keyUpdate.localPending || s.keyUpdate.updating {
@@ -58,10 +46,6 @@ func (s *session) canSendMTUProbe() error {
 		return errProbePending
 	}
 	return nil
-}
-
-func (s *session) startMTUProbe(datagramSize int, now time.Time) error {
-	return s.sendMTUProbe(datagramSize, now, probeManual)
 }
 
 func (s *session) sendMTUProbe(datagramSize int, now time.Time, kind mtuProbeKind) error {
@@ -91,10 +75,6 @@ func (s *session) sendMTUProbe(datagramSize int, now time.Time, kind mtuProbeKin
 		kind:       kind,
 	}
 	s.mtu.outstanding = probe
-	s.mtu.lastFailed = false
-	if kind == probeManual {
-		s.mtu.lastAckedSize = 0
-	}
 	_, err = s.sendRecordLimited(s.currentWriteEpoch(), contentRRC, body, cid, pad, s.mtuCeiling(), func(packet []byte) error {
 		if len(packet) != datagramSize {
 			return errProbeSize
@@ -104,7 +84,6 @@ func (s *session) sendMTUProbe(datagramSize int, now time.Time, kind mtuProbeKin
 	if err != nil {
 		s.mtu.outstanding = nil
 		if isMessageTooLong(err) {
-			s.mtu.lastFailed = true
 			return errProbeTooBig
 		}
 		return err
