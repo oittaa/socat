@@ -123,6 +123,9 @@ func startQUICTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *
 
 func startSCTPTestServer(t *testing.T, command func(port int) *exec.Cmd) (int, *testProcess) {
 	t.Helper()
+	if err := sctpWaitProcAvailable(); err != nil {
+		t.Skipf("SCTP listen wait requires /proc/net/sctp/eps: %v", err)
+	}
 	return startPortTestServer(t, tcpListenerStartAttempts, tcpListenerStartupTimeout, freeTCPPort, waitSCTPTestProcess, command)
 }
 

@@ -340,6 +340,10 @@ make update-scorecard   # Linux: refresh committed privileged-Docker results
 `make check` does not contact repo.or.cz. `make classic-parity` syncs the
 official repository into a gitignored working directory.
 
+On macOS, E2E listen-readiness inspects the child with libproc and requires
+cgo. `CGO_ENABLED=0` is an unsupported E2E environment there; it is not a
+reason to skip the suite or to treat occupancy probes as ownership.
+
 Focused raw-IP suites live in `internal/xio/privileged` (Linux and macOS)
 and `e2e/privileged` (macOS). They need the `privileged` build tag and
 fail without root. Ordinary `go test` excludes them.

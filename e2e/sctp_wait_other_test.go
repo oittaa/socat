@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+func sctpWaitProcAvailable() error { return nil }
+
 func waitSCTPTestProcess(*testProcess, int, time.Duration) error {
 	return fmt.Errorf("SCTP listen wait is not implemented on this platform")
 }

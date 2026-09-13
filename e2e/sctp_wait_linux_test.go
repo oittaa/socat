@@ -7,41 +7,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 var errNoSCTPProc = errors.New("sctp proc endpoints unavailable")
 
+func sctpWaitProcAvailable() error {
+	_, err := sctpEndpointInodes(0)
+	if errors.Is(err, errNoSCTPProc) {
+		return err
+	}
+	return nil
+}
+
 func waitSCTPTestProcess(p *testProcess, port int, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	pid := 0
-	if p != nil && p.cmd != nil && p.cmd.Process != nil {
-		pid = p.cmd.Process.Pid
+	if p == nil || p.cmd == nil || p.cmd.Process == nil {
+		return fmt.Errorf("listen wait requires a child process")
 	}
+	pid := p.cmd.Process.Pid
+	// SCTP readiness uses /proc inode ownership only. A bind probe can
+	// steal the address the child is trying to bind.
 	return waitUntil(ctx, p, func() (bool, error) {
-		occupied, err := sctpPortOccupied(addr)
-		if err != nil || !occupied {
-			return occupied, err
-		}
 		owns, err := sctpProcessListens(pid, port)
-		if errors.Is(err, errNoSCTPProc) {
-			owns, err = true, nil
-		}
 		if err != nil || !owns {
 			return owns, err
 		}
-		if p != nil {
-			if _, exited := p.status(); exited {
-				return false, processExitedWhileWaiting(p)
-			}
+		if _, exited := p.status(); exited {
+			return false, processExitedWhileWaiting(p)
 		}
 		return true, nil
 	})
@@ -110,43 +107,4 @@ func sctpEndpointInodes(port int) (map[uint64]struct{}, error) {
 		out[ino] = struct{}{}
 	}
 	return out, sc.Err()
-}
-
-func sctpPortOccupied(addr string) (bool, error) {
-	host, portStr, err := net.SplitHostPort(addr)
-	if err != nil {
-		return false, err
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return false, err
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false, fmt.Errorf("invalid host %q", addr)
-	}
-	if v4 := ip.To4(); v4 != nil {
-		fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, unix.IPPROTO_SCTP)
-		if err != nil {
-			return false, err
-		}
-		defer unix.Close(fd)
-		sa := &unix.SockaddrInet4{Port: port}
-		copy(sa.Addr[:], v4)
-		if err := unix.Bind(fd, sa); err == nil {
-			return false, nil
-		}
-		return true, nil
-	}
-	fd, err := unix.Socket(unix.AF_INET6, unix.SOCK_STREAM, unix.IPPROTO_SCTP)
-	if err != nil {
-		return false, err
-	}
-	defer unix.Close(fd)
-	sa := &unix.SockaddrInet6{Port: port}
-	copy(sa.Addr[:], ip.To16())
-	if err := unix.Bind(fd, sa); err == nil {
-		return false, nil
-	}
-	return true, nil
 }
