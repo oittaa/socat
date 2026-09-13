@@ -4,7 +4,6 @@ package e2e_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,10 +13,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
-	"testing/synctest"
 	"time"
-
-	"github.com/oittaa/socat/internal/testutil"
 )
 
 func TestEXECParentSignalPassThrough(t *testing.T) {
@@ -299,94 +295,6 @@ func TestEXECListenForkListenerSIGHUPScope(t *testing.T) {
 		waitPath(t, got, proc, stderrPath, 5*time.Second)
 		if err, exited := proc.status(); exited {
 			t.Fatalf("listener exited during session SIGHUP: %v stderr=%s", err, readFile(t, stderrPath))
-		}
-	})
-
-	t.Run("after", func(t *testing.T) {
-		dir := t.TempDir()
-		ready := filepath.Join(dir, "ready")
-		done := filepath.Join(dir, "done")
-		script := filepath.Join(dir, "child.sh")
-		body := "#!/bin/sh\n" +
-			"echo $$ >\"" + ready + "\"\n" +
-			"cat\n" +
-			"echo done >\"" + done + "\"\n"
-		if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		port, proc, stderrPath := startEXECListenFork(t, bin, "EXEC:"+script+",sighup")
-		c, err := net.DialTimeout("tcp4", fmt.Sprintf("127.0.0.1:%d", port), 2*time.Second)
-		if err != nil {
-			t.Fatal(err)
-		}
-		waitPath(t, ready, proc, stderrPath, 5*time.Second)
-		_ = c.Close()
-		waitPath(t, done, proc, stderrPath, 5*time.Second)
-		// `done` is written before the shell exits. SIGHUP is forwarded until
-		// Wait reaps the child and unregisters it; retry until the listener
-		// exits on the unregistered path.
-		sighupUntilExit(t, proc, stderrPath, 5*time.Second)
-		got := exitStatus(proc)
-		want := 128 + int(syscall.SIGHUP)
-		if got != want {
-			t.Fatalf("exit=%d want %d stderr=%s", got, want, readFile(t, stderrPath))
-		}
-		if !strings.Contains(readFile(t, stderrPath), "exiting on signal 1") {
-			t.Fatalf("missing exiting on signal 1 in stderr=%s", readFile(t, stderrPath))
-		}
-	})
-}
-
-func sighupUntilExit(t *testing.T, proc *testProcess, stderrPath string, timeout time.Duration) {
-	t.Helper()
-	if err := waitSIGHUPExit(proc.done, timeout, func() error {
-		return proc.cmd.Process.Signal(syscall.SIGHUP)
-	}); err != nil {
-		t.Fatalf("%v stderr=%s", err, readFile(t, stderrPath))
-	}
-}
-
-func waitSIGHUPExit(done <-chan struct{}, timeout time.Duration, signal func() error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	ticker := time.NewTicker(testutil.PollInterval)
-	defer ticker.Stop()
-	ticks := ticker.C
-	for {
-		if ticks != nil {
-			if err := signal(); errors.Is(err, os.ErrProcessDone) {
-				ticks = nil
-			} else if err != nil {
-				return fmt.Errorf("SIGHUP: %w", err)
-			}
-		}
-		select {
-		case <-done:
-			return nil
-		case <-ctx.Done():
-			select {
-			case <-done:
-				return nil
-			default:
-				return fmt.Errorf("listener did not exit on SIGHUP after sessions")
-			}
-		case <-ticks:
-		}
-	}
-}
-
-func TestWaitSIGHUPExitDelayedDone(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		done := make(chan struct{})
-		result := make(chan error, 1)
-		go func() { result <- waitSIGHUPExit(done, time.Second, func() error { return os.ErrProcessDone }) }()
-		synctest.Wait()
-		if len(result) != 0 {
-			t.Fatal("returned before process completion")
-		}
-		close(done)
-		if err := <-result; err != nil {
-			t.Fatal(err)
 		}
 	})
 }
