@@ -44,6 +44,23 @@ func TestWaitTCPListenDetectsEarlyExit(t *testing.T) {
 	requireWaitFailedAfterChildExit(t, waitTCPTestProcess(proc, port, 2*time.Second))
 }
 
+func TestWaitUDPListenDetectsEarlyExit(t *testing.T) {
+	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := pc.LocalAddr().(*net.UDPAddr).Port
+	_ = pc.Close()
+
+	cmd := exec.Command(os.Args[0], "-test.run=^$")
+	proc, err := startTestProcess(cmd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(proc.stop)
+	requireWaitFailedAfterChildExit(t, waitUDPTestProcess(proc, port, 2*time.Second))
+}
+
 func requireWaitFailedAfterChildExit(t *testing.T, err error) {
 	t.Helper()
 	if err == nil {

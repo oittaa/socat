@@ -4,6 +4,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -33,44 +34,12 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 	for _, tc := range rejected {
 		t.Run(tc.name, func(t *testing.T) {
 			out, err := runWithTimeout(t, 2*time.Second, bin, "-u", tc.left, "PIPE")
-			if checkErr := rejectedOptionResult(out, err, tc.want); checkErr != nil {
-				t.Fatal(checkErr)
+			requireCleanFailure(t, out, err)
+			if !bytes.Contains(out, []byte(tc.want)) {
+				t.Fatalf("output=%q want substring %q", out, tc.want)
 			}
 		})
 	}
-
-	t.Run("handshake-timeout-on-tls", func(t *testing.T) {
-		port := stallTCPPeer(t)
-		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
-			fmt.Sprintf("TLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
-			t.Fatal(checkErr)
-		}
-	})
-	t.Run("handshake-timeout-on-ws", func(t *testing.T) {
-		port := stallTCPPeer(t)
-		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
-			fmt.Sprintf("WS:127.0.0.1:%d,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
-			t.Fatal(checkErr)
-		}
-	})
-	t.Run("handshake-timeout-on-dtls", func(t *testing.T) {
-		port := silentUDPPeer(t)
-		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
-			fmt.Sprintf("DTLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
-			t.Fatal(checkErr)
-		}
-	})
-	t.Run("handshake-timeout-on-quic", func(t *testing.T) {
-		port := silentUDPPeer(t)
-		out, err := runWithTimeout(t, 2*time.Second, bin, "-u",
-			fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,handshake-timeout=0.2", port), "PIPE")
-		if checkErr := acceptedOptionResult(out, err, handshakeTimeoutEvidence); checkErr != nil {
-			t.Fatal(checkErr)
-		}
-	})
 
 	t.Run("readbytes-on-tcp-accepted", func(t *testing.T) {
 		out, err, stderr := runTCPAcceptedOption(t, "readbytes=4", []byte("hello"))
@@ -108,11 +77,62 @@ func TestOptionCapabilityRestrictions(t *testing.T) {
 	}
 }
 
+func TestClientHandshakeTimeoutStalledPeer(t *testing.T) {
+	bin := socatBin(t)
+	const handshake = 200 * time.Millisecond
+	harness := 3 * time.Second
+	minElapsed := handshake - 50*time.Millisecond
+	maxElapsed := 10 * handshake
+	tests := []struct {
+		name string
+		udp  bool
+		spec string
+	}{
+		{name: "tls", spec: "TLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2"},
+		{name: "ws", spec: "WS:127.0.0.1:%d,handshake-timeout=0.2"},
+		{name: "dtls", udp: true, spec: "DTLS:127.0.0.1:%d,verify=0,handshake-timeout=0.2"},
+		{name: "quic", udp: true, spec: "QUIC:127.0.0.1:%d,verify=0,handshake-timeout=0.2"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var port int
+			if tc.udp {
+				port = silentUDPPeer(t)
+			} else {
+				port = stallTCPPeer(t)
+			}
+			started := time.Now()
+			out, err := runWithTimeout(t, harness, bin, "-u", fmt.Sprintf(tc.spec, port), "PIPE")
+			elapsed := time.Since(started)
+			if harnessTimedOut(err) {
+				t.Fatalf("harness deadline killed socat after %s: %s", elapsed, out)
+			}
+			if outputShowsCrash(out) {
+				t.Fatalf("abnormal termination after %s: %v: %s", elapsed, err, out)
+			}
+			var ee *exec.ExitError
+			if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+				t.Fatalf("exit=%v want 1 after %s: %s", err, elapsed, out)
+			}
+			if bytes.Contains(out, []byte("not supported")) {
+				t.Fatalf("handshake-timeout rejected: %s", out)
+			}
+			if elapsed < minElapsed {
+				t.Fatalf("failed too quickly (%s): %s", elapsed, out)
+			}
+			if elapsed > maxElapsed {
+				t.Fatalf("handshake timeout took %s (want <= %s): %s", elapsed, maxElapsed, out)
+			}
+		})
+	}
+}
+
 func TestForcedFamilyBindE2E(t *testing.T) {
 	bin := socatBin(t)
 	out, err := runWithTimeout(t, 2*time.Second, bin, "TCP4-LISTEN:0,bind=::,reuseaddr,fork", "PIPE")
-	if checkErr := invalidFamilyBindResult(out, err); checkErr != nil {
-		t.Fatal(checkErr)
+	requireCleanFailure(t, out, err)
+	if !bytes.Contains(out, []byte("address family mismatch")) {
+		t.Fatalf("want address family mismatch, got %s", out)
 	}
 
 	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
@@ -126,8 +146,9 @@ func TestForcedFamilyBindE2E(t *testing.T) {
 
 	if classic := os.Getenv("SOCAT_CLASSIC"); classic != "" {
 		clOut, clErr := runWithTimeout(t, 2*time.Second, classic, "TCP4-LISTEN:0,bind=::,reuseaddr,fork", "PIPE")
-		if checkErr := invalidFamilyBindResult(clOut, clErr); checkErr != nil {
-			t.Fatal(checkErr)
+		requireCleanFailure(t, clOut, clErr)
+		if !bytes.Contains(clOut, []byte("address family")) {
+			t.Fatalf("classic want address family error, got %s", clOut)
 		}
 	}
 }
@@ -174,4 +195,34 @@ func silentUDPPeer(t *testing.T) int {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 	return pc.LocalAddr().(*net.UDPAddr).Port
+}
+
+func requireCleanFailure(t *testing.T, out []byte, err error) {
+	t.Helper()
+	if harnessTimedOut(err) {
+		t.Fatalf("harness deadline killed the process: %v: %s", err, out)
+	}
+	if outputShowsCrash(out) {
+		t.Fatalf("abnormal termination: %v: %s", err, out)
+	}
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 1 {
+		t.Fatalf("exit=%v want 1: %s", err, out)
+	}
+}
+
+func acceptedConnectedResult(out []byte, err error, want []byte, srvStderr string) error {
+	if harnessTimedOut(err) {
+		return fmt.Errorf("accepted option timed out: %w: %s srv=%s", err, out, srvStderr)
+	}
+	if bytes.Contains(out, []byte("not supported")) {
+		return fmt.Errorf("unexpected option rejection: %s srv=%s", out, srvStderr)
+	}
+	if err != nil {
+		return fmt.Errorf("accepted option failed: %v: %s srv=%s", err, out, srvStderr)
+	}
+	if !bytes.Equal(out, want) {
+		return fmt.Errorf("payload=%q want %q srv=%s", out, want, srvStderr)
+	}
+	return nil
 }

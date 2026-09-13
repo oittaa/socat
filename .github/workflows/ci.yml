@@ -89,7 +89,7 @@ jobs:
         run: go test -race -count=1 ./...
 
   unit-coverage:
-    name: race (linux-amd64)
+    name: unit coverage (linux-amd64)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

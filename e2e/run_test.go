@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os/exec"
 	"testing"
 	"time"
@@ -53,4 +54,12 @@ func runTestCmd(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
 		waitErr = drainErr
 	}
 	return buf.Bytes(), waitErr
+}
+
+func harnessTimedOut(err error) bool {
+	return errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled)
+}
+
+func outputShowsCrash(out []byte) bool {
+	return bytes.Contains(out, []byte("panic:")) || bytes.Contains(bytes.ToLower(out), []byte("fatal error:"))
 }
