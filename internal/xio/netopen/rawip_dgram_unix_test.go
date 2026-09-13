@@ -3,6 +3,7 @@
 package netopen
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -115,6 +116,44 @@ func TestIP4RecvfromForkMaxChildrenZero(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected max-children=0 to fail after bind")
 	}
+}
+
+func TestIP4RecvfromForkChildPeerEnvironment(t *testing.T) {
+	spec, ctx := openIP4Spec(t, fmt.Sprintf("IP4-RECVFROM:%d,bind=127.0.0.1,fork", rawIPTestProto))
+	g := useGlobal()
+	g.Peer.PeerPort = "stale"
+	o, err := openIP4Recvfrom(ctx, mustAddr(t, spec), xio.ModeRDWR, g)
+	skipIfRawIPPermissionDenied(t, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	right := parseChannel(t, `SYSTEM:echo $SOCAT_PEERADDR/$SOCAT_PEERPORT`)
+	go func() { done <- xio.RunOpened(ctx, o, right, g) }()
+	t.Cleanup(func() {
+		_ = o.Close()
+		<-done
+	})
+
+	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1))
+	want := "127.1.0.1/\n"
+	deadline := time.Now().Add(4 * time.Second)
+	var last string
+	for time.Now().Before(deadline) {
+		sendRawPayload(t, client, []byte("peer-env"))
+		got, err := readRawDeadline(t, client, 250*time.Millisecond)
+		if err != nil {
+			if xio.IsTimeoutErr(err) {
+				continue
+			}
+			t.Fatal(err)
+		}
+		last = string(got)
+		if bytes.HasSuffix(got, []byte(want)) {
+			return
+		}
+	}
+	t.Fatalf("child reply=%q want %q", last, want)
 }
 
 func TestIP4RecvWriteOnlyRejected(t *testing.T) {
