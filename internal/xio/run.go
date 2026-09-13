@@ -240,17 +240,13 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			defer func() { _ = c.Close() }()
 			defer slots.release()
 			defer children.Done()
+			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
+			defer stopClose()
 			cg := g.ForkSession()
 			if o.ChildrenShutup() > 0 && cg.Log != nil {
 				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
 			}
-			if err := rememberAccepted(cg, c, o.afterAccept()); err != nil {
-				if cg.Log != nil {
-					cg.Log.Errorf("handshake: %s", err)
-				}
-			} else {
-				body(c, cg)
-			}
+			body(c, cg)
 			if cg.Log != nil {
 				cg.Log.CloseOwnedSyslog()
 			}
@@ -338,6 +334,10 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 	})
 	defer stop()
 	return lo.forEachAccepted(ctx, ln, g, true, func(c net.Conn, cg *Global) {
+		if err := rememberAccepted(cg, c, lo.afterAccept()); err != nil {
+			cg.Log.Errorf("accept: %s", err)
+			return
+		}
 		leftStream, err := streamFromDial(lo, c)
 		if err != nil {
 			cg.Log.Errorf("wrap accept: %s", err)
@@ -404,6 +404,10 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		// Serialize sessions on the shared left stream.
 		leftMu.Lock()
 		defer leftMu.Unlock()
+		if err := rememberAccepted(cg, c, ro.afterAccept()); err != nil {
+			cg.Log.Errorf("accept: %s", err)
+			return
+		}
 		rightStream, err := streamFromDial(ro, c)
 		if err != nil {
 			cg.Log.Errorf("wrap accept: %s", err)

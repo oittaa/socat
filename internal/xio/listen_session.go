@@ -180,7 +180,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 }
 
 // rememberAccepted records generic SOCAT_* address fields, then any
-// listen-specific follow-up such as UNIX path fallback or TLS metadata.
+// listen-specific follow-up such as UNIX peer names or TLS metadata.
 func rememberAccepted(g *Global, c net.Conn, after func(*Global, net.Conn) error) error {
 	RememberAddrs(g, c)
 	if after == nil {
