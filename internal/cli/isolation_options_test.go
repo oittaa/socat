@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
@@ -51,14 +52,15 @@ func validateCLIAddresses(t *testing.T, left, right string) error {
 	if err != nil {
 		return err
 	}
-	if err := validateChannelOptions(lch); err != nil {
+	if _, err := xio.PrepareChannel(lch); err != nil {
 		return err
 	}
 	rch, err := parse.ParseChannel(right)
 	if err != nil {
 		return err
 	}
-	return validateChannelOptions(rch)
+	_, err = xio.PrepareChannel(rch)
+	return err
 }
 
 func TestFileOwnerUserIsNotIsolationOption(t *testing.T) {
@@ -66,7 +68,7 @@ func TestFileOwnerUserIsNotIsolationOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = validateChannelOptions(ch)
+	_, err = xio.PrepareChannel(ch)
 	if err != nil {
 		t.Fatalf("user= is file owner, got %v", err)
 	}

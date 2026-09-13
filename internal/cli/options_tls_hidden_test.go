@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestHiddenTLSOptionValues(t *testing.T) {
@@ -58,7 +59,7 @@ func TestHiddenTLSNamesStayOutOfHelp(t *testing.T) {
 }
 
 func TestConstructedFIPSNameIsRecognized(t *testing.T) {
-	err := validateSpecOptions(parse.Spec{Type: "OPENSSL", Options: []parse.Option{{Name: "fips"}}})
+	_, err := xio.PrepareSpec(parse.Spec{Type: "OPENSSL", Options: []parse.Option{{Name: "fips"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,5 +71,6 @@ func validateParsed(t *testing.T, spec string) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return validateChannelOptions(ch)
+	_, err = xio.PrepareChannel(ch)
+	return err
 }

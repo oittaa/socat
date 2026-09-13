@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func FuzzParseArgs(f *testing.F) {
@@ -85,17 +86,17 @@ func FuzzValidateChannelOptions(f *testing.F) {
 		if err != nil {
 			return
 		}
-		err1 := validateChannelOptions(ch)
+		_, err1 := xio.PrepareChannel(ch)
 		ch2, err2 := parse.ParseChannel(input)
 		if err2 != nil {
 			t.Fatalf("ParseChannel became failing: first=%v second=%v", err, err2)
 		}
-		err3 := validateChannelOptions(ch2)
+		_, err3 := xio.PrepareChannel(ch2)
 		if (err1 == nil) != (err3 == nil) {
-			t.Fatalf("validateChannelOptions is not deterministic: %v vs %v", err1, err3)
+			t.Fatalf("PrepareChannel is not deterministic: %v vs %v", err1, err3)
 		}
 		if err1 != nil && err3 != nil && err1.Error() != err3.Error() {
-			t.Fatalf("validateChannelOptions error text changed: %q vs %q", err1, err3)
+			t.Fatalf("PrepareChannel error text changed: %q vs %q", err1, err3)
 		}
 	})
 }
