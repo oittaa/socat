@@ -291,3 +291,13 @@ func (p *prefixConn) Read(b []byte) (int, error) {
 	}
 	return p.Conn.Read(b)
 }
+
+// NetConn exposes descriptor options without letting relay I/O bypass prefix.
+func (p *prefixConn) NetConn() net.Conn { return p.Conn }
+
+func (p *prefixConn) CloseWrite() error {
+	if cw, ok := p.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
