@@ -37,7 +37,7 @@ func TestShellCommandHonorsShellOption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := configuredShellCommand(context.Background(), prepared.Config.Process)
+	cmd := configuredShellCommand(context.Background(), prepared.Config.Process, Options{Shell: "/bin/false"})
 	if cmd.Path != "/bin/sh" {
 		t.Fatalf("path=%q want /bin/sh", cmd.Path)
 	}
@@ -46,8 +46,8 @@ func TestShellCommandHonorsShellOption(t *testing.T) {
 	}
 }
 
-func TestShellCommandEmptyRunsInteractive(t *testing.T) {
-	s, err := parse.ParseSpec("SHELL,shell=/bin/sh")
+func TestShellCommandUsesProcessDefaultForInteractive(t *testing.T) {
+	s, err := parse.ParseSpec("SHELL")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestShellCommandEmptyRunsInteractive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := configuredShellCommand(context.Background(), prepared.Config.Process)
+	cmd := configuredShellCommand(context.Background(), prepared.Config.Process, Options{Shell: "/bin/sh"})
 	if len(cmd.Args) != 1 || cmd.Args[0] != "sh" {
 		t.Fatalf("interactive args=%q want [sh]", cmd.Args)
 	}

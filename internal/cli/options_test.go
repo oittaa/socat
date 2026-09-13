@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestSocketAliasesAccepted(t *testing.T) {
@@ -56,6 +57,42 @@ func TestParseSignalLogMask(t *testing.T) {
 	}
 	if _, err := ParseArgs([]string{"-S", "not-a-mask"}); err == nil {
 		t.Fatal("invalid -S mask was accepted")
+	}
+}
+
+func TestEnvironmentOptions(t *testing.T) {
+	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "6")
+	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "0")
+	t.Setenv("SOCAT_MAIN_WAIT", "1")
+	t.Setenv("SOCAT_FORK_WAIT", "2")
+	t.Setenv("SOCAT_TRANSFER_WAIT", "3")
+	t.Setenv("LOGNAME", "log-user")
+	t.Setenv("USER", "fallback-user")
+	t.Setenv("SHELL", "/bin/test-shell")
+
+	opts, mainWait := environmentOptions()
+	if opts.DefaultListenIPVersion != xio.IPv6 || opts.PreferredResolveIPVersion != xio.IPvAny {
+		t.Fatalf("IP defaults=%v/%v", opts.DefaultListenIPVersion, opts.PreferredResolveIPVersion)
+	}
+	if opts.SOCKSUser != "log-user" || opts.Shell != "/bin/test-shell" {
+		t.Fatalf("process defaults=%q/%q", opts.SOCKSUser, opts.Shell)
+	}
+	if mainWait != time.Second || opts.ForkWait != 2*time.Second || opts.TransferWait != 3*time.Second {
+		t.Fatalf("waits=%v/%v/%v", mainWait, opts.ForkWait, opts.TransferWait)
+	}
+
+	t.Setenv("LOGNAME", "")
+	opts, _ = environmentOptions()
+	if opts.SOCKSUser != "fallback-user" {
+		t.Fatalf("USER fallback=%q", opts.SOCKSUser)
+	}
+}
+
+func TestEnvironmentWaitDuration(t *testing.T) {
+	for _, value := range []string{"", "invalid", "0", "-1"} {
+		if got := environmentWaitDuration(value); got != 0 {
+			t.Errorf("%q got %s", value, got)
+		}
 	}
 }
 

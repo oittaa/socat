@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
@@ -32,7 +31,7 @@ func openSOCKS4(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 	if !s.Proxy.EndpointsSet {
 		return nil, fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 	}
-	user := socksUser(s.Proxy)
+	user := socksUser(s.Proxy, g.Options())
 
 	portNum, err := xio.ResolvePort("tcp", s.Proxy.TargetPort)
 	if err != nil {
@@ -142,15 +141,12 @@ func socks4DestIP(ctx context.Context, s addrconfig.Address, target addrconfig.H
 	return [4]byte{}, fmt.Errorf("SOCKS4: cannot resolve %s to IPv4", target.Original())
 }
 
-func socksUser(proxy addrconfig.Proxy) string {
+func socksUser(proxy addrconfig.Proxy, opts xio.Options) string {
 	if proxy.SOCKSUser.Set && proxy.SOCKSUser.Value != "" {
 		return proxy.SOCKSUser.Value
 	}
-	if user := os.Getenv("LOGNAME"); user != "" {
-		return user
-	}
-	if user := os.Getenv("USER"); user != "" {
-		return user
+	if opts.SOCKSUser != "" {
+		return opts.SOCKSUser
 	}
 	return "anonymous"
 }

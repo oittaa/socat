@@ -197,22 +197,16 @@ func TestSOCKS5ListenEcho(t *testing.T) {
 	echoViaSOCKS5(t, "SOCKS5-LISTEN:127.0.0.1:127.0.0.1:80")
 }
 
-func TestSOCKSUserEnvironmentFallback(t *testing.T) {
-	t.Setenv("LOGNAME", "log-user")
-	t.Setenv("USER", "fallback-user")
-	if got := socksUser(addrconfig.Proxy{}); got != "log-user" {
-		t.Fatalf("LOGNAME fallback=%q", got)
-	}
-	t.Setenv("LOGNAME", "")
-	if got := socksUser(addrconfig.Proxy{}); got != "fallback-user" {
-		t.Fatalf("USER fallback=%q", got)
+func TestSOCKSUserOptionPrecedesProcessDefault(t *testing.T) {
+	opts := xio.Options{SOCKSUser: "process-user"}
+	if got := socksUser(addrconfig.Proxy{}, opts); got != "process-user" {
+		t.Fatalf("process default=%q", got)
 	}
 	option := addrconfig.Proxy{SOCKSUser: addrconfig.OptionalString{Set: true, Value: "option-user"}}
-	if got := socksUser(option); got != "option-user" {
+	if got := socksUser(option, opts); got != "option-user" {
 		t.Fatalf("option=%q", got)
 	}
-	t.Setenv("USER", "")
-	if got := socksUser(addrconfig.Proxy{}); got != "anonymous" {
+	if got := socksUser(addrconfig.Proxy{}, xio.Options{}); got != "anonymous" {
 		t.Fatalf("default=%q", got)
 	}
 }

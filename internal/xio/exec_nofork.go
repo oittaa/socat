@@ -26,7 +26,7 @@ import (
 // Phases: prepare command → attach peer (transfer FD ownership) → Start →
 // drop ExtraFiles copies → Wait/reap.
 func runExecNoFork(ctx context.Context, peer relay.Stream, config addrconfig.Address, g *Global, mode Mode) error {
-	cmd, err := commandForConfiguredExec(ctx, config)
+	cmd, err := commandForConfiguredExec(ctx, config, g.Options())
 	if err != nil {
 		return err
 	}
@@ -43,10 +43,10 @@ func runExecNoFork(ctx context.Context, peer relay.Stream, config addrconfig.Add
 	return c.runNoFork(ctx, peer)
 }
 
-func commandForConfiguredExec(ctx context.Context, config addrconfig.Address) (*exec.Cmd, error) {
+func commandForConfiguredExec(ctx context.Context, config addrconfig.Address, opts Options) (*exec.Cmd, error) {
 	switch config.Facts.Kind {
 	case addrconfig.AddressKindSHELL:
-		return configuredShellCommand(ctx, config.Process), nil
+		return configuredShellCommand(ctx, config.Process, opts), nil
 	case addrconfig.AddressKindSYSTEM:
 		if !config.Process.HasCommand {
 			return nil, fmt.Errorf("SYSTEM requires command")

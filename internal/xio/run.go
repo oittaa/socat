@@ -234,7 +234,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 		if logAccept {
 			g.Log.Infof("accepted %s", conn.RemoteAddr())
 		}
-		WaitFromEnv("SOCAT_FORK_WAIT")
+		time.Sleep(g.Options().ForkWait)
 		children.Add(1)
 		go func(c net.Conn) {
 			defer func() { _ = c.Close() }()
@@ -286,7 +286,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 		if g != nil && g.Log != nil {
 			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
-		WaitFromEnv("SOCAT_FORK_WAIT")
+		time.Sleep(g.Options().ForkWait)
 		children.Add(1)
 		go func(c net.Conn) {
 			defer children.Done()
@@ -435,7 +435,7 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 		return fmt.Errorf("nil stream")
 	}
 	relay.ConfigureStreamPair(left, right)
-	WaitFromEnv("SOCAT_TRANSFER_WAIT")
+	time.Sleep(g.Options().TransferWait)
 	// Open -r/-R sniff files at transfer start (after peer env is set).
 	opts := g.Options()
 	if g != nil && (opts.RawLeftPath != "" || opts.RawRightPath != "") {

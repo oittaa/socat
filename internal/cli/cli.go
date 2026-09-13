@@ -403,7 +403,8 @@ func (c *Config) fieldRawRight() *string { return &c.RawRight }
 // owned by cmd/socat so tests can exercise signal handling without terminating
 // the test process.
 func Run(args []string, signalExit func(int)) int {
-	xio.WaitFromEnv("SOCAT_MAIN_WAIT")
+	envOptions, mainWait := environmentOptions()
+	time.Sleep(mainWait)
 	cfg, err := ParseArgs(args)
 	if err != nil {
 		return cliWriteErr("socat: %v\n", err)
@@ -468,7 +469,7 @@ func Run(args []string, signalExit func(int)) int {
 		return 1
 	}
 
-	g := buildGlobal(cfg, log)
+	g := buildGlobal(cfg, envOptions, log)
 
 	runErr := xio.RunPrepared(ctx, preparedLeft, preparedRight, g)
 	if cfg.Statistics {
@@ -568,9 +569,60 @@ func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	}, nil
 }
 
+// environmentOptions snapshots process defaults before runtime starts.
+func environmentOptions() (xio.Options, time.Duration) {
+	listenIP := xio.IPv4Default
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOCAT_DEFAULT_LISTEN_IP"))) {
+	case "4", "ip4", "ipv4", "inet", "2":
+		listenIP = xio.IPv4
+	case "6", "ip6", "ipv6", "inet6", "10":
+		listenIP = xio.IPv6
+	}
+	resolveIP := xio.IPv4Default
+	switch strings.TrimSpace(os.Getenv("SOCAT_PREFERRED_RESOLVE_IP")) {
+	case "0":
+		resolveIP = xio.IPvAny
+	case "6":
+		resolveIP = xio.IPv6
+	case "4":
+		resolveIP = xio.IPv4
+	}
+	socksUser := os.Getenv("LOGNAME")
+	if socksUser == "" {
+		socksUser = os.Getenv("USER")
+	}
+	if socksUser == "" {
+		socksUser = "anonymous"
+	}
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	return xio.Options{
+		DefaultListenIPVersion:    listenIP,
+		PreferredResolveIPVersion: resolveIP,
+		SOCKSUser:                 socksUser,
+		Shell:                     shell,
+		ForkWait:                  environmentWaitDuration(os.Getenv("SOCAT_FORK_WAIT")),
+		TransferWait:              environmentWaitDuration(os.Getenv("SOCAT_TRANSFER_WAIT")),
+	}, environmentWaitDuration(os.Getenv("SOCAT_MAIN_WAIT"))
+}
+
+func environmentWaitDuration(value string) time.Duration {
+	seconds, err := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
+	if err != nil || seconds <= 0 {
+		return 0
+	}
+	maxSeconds := int64((1<<63 - 1) / time.Second)
+	if seconds > maxSeconds {
+		seconds = maxSeconds
+	}
+	return time.Duration(seconds) * time.Second
+}
+
 // buildGlobal copies parsed Config onto shared session Options. Peer maps,
 // child wait status, sniff files, and the per-session signal table start empty.
-func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
+func buildGlobal(cfg *Config, opts xio.Options, log *logx.Logger) *xio.Global {
 	progname := cfg.Progname
 	if progname == "" {
 		progname = "socat"
@@ -585,30 +637,28 @@ func buildGlobal(cfg *Config, log *logx.Logger) *xio.Global {
 	}
 	// -r / -R path templates expand at transfer start ($PROGNAME,
 	// $TIMESTAMP, $MICROS, $$, $PEER env after accept).
-	g := xio.NewSession(xio.Options{
-		BlockSize:    cfg.BlockSize,
-		Linger:       cfg.Linger,
-		Idle:         idle,
-		Verbose:      cfg.Verbose,
-		Hex:          cfg.Hex,
-		Dump:         os.Stderr,
-		Statistics:   cfg.Statistics,
-		Experimental: cfg.Experimental,
-		LeftToRight:  cfg.LeftToRight,
-		RightToLeft:  cfg.RightToLeft,
-		LogFacility:  cfg.LogFacility,
-		DumpFDs:      cfg.DumpFDs,
-		RawLeftPath:  cfg.RawLeft,
-		RawRightPath: cfg.RawRight,
-		Progname:     progname,
-		IPVersion:    ipVersionFromFlags(cfg),
-	}, log)
+	opts.BlockSize = cfg.BlockSize
+	opts.Linger = cfg.Linger
+	opts.Idle = idle
+	opts.Verbose = cfg.Verbose
+	opts.Hex = cfg.Hex
+	opts.Dump = os.Stderr
+	opts.Statistics = cfg.Statistics
+	opts.Experimental = cfg.Experimental
+	opts.LeftToRight = cfg.LeftToRight
+	opts.RightToLeft = cfg.RightToLeft
+	opts.LogFacility = cfg.LogFacility
+	opts.DumpFDs = cfg.DumpFDs
+	opts.RawLeftPath = cfg.RawLeft
+	opts.RawRightPath = cfg.RawRight
+	opts.Progname = progname
+	opts.IPVersion = ipVersionFromFlags(cfg)
+	g := xio.NewSession(opts, log)
 	g.LogMixed = cfg.LogDest == LogDestMixed
 	return g
 }
 
-// ipVersionFromFlags resolves explicit -4/-6/-0 against the default
-// (env SOCAT_DEFAULT_LISTEN_IP may still apply to listen paths).
+// ipVersionFromFlags resolves explicit -4/-6/-0 against the default.
 func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 	switch {
 	case cfg.IPAny:

@@ -489,6 +489,33 @@ func TestLookupDialIPAIPassivePrefersIPv6(t *testing.T) {
 	}
 }
 
+func TestResolveConnectIPsUsesTypedPreferenceAndCLIOverride(t *testing.T) {
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.IPv4(127, 0, 0, 1), "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
+	s := resNSAddrSpec(server.addr)
+	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true})
+	config := mustDecodeAddress(t, s)
+
+	ips, err := resolveConnectIPs(t.Context(), "tcp", "resolve-pref.test", config, Options{PreferredResolveIPVersion: IPv6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) < 2 || ips[0].To4() != nil {
+		t.Fatalf("process preference ips=%v want IPv6 first", ips)
+	}
+
+	ips, err = resolveConnectIPs(t.Context(), "tcp", "resolve-pref.test", config, Options{IPVersion: IPv4, PreferredResolveIPVersion: IPv6})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ips) < 2 || ips[0].To4() == nil {
+		t.Fatalf("CLI override ips=%v want IPv4 first", ips)
+	}
+}
+
 func TestMatchLocalPacketAddrUnspecified(t *testing.T) {
 	got, err := MatchLocalPacketAddr("udp4", &net.UDPAddr{IP: net.IPv6zero, Port: 9})
 	if err != nil {

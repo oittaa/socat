@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -419,35 +418,6 @@ func ConnectTimeout(config addrconfig.Address) time.Duration {
 	return 0
 }
 
-// pfVersion maps pf= names (and PF_* numbers) to a family.
-var pfVersion = map[string]IPVersion{
-	"4": IPv4, "ip4": IPv4, "ipv4": IPv4, "inet": IPv4, "2": IPv4, // 2 = PF_INET
-	"6": IPv6, "ip6": IPv6, "ipv6": IPv6, "inet6": IPv6, "10": IPv6, // 10 = PF_INET6
-}
-
-// VersionFromPF maps a pf= value to IPv4 or IPv6.
-func VersionFromPF(pf string) (IPVersion, bool) {
-	v, ok := pfVersion[strings.ToLower(strings.TrimSpace(pf))]
-	return v, ok
-}
-
-// NetworkFromPF maps pf= to a net package name (tcp4, udp6, ip4, …).
-// Unknown pf returns def.
-func NetworkFromPF(pf, proto, def string) string {
-	v, ok := VersionFromPF(pf)
-	if !ok {
-		return def
-	}
-	switch v {
-	case IPv4:
-		return proto + "4"
-	case IPv6:
-		return proto + "6"
-	default:
-		return def
-	}
-}
-
 // TCPToUDPNetwork maps a TCP network name onto the corresponding UDP name.
 // tcp4/tcp6 become udp4/udp6; tcp, empty, and unknown names become udp.
 func TCPToUDPNetwork(tcpNet string) string {
@@ -484,6 +454,9 @@ func ListenNetwork(opts Options, config addrconfig.Address) string {
 		}
 	}
 	ver := opts.IPVersion
+	if ver == IPv4Default {
+		ver = opts.DefaultListenIPVersion
+	}
 	switch ver {
 	case IPv4:
 		return "tcp4"
@@ -491,12 +464,6 @@ func ListenNetwork(opts Options, config addrconfig.Address) string {
 		return "tcp6"
 	case IPvAny:
 		return "tcp"
-	}
-	// IPv4Default: honor listen env, else IPv4
-	if v := strings.TrimSpace(os.Getenv("SOCAT_DEFAULT_LISTEN_IP")); v != "" {
-		if n := NetworkFromPF(v, "tcp", ""); n != "" {
-			return n
-		}
 	}
 	return "tcp4"
 }

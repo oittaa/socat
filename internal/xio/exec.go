@@ -35,13 +35,13 @@ func openSYSTEM(ctx context.Context, s addrconfig.Address, mode Mode, g *Global)
 }
 
 func openSHELL(ctx context.Context, s addrconfig.Address, mode Mode, g *Global) (*Opened, error) {
-	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, s.Process))
+	return startCmd(ctx, s, mode, g, configuredShellCommand(ctx, s.Process, g.Options()))
 }
 
-func configuredShellCommand(ctx context.Context, config addrconfig.Process) *exec.Cmd {
+func configuredShellCommand(ctx context.Context, config addrconfig.Process, opts Options) *exec.Cmd {
 	shell := config.Shell.Value
 	if !config.Shell.Set || shell == "" {
-		shell = os.Getenv("SHELL")
+		shell = opts.Shell
 	}
 	if shell == "" {
 		shell = "/bin/sh"
