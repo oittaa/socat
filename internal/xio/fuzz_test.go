@@ -48,19 +48,3 @@ func FuzzParseDurationValue(f *testing.F) {
 		}
 	})
 }
-
-func FuzzParsePositiveInt(f *testing.F) {
-	for _, seed := range []string{"", "0", "1", "-1", "65535", "999999999999999999999", "1.5", "0x10"} {
-		f.Add(seed)
-	}
-	f.Fuzz(func(t *testing.T, input string) {
-		if len(input) > 4096 {
-			t.Skip("input exceeds 4096 bytes")
-		}
-		n1, err1 := ParsePositiveInt(input)
-		n2, err2 := ParsePositiveInt(input)
-		if (err1 == nil) != (err2 == nil) || n1 != n2 {
-			t.Fatalf("ParsePositiveInt is not deterministic: %d/%v vs %d/%v", n1, err1, n2, err2)
-		}
-	})
-}

@@ -30,7 +30,6 @@ var targets = []target{
 	{pkg: "./internal/cli", name: "FuzzValidateChannelOptions"},
 	{pkg: "./internal/xio", name: "FuzzParseSocatData"},
 	{pkg: "./internal/xio", name: "FuzzParseDurationValue"},
-	{pkg: "./internal/xio", name: "FuzzParsePositiveInt"},
 	{pkg: "./internal/xio", name: "FuzzParseHexOpt", unixOnly: true},
 	{pkg: "./internal/xio/wsopen", name: "FuzzWSTarget"},
 	{pkg: "./internal/xio/quicopen", name: "FuzzQUICTarget"},

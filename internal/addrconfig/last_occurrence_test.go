@@ -8,10 +8,7 @@ import (
 )
 
 func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
-	spec, err := parse.ParseSpec("TLS:127.0.0.1:1,fips=1,pseudo=1,pseudo=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TLS:127.0.0.1:1,fips=1,pseudo=1,pseudo=0")
 	config, err := Decode(spec, Facts{Type: "TLS"})
 	if err != nil {
 		t.Fatal(err)
@@ -23,10 +20,7 @@ func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
 		t.Fatalf("name=%q", config.TLS.UnsupportedName)
 	}
 
-	spec, err = parse.ParseSpec("TLS:127.0.0.1:1,method=SSLv23,fips=1,fips=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "TLS:127.0.0.1:1,method=SSLv23,fips=1,fips=0")
 	config, err = Decode(spec, Facts{Type: "TLS"})
 	if err != nil {
 		t.Fatal(err)
@@ -37,10 +31,7 @@ func TestDecodeUnsupportedTLSKeepsEarlierRejection(t *testing.T) {
 }
 
 func TestDecodeIffLastWinsClearsOppositeMask(t *testing.T) {
-	spec, err := parse.ParseSpec("TUN,iff-up=0,iff-up=1")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "TUN,iff-up=0,iff-up=1")
 	config, err := Decode(spec, Facts{Type: "TUN", Kind: AddressKindTUN})
 	if err != nil {
 		t.Fatal(err)
@@ -53,10 +44,7 @@ func TestDecodeIffLastWinsClearsOppositeMask(t *testing.T) {
 		t.Fatal("iff-up=1 last must leave the clear mask")
 	}
 
-	spec, err = parse.ParseSpec("TUN,iff-up=1,iff-up=0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec = mustParseSpec(t, "TUN,iff-up=1,iff-up=0")
 	config, err = Decode(spec, Facts{Type: "TUN", Kind: AddressKindTUN})
 	if err != nil {
 		t.Fatal(err)
@@ -135,10 +123,7 @@ func TestDecodeEmptySOCKSPortKeepsPositional(t *testing.T) {
 }
 
 func TestDecodeB0IsRecognizedBaud(t *testing.T) {
-	spec, err := parse.ParseSpec("PTY,b0")
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, "PTY,b0")
 	config, err := Decode(spec, Facts{Type: "PTY"})
 	if err != nil {
 		t.Fatal(err)

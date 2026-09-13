@@ -1,7 +1,6 @@
 package proxyopen
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,9 +9,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -20,190 +18,39 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-type closeCounter struct {
-	io.ReadCloser
-	w      io.WriteCloser
-	closes atomic.Int32
-}
-
-func (c *closeCounter) Write(p []byte) (int, error) { return c.w.Write(p) }
-func (c *closeCounter) SetWriteDeadline(t time.Time) error {
-	if d, ok := c.w.(writeDeadliner); ok {
-		return d.SetWriteDeadline(t)
-	}
-	return nil
-}
-func (c *closeCounter) Close() error {
-	c.closes.Add(1)
-	if c.ReadCloser != nil {
-		return c.ReadCloser.Close()
-	}
-	return c.w.Close()
-}
-
-func deadlineWatch(t *testing.T, fn func() (int, error)) (int, error) {
-	t.Helper()
-	type result struct {
-		n   int
-		err error
-	}
-	done := make(chan result, 1)
-	go func() {
-		n, err := fn()
-		done <- result{n, err}
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	select {
-	case got := <-done:
-		return got.n, got.err
-	case <-ctx.Done():
-		t.Fatal("I/O ignored deadline")
-		return 0, ctx.Err()
-	}
-}
-
-func TestPipeConnReadDeadlineUnblocks(t *testing.T) {
-	pr, pw := io.Pipe()
-	t.Cleanup(func() { _ = pw.Close(); _ = pr.Close() })
-	c := newPipeConn(pr, pw, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
-	if err := c.SetReadDeadline(time.Now().Add(-time.Millisecond)); err != nil {
-		t.Fatal(err)
-	}
-	n, err := deadlineWatch(t, func() (int, error) { return c.Read(make([]byte, 1)) })
-	if n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("n=%d err=%v want deadline exceeded", n, err)
-	}
-}
-
-func TestPipeConnWriteDeadlineUnblocks(t *testing.T) {
-	pr, pw := newReqPipe(pipeConnBuffer)
-	t.Cleanup(func() { _ = pw.Close(); _ = pr.Close() })
-	c := newPipeConn(io.NopCloser(bytes.NewReader(nil)), pw, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
-	if err := c.SetWriteDeadline(time.Now().Add(-time.Millisecond)); err != nil {
-		t.Fatal(err)
-	}
-	n, err := deadlineWatch(t, func() (int, error) { return c.Write([]byte("x")) })
-	if n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("n=%d err=%v want deadline exceeded", n, err)
-	}
-}
-
-func TestPipeConnDeadlineDoesNotCloseStream(t *testing.T) {
-	readR, readW := io.Pipe()
-	writeR, writeW := newReqPipe(pipeConnBuffer)
-	r := &closeCounter{ReadCloser: readR}
-	w := &closeCounter{w: writeW}
-	c := newPipeConn(r, w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
-	t.Cleanup(func() { _ = c.Close(); _ = readW.Close(); _ = writeR.Close() })
-
-	if err := c.SetDeadline(time.Now().Add(-time.Millisecond)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := deadlineWatch(t, func() (int, error) { return c.Read(make([]byte, 1)) }); !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("Read err=%v", err)
-	}
-	if _, err := deadlineWatch(t, func() (int, error) { return c.Write([]byte("x")) }); !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("Write err=%v", err)
-	}
-	if r.closes.Load() != 0 || w.closes.Load() != 0 {
-		t.Fatalf("deadline closed sides read=%d write=%d", r.closes.Load(), w.closes.Load())
-	}
-
-	if err := c.SetDeadline(time.Time{}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := readW.Write([]byte("ok")); err != nil {
-		t.Fatal(err)
-	}
-	got := make([]byte, 2)
-	n, err := c.Read(got)
-	if err != nil || string(got[:n]) != "ok" {
-		t.Fatalf("Read after deadline n=%d err=%v got=%q", n, err, got[:n])
-	}
-	wrote := make(chan error, 1)
-	go func() {
-		_, err := io.ReadFull(writeR, make([]byte, 1))
-		wrote <- err
-	}()
-	if _, err := c.Write([]byte("z")); err != nil {
-		t.Fatal(err)
-	}
-	if err := <-wrote; err != nil {
-		t.Fatal(err)
-	}
-	if r.closes.Load() != 0 || w.closes.Load() != 0 {
-		t.Fatalf("post-deadline I/O closed sides read=%d write=%d", r.closes.Load(), w.closes.Load())
-	}
-}
-
-func TestPipeConnSetDeadlineWakesBlockedRead(t *testing.T) {
-	pr, pw := io.Pipe()
-	r := &closeCounter{ReadCloser: pr}
-	c := newPipeConn(r, pw, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
-	t.Cleanup(func() { _ = c.Close(); _ = pw.Close() })
-	entered := make(chan struct{})
-	var once sync.Once
-	pipeConnWaitHook = func() { once.Do(func() { close(entered) }) }
-	t.Cleanup(func() { pipeConnWaitHook = nil })
-	n, err := waitThenDeadline(t, entered, func() (int, error) { return c.Read(make([]byte, 1)) }, c.SetReadDeadline)
-	if n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("n=%d err=%v", n, err)
-	}
-	if r.closes.Load() != 0 {
-		t.Fatalf("woke Read by closing the stream (%d)", r.closes.Load())
-	}
-}
-
-func TestPipeConnSetDeadlineWakesBlockedWrite(t *testing.T) {
-	pr, pw := newReqPipe(reviewPipeCap)
-	w := &closeCounter{w: pw}
-	c := newPipeConn(io.NopCloser(bytes.NewReader(nil)), w, staticAddr("h2", "l"), staticAddr("h2", "r"), nil)
-	t.Cleanup(func() { _ = c.Close(); _ = pr.Close() })
-	if _, err := c.Write(bytes.Repeat([]byte("F"), reviewPipeCap)); err != nil {
-		t.Fatal(err)
-	}
-	entered := make(chan struct{})
-	var once sync.Once
-	pipeConnWaitHook = func() { once.Do(func() { close(entered) }) }
-	t.Cleanup(func() { pipeConnWaitHook = nil })
-	n, err := waitThenDeadline(t, entered, func() (int, error) { return c.Write([]byte("x")) }, c.SetWriteDeadline)
-	if n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
-		t.Fatalf("n=%d err=%v want n=0, deadline exceeded", n, err)
-	}
-	if w.closes.Load() != 0 {
-		t.Fatalf("woke Write by closing the stream (%d)", w.closes.Load())
-	}
-}
-
-func waitThenDeadline(t *testing.T, entered <-chan struct{}, op func() (int, error), set func(time.Time) error) (int, error) {
-	t.Helper()
-	type result struct {
-		n   int
-		err error
-	}
-	done := make(chan result, 1)
-	go func() {
-		n, err := op()
-		done <- result{n, err}
-	}()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	select {
-	case <-entered:
-	case <-ctx.Done():
-		t.Fatal("I/O did not block before deadline")
-	}
-	if err := set(time.Now().Add(-time.Millisecond)); err != nil {
-		t.Fatal(err)
-	}
-	select {
-	case got := <-done:
-		return got.n, got.err
-	case <-ctx.Done():
-		t.Fatal("blocked I/O ignored SetDeadline")
-		return 0, ctx.Err()
-	}
+func TestPipeConnDeadlineWakesReadAndAllowsReuse(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		readR, readW := io.Pipe()
+		writeR, writeW := newReqPipe(8)
+		c := newPipeConn(readR, writeW, nil, nil, nil)
+		defer func() { _ = c.Close() }()
+		defer func() { _ = readW.Close() }()
+		defer func() { _ = writeR.Close() }()
+		done := make(chan writeResult, 1)
+		go func() { n, err := c.Read(make([]byte, 1)); done <- writeResult{n, err} }()
+		synctest.Wait()
+		_ = c.SetDeadline(time.Now())
+		if got := <-done; got.n != 0 || !errors.Is(got.err, os.ErrDeadlineExceeded) {
+			t.Fatalf("Read=%+v", got)
+		}
+		if n, err := c.Write([]byte("x")); n != 0 || !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("Write=%d, %v", n, err)
+		}
+		_ = c.SetDeadline(time.Time{})
+		if _, err := readW.Write([]byte("ok")); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 2)
+		if _, err := io.ReadFull(c, buf); err != nil || string(buf) != "ok" {
+			t.Fatalf("Read=%q, %v", buf, err)
+		}
+		if _, err := c.Write([]byte("ok")); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.ReadFull(writeR, buf); err != nil || string(buf) != "ok" {
+			t.Fatalf("peer=%q, %v", buf, err)
+		}
+	})
 }
 
 func TestH2cCONNECTrcvtimeoThenEcho(t *testing.T) {

@@ -13,7 +13,6 @@ import (
 
 func applyConfiguredGenericIoctl(fd int, action addrconfig.FileAction) error {
 	request := uint(action.Request)
-	noteLifecycleSyscall("ioctl")
 	switch action.Ioctl {
 	case addrconfig.IoctlVoid:
 		if err := ioctlVoid(fd, request); err != nil {

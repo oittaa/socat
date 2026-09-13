@@ -44,7 +44,6 @@ func applyConfiguredWindowsFD(fd uintptr, config addrconfig.File, skip FDSkip) e
 }
 
 func applyConfiguredWindowsOpen(fd uintptr, config addrconfig.File) error {
-	noteOptionPhase("OPEN")
 	for _, action := range config.Actions {
 		if action.Kind != addrconfig.FileActionNoInherit {
 			continue
@@ -53,7 +52,6 @@ func applyConfiguredWindowsOpen(fd uintptr, config addrconfig.File) error {
 		if !action.Enabled {
 			flags = windows.HANDLE_FLAG_INHERIT
 		}
-		noteLifecycleSyscall("SetHandleInformation")
 		if err := windows.SetHandleInformation(windows.Handle(fd), windows.HANDLE_FLAG_INHERIT, flags); err != nil {
 			return fmt.Errorf("%s: SetHandleInformation: %w", action.Name, err)
 		}
@@ -62,7 +60,6 @@ func applyConfiguredWindowsOpen(fd uintptr, config addrconfig.File) error {
 }
 
 func applyConfiguredWindowsFDPhase(config addrconfig.File, skip FDSkip) error {
-	noteOptionPhase("FD")
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionPerm:
@@ -101,7 +98,6 @@ func applyConfiguredWindowsFDPhase(config addrconfig.File, skip FDSkip) error {
 }
 
 func applyConfiguredWindowsLate(fd uintptr, config addrconfig.File, skip FDSkip) error {
-	noteOptionPhase("LATE")
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionAppend:
@@ -150,7 +146,6 @@ func configuredWindowsTruncate(fd uintptr, offset int64) error {
 	if _, err := windows.Seek(h, offset, io.SeekStart); err != nil {
 		return fmt.Errorf("ftruncate: %w", err)
 	}
-	noteLifecycleSyscall("ftruncate")
 	if err := windows.SetEndOfFile(h); err != nil {
 		_, _ = windows.Seek(h, cur, io.SeekStart)
 		return fmt.Errorf("ftruncate: not a regular file: %w", err)
@@ -162,7 +157,6 @@ func configuredWindowsTruncate(fd uintptr, offset int64) error {
 }
 
 func configuredWindowsSeek(fd uintptr, offset int64, whence int, name string) error {
-	noteLifecycleSyscall("lseek")
 	if _, err := windows.Seek(windows.Handle(fd), offset, whence); err != nil {
 		return fmt.Errorf("%s: %w", name, err)
 	}

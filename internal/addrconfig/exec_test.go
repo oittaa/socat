@@ -95,10 +95,7 @@ func TestDecodeSYSTEMEmptyQuotedCommandIsPresent(t *testing.T) {
 
 func decodeProcess(t *testing.T, text string, kind AddressKind) Address {
 	t.Helper()
-	spec, err := parse.ParseSpec(text)
-	if err != nil {
-		t.Fatal(err)
-	}
+	spec := mustParseSpec(t, text)
 	got, err := Decode(spec, Facts{Type: spec.Type, Kind: kind})
 	if err != nil {
 		t.Fatal(err)

@@ -79,12 +79,7 @@ func deadlineErr(dl time.Time) error {
 	return os.ErrDeadlineExceeded
 }
 
-var pipeConnWaitHook func()
-
 func (c *pipeConn) waitDeadline(cond *sync.Cond, dl *time.Time) {
-	if h := pipeConnWaitHook; h != nil {
-		h()
-	}
 	deadline := *dl
 	if err := deadlineErr(deadline); err != nil {
 		return

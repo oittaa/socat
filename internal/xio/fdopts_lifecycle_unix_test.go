@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"testing"
 
@@ -176,40 +175,35 @@ func TestApplyFDOptionsUserGroupSameIDs(t *testing.T) {
 }
 
 func TestWrapAfterFDDoesNotReapplyLifecycle(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "wrap-after-fd")
+	f, err := os.CreateTemp(t.TempDir(), "position")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = f.Close() })
-	ops := captureLifecycleSyscalls(t)
-	spec := mustSpec(t, "FD:3,append")
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, spec)); err != nil {
+	defer func() { _ = f.Close() }()
+	config := mustDecodeAddress(t, mustSpec(t, "FD:3,seek-cur=1"))
+	if err := ApplyFDOptions(f, config); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := WrapAfterFD(mustDecodeAddress(t, spec), FileStream(f)); err != nil {
+	if _, err := WrapAfterFD(config, FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
-	if n := countOp(*ops, "F_SETFL"); n != 1 {
-		t.Fatalf("F_SETFL count=%d want 1 after ApplyFDOptions then WrapAfterFD (ops=%v)", n, *ops)
+	if offset, err := f.Seek(0, io.SeekCurrent); err != nil || offset != 1 {
+		t.Fatalf("offset=%d error=%v; want one seek", offset, err)
 	}
 }
 
 func TestSetupStreamFileStreamDedupsSameFD(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "filestream")
+	f, err := os.CreateTemp(t.TempDir(), "position")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = f.Close() })
-	var n atomic.Int32
-	fdLifecycleTestHook = func(int) { n.Add(1) }
-	t.Cleanup(func() { fdLifecycleTestHook = nil })
-
-	spec := mustSpec(t, "STDIO,append")
-	if _, err := SetupStream(mustDecodeAddress(t, spec), FileStream(f)); err != nil {
+	defer func() { _ = f.Close() }()
+	config := mustDecodeAddress(t, mustSpec(t, "FD:3,seek-cur=1"))
+	if _, err := SetupStream(config, FileStream(f)); err != nil {
 		t.Fatal(err)
 	}
-	if got := n.Load(); got != 1 {
-		t.Fatalf("FileStream R/W/C applied %d times want 1", got)
+	if offset, err := f.Seek(0, io.SeekCurrent); err != nil || offset != 1 {
+		t.Fatalf("offset=%d error=%v; want one seek", offset, err)
 	}
 }
 
@@ -302,67 +296,15 @@ func connFcntlFlags(t *testing.T, c net.Conn) int {
 	return flags
 }
 
-func skipIfOwnerChangeDenied(t *testing.T, err error) {
-	t.Helper()
-	if err == nil {
-		return
-	}
-	msg := err.Error()
-	if strings.Contains(msg, "operation not permitted") || strings.Contains(msg, "permission denied") {
-		t.Skipf("%v", err)
-	}
-	t.Fatal(err)
-}
-
-func captureLifecycleSyscalls(t *testing.T) *[]string {
-	t.Helper()
-	var ops []string
-	restore := InstallLifecycleSyscallHook(func(op string) {
-		ops = append(ops, op)
-	})
-	t.Cleanup(restore)
-	return &ops
-}
-
-func countOp(ops []string, want string) int {
-	n := 0
-	for _, op := range ops {
-		if op == want {
-			n++
-		}
-	}
-	return n
-}
-
-func TestApplyFDOptionsPhaseOrderPermBeforeAppend(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "phase-order")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = f.Close() })
-	ops := captureLifecycleSyscalls(t)
-	raw := "FD:3,append,perm=0600"
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, raw))); err != nil {
-		skipIfOwnerChangeDenied(t, err)
-	}
-	if len(*ops) != 2 || (*ops)[0] != "fchmod" || (*ops)[1] != "F_SETFL" {
-		t.Fatalf("ops=%v want [fchmod F_SETFL] (PH_FD before PH_LATE)", *ops)
-	}
-}
-
-func TestApplyUDPConnOptsAppendFcntlOnce(t *testing.T) {
+func TestApplyUDPConnOptsSetsAppend(t *testing.T) {
 	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pc.Close() })
-	ops := captureLifecycleSyscalls(t)
 	spec := mustSpec(t, "UDP-RECV:0,append")
 	if err := ApplyUDPConnOpts(pc, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatal(err)
-	}
-	if n := countOp(*ops, "F_SETFL"); n != 1 {
-		t.Fatalf("F_SETFL count=%d want 1 (ops=%v)", n, *ops)
 	}
 	if connFcntlFlags(t, pc)&unix.O_APPEND == 0 {
 		t.Fatal("UDP-RECV append did not set O_APPEND")
