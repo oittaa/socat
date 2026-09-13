@@ -291,3 +291,16 @@ func (p *prefixConn) Read(b []byte) (int, error) {
 	}
 	return p.Conn.Read(b)
 }
+
+// NetConn exposes the socket to xio's option lifecycle without making this
+// pre-buffered stream a syscall.Conn. The relay must consume prefix before it
+// polls or splice-copies the underlying socket, which would skip application
+// bytes that arrived with the CONNECT response.
+func (p *prefixConn) NetConn() net.Conn { return p.Conn }
+
+func (p *prefixConn) CloseWrite() error {
+	if cw, ok := p.Conn.(interface{ CloseWrite() error }); ok {
+		return cw.CloseWrite()
+	}
+	return nil
+}
