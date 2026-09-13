@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Summarize a go coverprofile for CI logs and $GITHUB_STEP_SUMMARY.
 # Functions at 0.0% are the useful signal: a test named after a helper
-# that never ran (see TestDualStdio) shows up here.
+# that never ran shows up here.
 set -euo pipefail
 
 profile=${1:?usage: coverage-summary.sh <coverprofile>}

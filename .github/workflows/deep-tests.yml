@@ -61,4 +61,4 @@ jobs:
           go build ./cmd/procan
       - name: Run live relay matrix
         shell: bash
-        run: go test -tags=e2e,relaymatrix -run '^TestRelayMatrix' ./e2e/ -count=1 -timeout=10m
+        run: go test -tags=e2e,relaymatrix ./e2e/... -count=1 -timeout=10m

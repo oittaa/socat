@@ -64,10 +64,9 @@ and waits for SSH. Copy scorecard output back to the Windows repository before
 resetting it.
 
 `check` packages the current Windows working tree into an isolated guest
-directory and runs the complete Linux `make check`. It loads the kernel's real
-AF_VSOCK loopback transport and then reruns every `TestVSOCK` with caching
-disabled; any VSOCK skip fails the check. It does not contact repo.or.cz. The
-guest directory is removed after the run.
+directory and runs the complete Linux `make check` with test caching disabled.
+It first loads the kernel's real AF_VSOCK loopback transport so those tests can
+run. It does not contact repo.or.cz. The guest directory is removed after the run.
 
 `parity` runs `make classic-parity` in the same kind of isolated guest directory.
 Its official source cache is persistent at
