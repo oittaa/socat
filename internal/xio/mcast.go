@@ -209,7 +209,6 @@ func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {
 	var mreq unix.IPv6Mreq
 	copy(mreq.Multiaddr[:], group.To16())
 	mreq.Interface = ifindex
-	recordSockoptBytes(fd, unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, nil)
 	if err := unix.SetsockoptIPv6Mreq(fd, unix.IPPROTO_IPV6, unix.IPV6_JOIN_GROUP, &mreq); err != nil {
 		return fmt.Errorf("ipv6-join-group: %w", err)
 	}

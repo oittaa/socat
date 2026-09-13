@@ -7,12 +7,13 @@ import (
 	"errors"
 	"io"
 	"net"
-	"sync"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -93,30 +94,40 @@ func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func(
 	if err != nil {
 		t.Fatal(err)
 	}
-	open := openUnixListen
-	if spec.Type == "ABSTRACT-LISTEN" {
-		open = openAbstractListen
-	}
-	bound := make(chan struct{})
-	var boundOnce sync.Once
-	defer xio.SetListenBoundTestHook(func(net.Addr) {
-		boundOnce.Do(func() { close(bound) })
-	})()
+	config := mustAddr(t, spec)
 	type result struct {
 		o   *xio.Opened
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		o, err := open(context.Background(), mustAddr(t, spec), xio.ModeRDWR, g)
+		o, err := openUnixListen(context.Background(), config, xio.ModeRDWR, g)
 		done <- result{o, err}
 	}()
-	select {
-	case <-bound:
-	case r := <-done:
-		t.Fatalf("listen ended before bind: %v", r.err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("listener did not bind")
+	wait, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	var earlyErr error
+	err = testutil.Until(wait, func() (bool, error) {
+		select {
+		case r := <-done:
+			earlyErr = r.err
+			return false, errors.New("listen ended before bind")
+		default:
+		}
+		_, err := os.Stat(spec.Params[0])
+		if err == nil {
+			return true, nil
+		}
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	})
+	if err != nil {
+		if earlyErr != nil {
+			t.Fatalf("listen ended before bind: %v", earlyErr)
+		}
+		t.Fatalf("listener did not bind: %v", err)
 	}
 	afterBind()
 	select {

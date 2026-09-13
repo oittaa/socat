@@ -19,17 +19,6 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func closedUDP4Port(t *testing.T) int {
-	t.Helper()
-	pc, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := pc.LocalAddr().(*net.UDPAddr).Port
-	_ = pc.Close()
-	return port
-}
-
 func recverrTestGlobal() (*xio.Global, *bytes.Buffer) {
 	var logBuf bytes.Buffer
 	lg := logx.New()
@@ -117,15 +106,9 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, 
 	if err != nil {
 		t.Fatal(err)
 	}
+	port := closedUDP4Port(t)
+	parsed.Params[0] = strconv.Itoa(port)
 	config := mustAddr(t, parsed)
-	bound := make(chan net.Addr, 1)
-	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
-		select {
-		case bound <- addr:
-		default:
-		}
-	})
-	t.Cleanup(restore)
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
@@ -138,15 +121,8 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, open func(context.Context, 
 		opened <- o
 	}()
 
-	var addr net.Addr
-	select {
-	case addr = <-bound:
-	case err := <-errc:
-		t.Fatal(err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("address did not bind")
-	}
-	client, err := net.DialUDP("udp4", nil, addr.(*net.UDPAddr))
+	waitUDP4Bound(t, port, errc)
+	client, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -365,7 +365,6 @@ func openIPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Global
 		nullEOF:    s.Transfer.NullEOF.Value,
 		v4:         network == "ip4",
 	}
-	xio.NoteListenBound(pc.LocalAddr())
 	return xio.NewAcceptParent(s.Type, xio.AcceptParent{
 		ForkSocketpair: true,
 		Listener:       ln,
@@ -480,15 +479,11 @@ func rawIPListenAddr(netw string, laddr *net.IPAddr) string {
 	return "0.0.0.0"
 }
 
-// testHookAfterRawIPPastSocket, when set, runs inside Dialer/ListenConfig
-// Control after socket() options and before bind/connect.
-var testHookAfterRawIPPastSocket func(network, address string, c syscall.RawConn) error
-
 func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAddr, s addrconfig.Address) (*net.IPConn, error) {
 	d := net.Dialer{
 		Timeout:   xio.ConnectTimeout(s),
 		LocalAddr: laddr,
-		Control:   xio.DialControl(s, network, testHookAfterRawIPPastSocket),
+		Control:   xio.DialControl(s, network, nil),
 	}
 	c, err := d.DialContext(ctx, netw, raddr.String())
 	if err != nil {
@@ -503,18 +498,7 @@ func dialRawIP(ctx context.Context, netw, network string, laddr, raddr *net.IPAd
 }
 
 func listenRawIP(ctx context.Context, netw, _ string, laddr *net.IPAddr, s addrconfig.Address) (*net.IPConn, error) {
-	inner := xio.ListenControl(s)
-	lc := net.ListenConfig{
-		Control: func(network, address string, c syscall.RawConn) error {
-			if err := inner(network, address, c); err != nil {
-				return err
-			}
-			if h := testHookAfterRawIPPastSocket; h != nil {
-				return h(network, address, c)
-			}
-			return nil
-		},
-	}
+	lc := net.ListenConfig{Control: xio.ListenControl(s)}
 	pc, err := lc.ListenPacket(ctx, netw, rawIPListenAddr(netw, laddr))
 	if err != nil {
 		return nil, err

@@ -160,7 +160,6 @@ func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mo
 		return nil, err
 	}
 	local := filePacketAddr(f)
-	xio.NoteListenBound(local)
 
 	if fork {
 		return openSocketRecvfromFork(ctx, s, g, f, filter)

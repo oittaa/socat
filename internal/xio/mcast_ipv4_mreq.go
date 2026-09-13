@@ -22,10 +22,6 @@ func setIPv4MembershipFD(fd int, group, ifaceAddr net.IP, ifindex uint32, idxSet
 	if ifaceAddr != nil {
 		copy(mreq.Interface[:], ifaceAddr.To4())
 	}
-	payload := make([]byte, 0, len(mreq.Multiaddr)+len(mreq.Interface))
-	payload = append(payload, mreq.Multiaddr[:]...)
-	payload = append(payload, mreq.Interface[:]...)
-	recordSockoptBytes(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, payload)
 	if err := unix.SetsockoptIPMreq(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreq); err != nil {
 		return fmt.Errorf("ip-add-membership: %w", err)
 	}

@@ -216,51 +216,6 @@ func tcpPort(t *testing.T, o *xio.Opened) string {
 	return strconv.Itoa(listenerPort(t, o))
 }
 
-func sockaddrPort(t *testing.T, addr net.Addr) int {
-	t.Helper()
-	switch a := addr.(type) {
-	case *net.TCPAddr:
-		return a.Port
-	case *net.UDPAddr:
-		return a.Port
-	default:
-		t.Fatalf("listen addr %T", addr)
-		return 0
-	}
-}
-
-func listenBoundPort(t *testing.T) (<-chan net.Addr, func()) {
-	t.Helper()
-	bound := make(chan net.Addr, 1)
-	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
-		select {
-		case bound <- addr:
-		default:
-		}
-	})
-	return bound, restore
-}
-
-func waitBoundPort(t *testing.T, bound <-chan net.Addr, failed <-chan error) int {
-	t.Helper()
-	select {
-	case addr := <-bound:
-		port := sockaddrPort(t, addr)
-		if port == 0 {
-			t.Fatal("listen bound port 0")
-		}
-		return port
-	case err := <-failed:
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Fatal("listen returned before bind")
-	case <-time.After(4 * time.Second):
-		t.Fatal("listen did not bind")
-	}
-	return 0
-}
-
 func localUDPPort(t *testing.T, o *xio.Opened) int {
 	t.Helper()
 	type localAddrer interface{ LocalAddr() net.Addr }
@@ -441,13 +396,16 @@ func TestPIPEToTCPListenFork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound, restore := listenBoundPort(t)
-	defer restore()
+	reserved, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := reserved.Addr().(*net.TCPAddr).Port
+	_ = reserved.Close()
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- xio.RunOpened(ctx, left, mustParse(t, "TCP-LISTEN:0,reuseaddr,fork,bind=127.0.0.1"), cloneGlobal(nil))
+		errCh <- xio.RunOpened(ctx, left, mustParse(t, fmt.Sprintf("TCP-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1", port)), cloneGlobal(nil))
 	}()
-	port := waitBoundPort(t, bound, errCh)
 	cli := openClient(t, ctx, testGlobal(), fmt.Sprintf("TCP:127.0.0.1:%d,connect-timeout=2", port))
 	echoLive(t, streamOf(t, cli), []byte("right-listen"))
 }

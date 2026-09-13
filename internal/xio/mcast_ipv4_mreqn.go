@@ -22,7 +22,6 @@ func setIPv4MembershipFD(fd int, group, ifaceAddr net.IP, ifindex uint32, idxSet
 	if idxSet {
 		mreqn.Ifindex = int32(ifindex) // #nosec G115 -- preserve the parsed index bits in the signed kernel field
 	}
-	recordSockoptBytes(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, nil)
 	if err := unix.SetsockoptIPMreqn(fd, unix.IPPROTO_IP, unix.IP_ADD_MEMBERSHIP, &mreqn); err != nil {
 		return fmt.Errorf("ip-add-membership: %w", err)
 	}

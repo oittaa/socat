@@ -17,7 +17,6 @@ import (
 
 func setIPv4SourceMembershipFD(fd int, group, iface, source net.IP) error {
 	mreq := packIPMreqSource(group, iface, source)
-	recordSockoptBytes(fd, unix.IPPROTO_IP, unix.IP_ADD_SOURCE_MEMBERSHIP, mreq[:])
 	if err := unix.SetsockoptString(fd, unix.IPPROTO_IP, unix.IP_ADD_SOURCE_MEMBERSHIP, string(mreq[:])); err != nil {
 		return fmt.Errorf("ip-add-source-membership: %w", err)
 	}
@@ -31,7 +30,6 @@ func setIPv6SourceMembershipFD(fd int, group net.IP, ifindex uint32, source net.
 	putSockaddrInet6(&req.Source, source)
 	n := unsafe.Sizeof(req)
 	buf := unsafe.Slice((*byte)(unsafe.Pointer(&req)), n) // #nosec G103 -- kernel struct group_source_req bytes for MCAST_JOIN_SOURCE_GROUP
-	recordSockoptBytes(fd, unix.IPPROTO_IPV6, unix.MCAST_JOIN_SOURCE_GROUP, buf)
 	if err := unix.SetsockoptString(fd, unix.IPPROTO_IPV6, unix.MCAST_JOIN_SOURCE_GROUP, string(buf)); err != nil {
 		return fmt.Errorf("ipv6-join-source-group: %w", err)
 	}

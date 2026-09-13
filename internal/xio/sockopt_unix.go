@@ -33,22 +33,18 @@ func isNotSocketError(err error) bool {
 }
 
 func setSockoptInt(fd, level, opt, value int) error {
-	recordSockoptInt(fd, level, opt, value)
 	return unix.SetsockoptInt(fd, level, opt, value)
 }
 
 func setSockoptBytes(fd, level, opt int, value []byte) error {
-	recordSockoptBytes(fd, level, opt, value)
 	return unix.SetsockoptString(fd, level, opt, string(value))
 }
 
 func setSockoptByte(fd, level, opt int, value byte) error {
-	recordSockoptBytes(fd, level, opt, []byte{value})
 	return unix.SetsockoptByte(fd, level, opt, value)
 }
 
 func setSockoptInet4Addr(fd, level, opt int, value [4]byte) error {
-	recordSockoptBytes(fd, level, opt, value[:])
 	return unix.SetsockoptInet4Addr(fd, level, opt, value)
 }
 
