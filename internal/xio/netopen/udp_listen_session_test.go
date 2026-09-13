@@ -24,6 +24,7 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = pc.Close() })
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
@@ -59,7 +60,7 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	return nil, nil
 }
 
-func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
+func TestUDPListenCancelBeforeFirstDatagram(t *testing.T) {
 	parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +72,7 @@ func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = pc.Close() })
 	if pc.LocalAddr().(*net.UDPAddr).Port == 0 {
 		t.Fatal("UDP-LISTEN bound port 0")
 	}
@@ -82,14 +84,12 @@ func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
 		}
 		opened <- err
 	}()
-	select {
-	case err := <-opened:
-		t.Fatalf("open returned before the first datagram: %v", err)
-	default:
-	}
 	cancel()
 	select {
-	case <-opened:
+	case err := <-opened:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("open error=%v want cancellation", err)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("open did not return after cancel")
 	}
@@ -306,6 +306,7 @@ func openUDP4RecvfromAfter(t *testing.T, spec string, send func(*net.UDPConn)) *
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = pc.Close() })
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {

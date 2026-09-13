@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -99,18 +98,21 @@ func startNetNSListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, spec
 	}()
 	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	err = xio.WithNetNS(ns, g, func() error {
-		return testutil.Until(wait, func() (bool, error) {
-			select {
-			case err := <-errc:
-				if err == nil {
-					return false, fmt.Errorf("listener exited before bind")
-				}
-				return false, err
-			default:
+	protocol := "-t"
+	if network == "udp4" {
+		protocol = "-u"
+	}
+	err = testutil.Until(wait, func() (bool, error) {
+		select {
+		case err := <-errc:
+			if err == nil {
+				return false, fmt.Errorf("listener exited before bind")
 			}
-			return testutil.Occupied(wait, net.ListenConfig{}, network, fmt.Sprintf("127.0.0.1:%d", port))
-		})
+			return false, err
+		default:
+		}
+		out, err := exec.CommandContext(wait, "ip", "netns", "exec", ns, "ss", "-H", "-ln", protocol, "sport", "=", fmt.Sprintf(":%d", port)).Output()
+		return len(out) != 0, err
 	})
 	if err != nil {
 		t.Fatalf("listen %s: %v", spec, err)

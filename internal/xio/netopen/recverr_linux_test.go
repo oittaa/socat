@@ -121,6 +121,7 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, recvfrom bool, g *xio.Globa
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = pc.Close() })
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
@@ -143,6 +144,7 @@ func openUDP4RecvErrFirst(t *testing.T, spec string, recvfrom bool, g *xio.Globa
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = client.Close() })
 	if _, err := client.Write([]byte("hello")); err != nil {
 		t.Fatal(err)
 	}

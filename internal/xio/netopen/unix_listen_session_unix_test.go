@@ -5,9 +5,9 @@ package netopen
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
-	"os"
 	"testing"
 	"time"
 
@@ -75,61 +75,45 @@ func TestUnixListenAcceptTimeoutPositive(t *testing.T) {
 func TestUnixListenAcceptTimeoutZeroAccepts(t *testing.T) {
 	path := unixSocketTestPath(t, "listen.sock")
 	g := &xio.Global{Log: logx.New()}
-	o := openUnixListenOnce(t, "UNIX-LISTEN:"+path+",unlink-early,accept-timeout=0", g, func() {
-		c, err := net.Dial("unix", path)
-		if err != nil {
-			t.Error(err)
-			return
-		}
-		t.Cleanup(func() { _ = c.Close() })
-	})
+	o := openUnixListenOnce(t, "UNIX-LISTEN:"+path+",unlink-early,accept-timeout=0", g)
 	if o.Stream() == nil {
 		t.Fatal("accept-timeout=0 did not accept")
 	}
 }
 
-func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func()) *xio.Opened {
+func openUnixListenOnce(t *testing.T, raw string, g *xio.Global) *xio.Opened {
 	t.Helper()
 	spec, err := parse.ParseSpec(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	config := mustAddr(t, spec)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
 	type result struct {
 		o   *xio.Opened
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		o, err := openUnixListen(context.Background(), config, xio.ModeRDWR, g)
+		o, err := openUnixListen(ctx, config, xio.ModeRDWR, g)
 		done <- result{o, err}
 	}()
-	wait, cancel := context.WithTimeout(t.Context(), 3*time.Second)
-	defer cancel()
-	var earlyErr error
-	err = testutil.Until(wait, func() (bool, error) {
+	var client net.Conn
+	err = testutil.Until(ctx, func() (bool, error) {
 		select {
 		case r := <-done:
-			earlyErr = r.err
-			return false, errors.New("listen ended before bind")
+			return false, fmt.Errorf("listen ended before accept: %v", r.err)
 		default:
 		}
-		_, err := os.Stat(spec.Params[0])
-		if err == nil {
-			return true, nil
-		}
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
+		var err error
+		client, err = (&net.Dialer{}).DialContext(ctx, "unix", spec.Params[0])
+		return err == nil, nil
 	})
 	if err != nil {
-		if earlyErr != nil {
-			t.Fatalf("listen ended before bind: %v", earlyErr)
-		}
-		t.Fatalf("listener did not bind: %v", err)
+		t.Fatal(err)
 	}
-	afterBind()
+	defer func() { _ = client.Close() }()
 	select {
 	case r := <-done:
 		if r.err != nil {
@@ -137,7 +121,7 @@ func openUnixListenOnce(t *testing.T, raw string, g *xio.Global, afterBind func(
 		}
 		t.Cleanup(func() { _ = r.o.Close() })
 		return r.o
-	case <-time.After(3 * time.Second):
+	case <-ctx.Done():
 		t.Fatal("listener did not accept")
 	}
 	return nil
@@ -200,13 +184,7 @@ func TestUnixListenForkPeerEnvironment(t *testing.T) {
 func TestUnixListenUnnamedPeerEnvironment(t *testing.T) {
 	path := unixSocketTestPath(t, "listen.sock")
 	g := xio.NewSession(xio.Options{}, logx.New())
-	openUnixListenOnce(t, "UNIX-LISTEN:"+path, g, func() {
-		c, err := net.Dial("unix", path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer func() { _ = c.Close() }()
-	})
+	openUnixListenOnce(t, "UNIX-LISTEN:"+path, g)
 	if g.Peer.SockAddr != path || g.Peer.PeerAddr != "<anon>" || g.Peer.SockPort != "" || g.Peer.PeerPort != "" {
 		t.Fatalf("UNIX environment: %+v", g.Peer)
 	}

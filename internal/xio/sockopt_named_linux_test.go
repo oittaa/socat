@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
@@ -219,27 +220,24 @@ func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	}
 }
 
-func TestApplySocketOptionsSOPriorityOnSocketpairLinux(t *testing.T) {
-	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		_ = unix.Close(fds[0])
-		_ = unix.Close(fds[1])
-	})
+func TestExecSocketpairAppliesSOPriorityToChildLinux(t *testing.T) {
 	spec, err := parse.ParseSpec("EXEC:/bin/true,so-priority=5")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplySocketOptions(fds[1], mustDecodeAddress(t, spec)); err != nil {
+	stream, cleanup, child, err := startCmdSocketpair(mustDecodeAddress(t, spec), ModeRDWR, &exec.Cmd{}, false)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if got := unixSockoptInt(t, fds[0], unix.SO_PRIORITY); got != 0 {
-		t.Fatalf("unchanged endpoint SO_PRIORITY=%d want 0", got)
+	t.Cleanup(func() { _ = child.Close() })
+	for _, close := range cleanup {
+		t.Cleanup(close)
 	}
-	if got := unixSockoptInt(t, fds[1], unix.SO_PRIORITY); got != 5 {
-		t.Fatalf("configured endpoint SO_PRIORITY=%d want 5", got)
+	if got := unixSockoptInt(t, int(asOSFile(stream).Fd()), unix.SO_PRIORITY); got != 0 {
+		t.Fatalf("parent SO_PRIORITY=%d want 0", got)
+	}
+	if got := unixSockoptInt(t, int(child.Fd()), unix.SO_PRIORITY); got != 5 {
+		t.Fatalf("child SO_PRIORITY=%d want 5", got)
 	}
 }
 

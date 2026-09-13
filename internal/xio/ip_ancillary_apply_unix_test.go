@@ -10,43 +10,23 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func TestQUICClientListenControlAppliesIPTTL(t *testing.T) {
-	spec, err := parse.ParseSpec("QUIC:127.0.0.1:1,ip-ttl=64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
-	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
-	uc, ok := pc.(*net.UDPConn)
-	if !ok {
-		t.Fatalf("packet conn type %T want *net.UDPConn", pc)
-	}
-	if got := udpLevelSockoptInt(t, uc, unix.IPPROTO_IP, unix.IP_TTL); got != 64 {
-		t.Fatalf("IP_TTL=%d want 64", got)
-	}
-}
-
-func TestQUICListenerListenControlAppliesIPTTL(t *testing.T) {
-	spec, err := parse.ParseSpec("QUIC-LISTEN:0,ip-ttl=64")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
-	pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = pc.Close() })
-	uc, ok := pc.(*net.UDPConn)
-	if !ok {
-		t.Fatalf("packet conn type %T want *net.UDPConn", pc)
-	}
-	if got := udpLevelSockoptInt(t, uc, unix.IPPROTO_IP, unix.IP_TTL); got != 64 {
-		t.Fatalf("IP_TTL=%d want 64", got)
+func TestQUICListenControlAppliesIPTTL(t *testing.T) {
+	for _, raw := range []string{"QUIC:127.0.0.1:1,ip-ttl=37", "QUIC-LISTEN:0,ip-ttl=37"} {
+		t.Run(raw, func(t *testing.T) {
+			spec, err := parse.ParseSpec(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			lc := net.ListenConfig{Control: ListenControl(mustDecodeAddress(t, spec))}
+			pc, err := lc.ListenPacket(t.Context(), "udp4", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = pc.Close() })
+			if got := udpLevelSockoptInt(t, pc.(*net.UDPConn), unix.IPPROTO_IP, unix.IP_TTL); got != 37 {
+				t.Fatalf("IP_TTL=%d want 37", got)
+			}
+		})
 	}
 }
 
