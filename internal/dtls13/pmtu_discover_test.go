@@ -72,7 +72,7 @@ func TestMTUDiscoveryRequiresRRC(t *testing.T) {
 	if err := client.tick(now); err != nil {
 		t.Fatal(err)
 	}
-	if client.mtu.outstanding != nil || client.canSendMTUProbe() != errProbeDisabled {
+	if client.mtu.outstanding != nil || client.mtuDiscoveryEnabled() {
 		t.Fatal("search started without CID/RRC")
 	}
 }
@@ -238,5 +238,59 @@ func TestMTUDiscoveryIgnoresSharedListener(t *testing.T) {
 	}
 	if p.server.mtu.outstanding != nil {
 		t.Fatal("listener association started discovery")
+	}
+}
+
+func TestMTUProbeDoesNotStallApplication(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	if err := p.client.tick(time.Unix(1000, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding == nil {
+		t.Fatal("discovery did not send a probe")
+	}
+	if err := p.client.application([]byte("still writable")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMTUProbeOneOutstanding(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	now := time.Unix(1000, 0)
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.client.sendMTUProbe(p.client.effectiveMTU(), now, probeConfirm); err != errProbePending {
+		t.Fatalf("second probe: %v", err)
+	}
+}
+
+func TestMTUProbeSizeBounds(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	for _, size := range []int{p.client.mtuCeiling() + 1, 8} {
+		if err := p.client.sendMTUProbe(size, time.Unix(1000, 0), probeConfirm); err != errProbeSize {
+			t.Fatalf("probe size %d: %v", size, err)
+		}
+	}
+}
+
+func TestMTUProbeDeadlineIsOwnedBySession(t *testing.T) {
+	p := newDiscoveryPaths(t)
+	now := time.Unix(1000, 0)
+	if err := p.client.tick(now); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding == nil {
+		t.Fatal("discovery did not send a probe")
+	}
+	want := now.Add(probeTimeout)
+	if got := p.client.deadline(); got.IsZero() || got.After(want) {
+		t.Fatalf("session deadline %v does not include probe timeout %v", got, want)
+	}
+	if err := p.client.tick(want); err != nil {
+		t.Fatal(err)
+	}
+	if p.client.mtu.outstanding != nil {
+		t.Fatal("probe still outstanding after deadline tick")
 	}
 }

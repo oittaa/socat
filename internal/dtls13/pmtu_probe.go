@@ -36,9 +36,7 @@ func (s *session) probeCID() []byte {
 }
 
 func (s *session) canSendMTUProbe() error {
-	h := s.handshake
-	if !s.working.canProbe || !s.handshakeAcknowledged() || h.config == nil || !h.config.UnfragmentedProbes ||
-		!h.rrc || !h.cidNegotiated || s.path == nil {
+	if !s.mtuDiscoveryEnabled() {
 		return errProbeDisabled
 	}
 	if s.path.probe != nil || s.keyUpdate.localPending || s.keyUpdate.updating {

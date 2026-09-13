@@ -26,6 +26,12 @@ func (s *session) handshakeAcknowledged() bool {
 	return h != nil && h.complete && (s.outbound == nil || s.outbound.complete)
 }
 
+func (s *session) mtuDiscoveryEnabled() bool {
+	h := s.handshake
+	return s.working.canProbe && s.handshakeAcknowledged() && h.config != nil && h.config.UnfragmentedProbes &&
+		h.rrc && h.cidNegotiated && s.path != nil
+}
+
 func (s *session) mtuProbeMin() int {
 	return rrcProbeOverhead(len(s.probeCID()), s.recordTagLen())
 }
@@ -44,7 +50,7 @@ func (s *session) restartMTUConfirm() {
 	s.mtu.nextProbe = time.Time{}
 	s.mtu.raiseAt = time.Time{}
 	s.mtu.confirmAt = time.Time{}
-	if s.canSendMTUProbe() == errProbeDisabled {
+	if !s.mtuDiscoveryEnabled() {
 		s.mtu.phase = mtuDisabled
 		s.mtu.searchAfterConfirm = false
 		return
@@ -59,7 +65,7 @@ func (s *session) noteMTUActivity() {
 
 func (s *session) onApplicationTooBig() {
 	_ = s.reduceHandshakeMTU(s.working.lastSendSize)
-	if s.canSendMTUProbe() != errProbeDisabled {
+	if s.mtuDiscoveryEnabled() {
 		s.restartMTUConfirm()
 	}
 }
@@ -139,7 +145,7 @@ func (s *session) tickMTUDiscovery(now time.Time) {
 	if s.mtu.outstanding != nil {
 		return
 	}
-	if s.canSendMTUProbe() == errProbeDisabled {
+	if !s.mtuDiscoveryEnabled() {
 		s.mtu.phase = mtuDisabled
 		return
 	}
@@ -232,7 +238,7 @@ func (s *session) mtuDeadline() time.Time {
 	if s.mtu.outstanding != nil {
 		return s.mtu.outstanding.deadline
 	}
-	if s.mtu.phase == mtuDisabled || s.canSendMTUProbe() == errProbeDisabled {
+	if s.mtu.phase == mtuDisabled || !s.mtuDiscoveryEnabled() {
 		return time.Time{}
 	}
 	if s.mtu.phase == mtuWatch {
