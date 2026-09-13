@@ -10,8 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var setnsFunc = unix.Setns
-
 func init() {
 	FeatureNAMESPACES = true
 }
@@ -51,7 +49,7 @@ func WithNetNS(name string, g *Global, fn func() error) (err error) {
 		_ = unix.Close(saved)
 		return fmt.Errorf("open(%s, O_RDONLY|O_CLOEXEC): %w", nspath, err)
 	}
-	if err := setnsFunc(nsfd, unix.CLONE_NEWNET); err != nil {
+	if err := unix.Setns(nsfd, unix.CLONE_NEWNET); err != nil {
 		_ = unix.Close(nsfd)
 		_ = unix.Close(saved)
 		return fmt.Errorf("setns(%d, CLONE_NEWNET): %w", nsfd, err)
@@ -68,7 +66,7 @@ func WithNetNS(name string, g *Global, fn func() error) (err error) {
 // runtime cannot schedule unrelated goroutines on the contaminated OS thread.
 func runAndRestoreNetNS(saved int, safeToReuse *bool, fn func() error) (err error) {
 	defer func() {
-		if restoreErr := setnsFunc(saved, unix.CLONE_NEWNET); restoreErr != nil {
+		if restoreErr := unix.Setns(saved, unix.CLONE_NEWNET); restoreErr != nil {
 			err = errors.Join(err, fmt.Errorf("setns(%d, CLONE_NEWNET): %w", saved, restoreErr))
 			return
 		}
