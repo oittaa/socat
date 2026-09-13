@@ -19,7 +19,7 @@ import (
 func writeSOCATIPEnvScript(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "print-socat-ip.sh")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$SOCAT_IP_DSTADDR\"\nprintf '%s\\n' \"$SOCAT_IP_IF\"\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$SOCAT_IP_DSTADDR\"\nprintf '%s\\n' \"$SOCAT_IP_IF\"\nprintf '%s\\n' \"$SOCAT_PEERADDR\"\n"
 	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(bin, "-u",
-			fmt.Sprintf("UDP4-RECVFROM:%d,reuseaddr,ip-recvdstaddr,ip-recvif", port),
+			fmt.Sprintf("UDP4-RECVFROM:%d,reuseaddr,fork,ip-recvdstaddr,ip-recvif", port),
 			"EXEC:"+script)
 		cmd.Stdout = out
 		proc, err := startTestProcess(cmd)
@@ -162,7 +162,7 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 				return false
 			}
 			got := strings.Split(strings.TrimSpace(string(b)), "\n")
-			return len(got) >= 2 && got[0] == "127.0.0.1" && got[1] == wantIF
+			return len(got) >= 3 && got[0] == "127.0.0.1" && got[1] == wantIF && got[2] == "127.0.0.1"
 		}, func() string { return processDiag(proc, nil) }, proc.done)
 	})
 }

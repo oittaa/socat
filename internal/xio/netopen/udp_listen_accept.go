@@ -109,20 +109,17 @@ func (a *udpForkAccept) step() acceptNext {
 		return acceptAgain()
 	}
 
-	session := a.childSession()
 	if a.l.oneShot {
-		xio.ProcessAncillary(got.packet.oob, session)
-		return acceptChild(a.l.newUDPOneshotChild(a.pc, got.packet, session), nil)
+		return acceptChild(a.l.newUDPOneshotChild(a.pc, got.packet), nil)
 	}
 	if !xio.UDPForkPortReuse(a.l.config) {
-		xio.ProcessAncillary(got.packet.oob, session)
-		child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
+		child := a.l.newUDPForkChild(got.packet, a.wantCtrl, a.recvErr)
 		return acceptChild(a.l.handoffListenSocket(child))
 	}
 	if !a.peekDial {
 		return acceptFail(fmt.Errorf("UDP fork listener: peek-before-dial unavailable"))
 	}
-	return a.acceptReuse(got.addr, got.packet, got.consumed, session)
+	return a.acceptReuse(got.addr, got.packet, got.consumed)
 }
 
 func (a *udpForkAccept) setReadDeadline() {
@@ -195,11 +192,7 @@ func (a *udpForkAccept) filterPeer(addr *net.UDPAddr, consumed bool) acceptNext 
 	return acceptNext{}
 }
 
-func (a *udpForkAccept) childSession() *xio.Global {
-	return a.l.g.ForkSession()
-}
-
-func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool, session *xio.Global) acceptNext {
+func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, consumed bool) acceptNext {
 	local := a.l.laddr
 	if la, ok := a.pc.LocalAddr().(*net.UDPAddr); ok {
 		local = cloneUDPAddr(la)
@@ -216,8 +209,7 @@ func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, con
 		return next
 	}
 
-	xio.ProcessAncillary(got.packet.oob, session)
-	child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
+	child := a.l.newUDPForkChild(got.packet, a.wantCtrl, a.recvErr)
 	child.setConnected(conn)
 	a.drainForChild(child)
 	return acceptChild(child, nil)

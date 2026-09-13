@@ -216,9 +216,6 @@ func (l *udpDispatchListener) readLoop() {
 		if child != nil && child.enqueue(packet) {
 			continue
 		}
-		session := l.base.g.ForkSession()
-		xio.ProcessAncillary(packet.oob, session)
-		packet.oob = nil // opener ancillary is available before the child starts
 		child = &udpDispatchConn{
 			listener:        l,
 			pc:              l.base.pc,
@@ -229,8 +226,6 @@ func (l *udpDispatchListener) readLoop() {
 			packets:         make(chan udpForkPacket, udpDispatchPacketQueueSize),
 			done:            make(chan struct{}),
 			deadlineChanged: make(chan struct{}, 1),
-			env:             session.SessionVarsSnapshot(),
-			g:               session,
 			recvErr:         xio.NeedRecvErr(l.base.config),
 		}
 		l.mu.Lock()
@@ -270,7 +265,6 @@ type udpDispatchConn struct {
 	pc       *net.UDPConn // shared listen socket; Close does not close it
 	peer     *net.UDPAddr
 	key      string
-	env      map[string]string
 	g        *xio.Global
 	recvErr  bool
 
@@ -287,11 +281,14 @@ type udpDispatchConn struct {
 	deadlineChanged chan struct{}
 }
 
-func (c *udpDispatchConn) SessionEnvironment() map[string]string {
-	if c.g != nil {
-		return c.g.SessionVarsSnapshot()
+func (c *udpDispatchConn) SetSession(g *xio.Global) {
+	c.g = g
+	c.readMu.Lock()
+	if c.havePending {
+		xio.ProcessAncillary(c.pending.oob, g)
+		c.pending.oob = nil
 	}
-	return c.env
+	c.readMu.Unlock()
 }
 
 func (c *udpDispatchConn) enqueue(packet udpForkPacket) bool {

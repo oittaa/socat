@@ -906,19 +906,16 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 		if l.v4 {
 			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
-		session := l.g.ForkSession()
-		xio.ProcessAncillary(oob, session)
 		peer := ipAddrFromNet(a)
-		rememberRawIPPeer(session, peer, l.pc.LocalAddr())
 		return newOneshotForkConn(
 			append([]byte(nil), buf[:rn]...),
+			append([]byte(nil), oob...),
 			l.pc.LocalAddr(),
 			peer,
-			session,
 			&l.writeMu,
 			l.pc.SetWriteDeadline,
 			func(p []byte) (int, error) { return l.pc.WriteToIP(p, peer) },
-			func(err error) { xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.config), l.pc, session) },
+			func(err error, g *xio.Global) { xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.config), l.pc, g) },
 		), nil
 	}
 }

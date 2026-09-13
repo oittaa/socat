@@ -366,7 +366,7 @@ func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, 
 	return child, nil
 }
 
-func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPacket, session *xio.Global) *oneshotForkConn {
+func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPacket) *oneshotForkConn {
 	peer := cloneUDPAddr(packet.peer)
 	local := pc.LocalAddr()
 	if local == nil && l.laddr != nil {
@@ -375,26 +375,25 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 	recvErr := xio.NeedRecvErr(l.config)
 	return newOneshotForkConn(
 		append([]byte(nil), packet.data...),
+		append([]byte(nil), packet.oob...),
 		local,
 		peer,
-		session,
 		&l.writeMu,
 		pc.SetWriteDeadline,
 		func(p []byte) (int, error) { return writeToUDPWithFallback(pc, p, peer) },
-		func(err error) { xio.DrainRecvErrOnError(err, recvErr, pc, session) },
+		func(err error, g *xio.Global) { xio.DrainRecvErrOnError(err, recvErr, pc, g) },
 	)
 }
 
-func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
+func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, wantCtrl, recvErr bool) *udpSessionConn {
 	return &udpSessionConn{
-		role:     udpRoleConnected,
-		peer:     cloneUDPAddr(packet.peer),
-		first:    newFirstPacket(append([]byte(nil), packet.data...)),
-		env:      session.SessionVarsSnapshot(),
-		writeMu:  &l.writeMu,
-		wantCtrl: wantCtrl,
-		recvErr:  recvErr,
-		g:        session,
+		role:       udpRoleConnected,
+		peer:       cloneUDPAddr(packet.peer),
+		first:      newFirstPacket(append([]byte(nil), packet.data...)),
+		initialOOB: append([]byte(nil), packet.oob...),
+		writeMu:    &l.writeMu,
+		wantCtrl:   wantCtrl,
+		recvErr:    recvErr,
 	}
 }
 
@@ -497,13 +496,13 @@ const (
 // Do NOT embed *net.UDPConn: sessions can have datagrams buffered outside the
 // socket while UDP-LISTEN routes packets received during child setup.
 type udpSessionConn struct {
-	role      udpSessionRole
-	sock      *net.UDPConn
-	peer      *net.UDPAddr
-	first     firstPacket
-	closeOnce sync.Once
-	closeErr  error
-	env       map[string]string
+	role       udpSessionRole
+	sock       *net.UDPConn
+	peer       *net.UDPAddr
+	first      firstPacket
+	closeOnce  sync.Once
+	closeErr   error
+	initialOOB []byte
 
 	writeMu       *sync.Mutex
 	writeDL       sharedWriteDeadline
@@ -525,11 +524,10 @@ func (u *udpSessionConn) setHandoff(c *net.UDPConn) {
 	u.sock = c
 }
 
-func (u *udpSessionConn) SessionEnvironment() map[string]string {
-	if u.g != nil {
-		return u.g.SessionVarsSnapshot()
-	}
-	return u.env
+func (u *udpSessionConn) SetSession(g *xio.Global) {
+	u.g = g
+	xio.ProcessAncillary(u.initialOOB, g)
+	u.initialOOB = nil
 }
 
 func (u *udpSessionConn) drainRecvErr(err error) {

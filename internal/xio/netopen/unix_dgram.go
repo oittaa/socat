@@ -366,13 +366,11 @@ func (l *unixgramListener) Accept() (net.Conn, error) {
 
 func (l *unixgramListener) newUnixOneshotChild(data []byte, peer *net.UnixAddr) *oneshotForkConn {
 	peer = cloneUnixAddr(peer)
-	session := l.g.ForkSession()
-	rememberUnixgramPeer(session, peer)
 	return newOneshotForkConn(
 		append([]byte(nil), data...),
+		nil,
 		l.c.LocalAddr(),
 		peer,
-		session,
 		&l.writeMu,
 		l.c.SetWriteDeadline,
 		func(p []byte) (int, error) {
