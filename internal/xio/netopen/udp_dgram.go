@@ -365,7 +365,6 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	xio.NoteListenBound(pc.LocalAddr())
 	return xio.NewAcceptParent("UDP-RECVFROM", xio.AcceptParent{
 		Listener:       ln,
 		ForkSocketpair: true,
@@ -376,7 +375,6 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 }
 
 func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn) (*xio.Opened, error) {
-	xio.NoteListenBound(pc.LocalAddr())
 	// UDP-RECVFROM is not a listen address: wait for the first permitted
 	// datagram with no accept-timeout.
 	// One permitted packet, then use the *same* listening socket for replies.

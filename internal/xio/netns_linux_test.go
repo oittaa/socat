@@ -82,6 +82,43 @@ func connectNS(t *testing.T, ctx context.Context, g *xio.Global, spec string) *x
 	return cli
 }
 
+func startNetNSListenPIPE(t *testing.T, ctx context.Context, g *xio.Global, spec, network string, port int, ns string) {
+	t.Helper()
+	listen, err := parse.ParseChannel(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pipe, err := parse.ParseChannel("PIPE")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errc := make(chan error, 1)
+	go func() {
+		errc <- xio.Run(ctx, listen, pipe, g)
+	}()
+	wait, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	protocol := "-t"
+	if network == "udp4" {
+		protocol = "-u"
+	}
+	err = testutil.Until(wait, func() (bool, error) {
+		select {
+		case err := <-errc:
+			if err == nil {
+				return false, fmt.Errorf("listener exited before bind")
+			}
+			return false, err
+		default:
+		}
+		out, err := exec.CommandContext(wait, "ip", "netns", "exec", ns, "ss", "-H", "-ln", protocol, "sport", "=", fmt.Sprintf(":%d", port)).Output()
+		return len(out) != 0, err
+	})
+	if err != nil {
+		t.Fatalf("listen %s: %v", spec, err)
+	}
+}
+
 func echoRW(t *testing.T, st io.ReadWriter, payload []byte) {
 	t.Helper()
 	if _, err := st.Write(payload); err != nil {
@@ -105,7 +142,7 @@ func TestNetNSTCPEcho(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	port := 18000 + os.Getpid()%1000
-	startListenPIPE(t, ctx, g, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,netns=%s", port, ns))
+	startNetNSListenPIPE(t, ctx, g, fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,netns=%s", port, ns), "tcp4", port, ns)
 	cli := connectNS(t, ctx, separateNetNSGlobal(g), fmt.Sprintf("TCP4:127.0.0.1:%d,netns=%s", port, ns))
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-tcp\n"))
@@ -116,7 +153,7 @@ func TestNetNSUDPEcho(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	port := 20000 + os.Getpid()%1000
-	startListenPIPE(t, ctx, g, fmt.Sprintf("UDP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,netns=%s", port, ns))
+	startNetNSListenPIPE(t, ctx, g, fmt.Sprintf("UDP4-LISTEN:%d,reuseaddr,bind=127.0.0.1,netns=%s", port, ns), "udp4", port, ns)
 	cli := connectNS(t, ctx, separateNetNSGlobal(g), fmt.Sprintf("UDP4:127.0.0.1:%d,netns=%s", port, ns))
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-udp\n"))
@@ -131,7 +168,7 @@ func TestNetNSTLSEcho(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	port := 21000 + os.Getpid()%1000
-	startListenPIPE(t, ctx, g, fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,verify=0,cert=%s,netns=%s", port, cert, ns))
+	startNetNSListenPIPE(t, ctx, g, fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,verify=0,cert=%s,netns=%s", port, cert, ns), "tcp4", port, ns)
 	cli := connectNS(t, ctx, separateNetNSGlobal(g), fmt.Sprintf("TLS:127.0.0.1:%d,verify=0,commonname=localhost,netns=%s", port, ns))
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-tls\n"))
@@ -146,7 +183,7 @@ func TestNetNSQUICEcho(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	port := 22000 + os.Getpid()%1000
-	startListenPIPE(t, ctx, g, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,verify=0,cert=%s,netns=%s", port, cert, ns))
+	startNetNSListenPIPE(t, ctx, g, fmt.Sprintf("QUIC-LISTEN:%d,reuseaddr,fork,bind=127.0.0.1,verify=0,cert=%s,netns=%s", port, cert, ns), "udp4", port, ns)
 	cli := connectNS(t, ctx, separateNetNSGlobal(g), fmt.Sprintf("QUIC:127.0.0.1:%d,verify=0,commonname=localhost,netns=%s", port, ns))
 	defer func() { _ = cli.Close() }()
 	echoRW(t, cli.EffectiveStream(), []byte("netns-quic"))

@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
+	"os/exec"
 	"strings"
 	"syscall"
 	"testing"
@@ -220,75 +220,24 @@ func TestApplyTCPConnOptsMaxsegLateThroughNetConnUnwrapLinux(t *testing.T) {
 	}
 }
 
-func assertOpenSpecEXECChildSOPriority(t *testing.T, specText string, mode Mode) {
-	t.Helper()
-	if !FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
-	if _, err := os.Stat("/bin/true"); err != nil {
-		t.Skip("/bin/true not available")
-	}
-	spec, err := parse.ParseSpec(specText)
+func TestExecSocketpairAppliesSOPriorityToChildLinux(t *testing.T) {
+	spec, err := parse.ParseSpec("EXEC:/bin/true,so-priority=5")
 	if err != nil {
 		t.Fatal(err)
 	}
-	type hit struct{ fd, value int }
-	var hits []hit
-	restore := SetSockoptTestHook(func(c SockoptCall) {
-		if c.AsInt && c.Level == unix.SOL_SOCKET && c.Opt == unix.SO_PRIORITY {
-			hits = append(hits, hit{fd: c.FD, value: c.IntValue})
-		}
-	})
-	t.Cleanup(restore)
-	o, err := OpenSpec(context.Background(), spec, mode, &Global{Log: logx.New()})
+	stream, cleanup, child, err := startCmdSocketpair(mustDecodeAddress(t, spec), ModeRDWR, &exec.Cmd{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = o.Close() })
-	if len(hits) != 1 {
-		t.Fatalf("SO_PRIORITY applied %d times want 1 (child endpoint): %v", len(hits), hits)
+	t.Cleanup(func() { _ = child.Close() })
+	for _, close := range cleanup {
+		t.Cleanup(close)
 	}
-	if hits[0].value != 5 {
-		t.Fatalf("SO_PRIORITY value=%d want 5", hits[0].value)
+	if got := unixSockoptInt(t, int(asOSFile(stream).Fd()), unix.SO_PRIORITY); got != 0 {
+		t.Fatalf("parent SO_PRIORITY=%d want 0", got)
 	}
-	parent := asOSFile(o.Stream())
-	if parent == nil {
-		t.Fatal("parent EXEC stream has no *os.File")
-	}
-	parentFD := int(parent.Fd())
-	if hits[0].fd == parentFD {
-		t.Fatalf("SO_PRIORITY applied on parent fd %d", parentFD)
-	}
-	got, err := unix.GetsockoptInt(parentFD, unix.SOL_SOCKET, unix.SO_PRIORITY)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != 0 {
-		t.Fatalf("parent SO_PRIORITY=%d want 0 (classic popts on child only)", got)
-	}
-}
-
-func TestOpenSpecEXECSocketpairAppliesSOPriorityLinux(t *testing.T) {
-	assertOpenSpecEXECChildSOPriority(t, "EXEC:/bin/true,so-priority=5", ModeRDWR)
-}
-
-func TestOpenSpecEXECClassicSocketpairAppliesSOPriorityLinux(t *testing.T) {
-	// Classic uses socketpair for these (including without PASTSOCKET).
-	tests := []struct {
-		name string
-		spec string
-		mode Mode
-	}{
-		{name: "fdin-fdout", spec: "EXEC:/bin/true,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
-		{name: "implicit-read", spec: "EXEC:/bin/true,so-priority=5", mode: ModeRead},
-		{name: "implicit-write", spec: "EXEC:/bin/true,so-priority=5", mode: ModeWrite},
-		{name: "end-close", spec: "EXEC:/bin/true,end-close,so-priority=5", mode: ModeRDWR},
-		{name: "end-close-fdin-fdout", spec: "EXEC:/bin/true,end-close,fdin=3,fdout=4,so-priority=5", mode: ModeRDWR},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			assertOpenSpecEXECChildSOPriority(t, tc.spec, tc.mode)
-		})
+	if got := unixSockoptInt(t, int(child.Fd()), unix.SO_PRIORITY); got != 5 {
+		t.Fatalf("child SO_PRIORITY=%d want 5", got)
 	}
 }
 

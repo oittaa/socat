@@ -114,7 +114,6 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		return nil, err
 	}
 	ln := newUDPListenForkListener(base)
-	xio.NoteListenBound(pc.LocalAddr())
 	return xio.NewAcceptParent("UDP-LISTEN", xio.AcceptParent{
 		Listener:    ln,
 		MaxChildren: maxChildren,
@@ -126,8 +125,6 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 }
 
 func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Global, pc *net.UDPConn, network string) (*xio.Opened, error) {
-	xio.NoteListenBound(pc.LocalAddr())
-
 	// Resolve range= before the accept deadline. Slow DNS must not consume
 	// accept-timeout; a datagram can already be queued while lookup runs.
 	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options())

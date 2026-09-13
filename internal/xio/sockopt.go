@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -135,51 +134,6 @@ func hasLateSocketBuffers(config addrconfig.Address) bool {
 		}
 	}
 	return false
-}
-
-// SockoptCall is one test-only observation of setSockoptInt / setSockoptBytes.
-type SockoptCall struct {
-	FD, Level, Opt int
-	AsInt          bool
-	IntValue       int
-	Bytes          []byte
-}
-
-var (
-	sockoptHookMu sync.Mutex
-	sockoptHook   func(SockoptCall)
-)
-
-// SetSockoptTestHook installs a test-only observer around setSockoptInt and
-// setSockoptBytes. The returned function restores the previous hook.
-func SetSockoptTestHook(h func(SockoptCall)) func() {
-	sockoptHookMu.Lock()
-	prev := sockoptHook
-	sockoptHook = h
-	sockoptHookMu.Unlock()
-	return func() {
-		sockoptHookMu.Lock()
-		sockoptHook = prev
-		sockoptHookMu.Unlock()
-	}
-}
-
-func recordSockoptInt(fd, level, opt, value int) {
-	sockoptHookMu.Lock()
-	h := sockoptHook
-	sockoptHookMu.Unlock()
-	if h != nil {
-		h(SockoptCall{FD: fd, Level: level, Opt: opt, AsInt: true, IntValue: value})
-	}
-}
-
-func recordSockoptBytes(fd, level, opt int, value []byte) {
-	sockoptHookMu.Lock()
-	h := sockoptHook
-	sockoptHookMu.Unlock()
-	if h != nil {
-		h(SockoptCall{FD: fd, Level: level, Opt: opt, Bytes: append([]byte(nil), value...)})
-	}
 }
 
 // ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.

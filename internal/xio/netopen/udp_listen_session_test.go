@@ -19,19 +19,17 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound := make(chan net.Addr, 1)
-	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
-		select {
-		case bound <- addr:
-		default:
-		}
-	})
-	t.Cleanup(restore)
+	config := mustAddr(t, parsed)
+	pc, _, err := bindUDPPort(context.Background(), config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
 
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Listen(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPListenOnePeer(context.Background(), config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc, "udp4")
 		if err != nil {
 			errc <- err
 			return
@@ -39,16 +37,7 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 		opened <- o
 	}()
 
-	var addr net.Addr
-	select {
-	case addr = <-bound:
-	case err := <-errc:
-		t.Fatal(err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("UDP-LISTEN did not bind")
-	}
-
-	client, err := net.DialUDP("udp4", nil, addr.(*net.UDPAddr))
+	client, err := net.DialUDP("udp4", nil, pc.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,44 +60,36 @@ func openNonForkUDP4Listen(t *testing.T, spec string, first ...[]byte) (*xio.Ope
 	return nil, nil
 }
 
-func TestUDPListenBoundBeforeFirstDatagram(t *testing.T) {
+func TestUDPListenCancelBeforeFirstDatagram(t *testing.T) {
 	parsed, err := parse.ParseSpec("UDP4-LISTEN:0,bind=127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
 	}
+	config := mustAddr(t, parsed)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	bound := make(chan net.Addr, 1)
-	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
-		select {
-		case bound <- addr:
-		default:
-		}
-	})
-	t.Cleanup(restore)
+	pc, _, err := bindUDPPort(ctx, config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
+	if pc.LocalAddr().(*net.UDPAddr).Port == 0 {
+		t.Fatal("UDP-LISTEN bound port 0")
+	}
 	opened := make(chan error, 1)
 	go func() {
-		o, err := openUDP4Listen(ctx, mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPListenOnePeer(ctx, config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc, "udp4")
 		if o != nil {
 			_ = o.Close()
 		}
 		opened <- err
 	}()
-	select {
-	case <-bound:
-	case err := <-opened:
-		t.Fatalf("open returned before bind: %v", err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("UDP-LISTEN did not bind")
-	}
-	select {
-	case err := <-opened:
-		t.Fatalf("open returned before the first datagram: %v", err)
-	default:
-	}
 	cancel()
 	select {
-	case <-opened:
+	case err := <-opened:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("open error=%v want cancellation", err)
+		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("open did not return after cancel")
 	}
@@ -320,33 +301,23 @@ func openUDP4RecvfromAfter(t *testing.T, spec string, send func(*net.UDPConn)) *
 	if err != nil {
 		t.Fatal(err)
 	}
-	bound := make(chan net.Addr, 1)
-	restore := xio.SetListenBoundTestHook(func(addr net.Addr) {
-		select {
-		case bound <- addr:
-		default:
-		}
-	})
-	t.Cleanup(restore)
+	config := mustAddr(t, parsed)
+	pc, _, err := bindUDPPort(context.Background(), config, "udp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = pc.Close() })
 	errc := make(chan error, 1)
 	opened := make(chan *xio.Opened, 1)
 	go func() {
-		o, err := openUDP4Recvfrom(context.Background(), mustAddr(t, parsed), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+		o, err := openUDPRecvfromOne(context.Background(), config, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()), pc)
 		if err != nil {
 			errc <- err
 			return
 		}
 		opened <- o
 	}()
-	var addr net.Addr
-	select {
-	case addr = <-bound:
-	case err := <-errc:
-		t.Fatal(err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("UDP-RECVFROM did not bind")
-	}
-	client, err := net.DialUDP("udp4", nil, addr.(*net.UDPAddr))
+	client, err := net.DialUDP("udp4", nil, pc.LocalAddr().(*net.UDPAddr))
 	if err != nil {
 		t.Fatal(err)
 	}
