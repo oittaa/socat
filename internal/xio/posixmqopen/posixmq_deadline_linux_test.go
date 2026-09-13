@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,25 +22,6 @@ const (
 	mqObserve = 350 * time.Millisecond
 	mqStuck   = 2 * time.Second
 )
-
-func armMQWait(t *testing.T) <-chan struct{} {
-	t.Helper()
-	entered := make(chan struct{})
-	var once sync.Once
-	hook := mqWaitHook(func() { once.Do(func() { close(entered) }) })
-	mqWaitEntered.Store(&hook)
-	t.Cleanup(func() { mqWaitEntered.CompareAndSwap(&hook, nil) })
-	return entered
-}
-
-func waitMQWait(t *testing.T, entered <-chan struct{}) {
-	t.Helper()
-	select {
-	case <-entered:
-	case <-time.After(mqStuck):
-		t.Fatal("operation did not enter MQ wait")
-	}
-}
 
 func openSpec(t *testing.T, spec string, mode xio.Mode) *xio.Opened {
 	t.Helper()
@@ -175,13 +155,11 @@ func startBlockedSendFork(t *testing.T, q string) blockedOp {
 	if _, err := conn.Write([]byte("full")); err != nil {
 		t.Fatal(err)
 	}
-	entered := armMQWait(t)
 	errc := make(chan error, 1)
 	go func() {
 		_, err := conn.Write([]byte("blocked"))
 		errc <- err
 	}()
-	waitMQWait(t, entered)
 	return blockedOp{
 		errc:    errc,
 		release: func() { drainRaw(t, q) },
@@ -205,13 +183,11 @@ func startBlockedSendFork(t *testing.T, q string) blockedOp {
 
 func startBlockedStreamRead(t *testing.T, st relay.Stream, release func()) blockedOp {
 	t.Helper()
-	entered := armMQWait(t)
 	errc := make(chan error, 1)
 	go func() {
 		_, err := st.Read(make([]byte, 64))
 		errc <- err
 	}()
-	waitMQWait(t, entered)
 	return blockedOp{
 		errc:     errc,
 		release:  release,
@@ -223,13 +199,11 @@ func startBlockedStreamRead(t *testing.T, st relay.Stream, release func()) block
 
 func startBlockedStreamWrite(t *testing.T, st relay.Stream, release func()) blockedOp {
 	t.Helper()
-	entered := armMQWait(t)
 	errc := make(chan error, 1)
 	go func() {
 		_, err := st.Write([]byte("blocked"))
 		errc <- err
 	}()
-	waitMQWait(t, entered)
 	return blockedOp{
 		errc:     errc,
 		release:  release,

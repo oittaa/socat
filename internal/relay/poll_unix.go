@@ -33,10 +33,6 @@ func poll(fds []unix.PollFd, timeoutMs int) (int, error) {
 	return unix.Poll(fds, timeoutMs)
 }
 
-// pollWait is the poll(2) used by waitReadableAndWritable. Tests replace it
-// to count wakeups; production keeps unix.Poll.
-var pollWait = poll
-
 const pollWaitTimeoutMs = 100
 
 func idleClockSleep() {
@@ -133,7 +129,7 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		if len(pfds) == 0 {
 			return syscall.EBADF
 		}
-		_, err := pollWait(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
+		_, err := poll(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
 		if err != nil {
 			if err == syscall.EINTR {
 				continue
