@@ -162,6 +162,18 @@ type (
 
 // Decode transforms shared option families without acquiring resources.
 func Decode(spec parse.Spec, facts Facts) (Address, error) {
+	definitions := make([]optionmeta.Option, len(spec.Options))
+	for i, option := range spec.Options {
+		definitions[i] = optionDefinition(option)
+	}
+	return DecodeResolved(spec, facts, definitions)
+}
+
+// DecodeResolved decodes options whose catalog metadata preparation resolved.
+func DecodeResolved(spec parse.Spec, facts Facts, definitions []optionmeta.Option) (Address, error) {
+	if len(definitions) != len(spec.Options) {
+		return Address{}, fmt.Errorf("%s: invalid resolved option count", facts.Type)
+	}
 	d := decoder{
 		Address: Address{
 			Type:   facts.Type,
@@ -183,8 +195,8 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 	if err := decodeNetwork(&d, spec); err != nil {
 		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 	}
-	for _, option := range spec.Options {
-		if err := decodeOption(&d, option); err != nil {
+	for i, option := range spec.Options {
+		if err := decodeOption(&d, option, definitions[i]); err != nil {
 			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
@@ -220,11 +232,11 @@ func finishDecode(d *decoder) error {
 	return nil
 }
 
-func decodeOption(d *decoder, o parse.Option) error {
+func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) error {
 	d.optionIndex++
 	a := &d.Address
-	name := optionIdentity(o)
-	if _, ok := optionmeta.IsolationCanonical(name); ok {
+	name := definition.Canonical
+	if definition.Isolation {
 		spelling := o.OriginalSpelling()
 		if spelling == "" {
 			spelling = o.Name
@@ -237,10 +249,10 @@ func decodeOption(d *decoder, o parse.Option) error {
 	if handled, err := decodeTerminal(a, o, name); handled {
 		return err
 	}
-	if handled, err := decodeNetworkOption(a, o, name); handled {
+	if handled, err := decodeNetworkOption(a, o, name, definition.Kernel); handled {
 		return err
 	}
-	if handled, err := decodeProtocolOption(d, o, name); handled {
+	if handled, err := decodeProtocolOption(d, o, definition); handled {
 		return err
 	}
 	switch name {
@@ -391,13 +403,13 @@ func resolveLineEnding(d *decoder) {
 	d.Transfer.LineEnding = ending
 }
 
-func optionIdentity(o parse.Option) string {
+func optionDefinition(o parse.Option) optionmeta.Option {
 	for _, spelling := range []string{o.OriginalSpelling(), o.Name} {
 		if def, ok := optionmeta.Lookup(spelling); ok {
-			return def.Canonical
+			return def
 		}
 	}
-	return strings.ToLower(strings.TrimSpace(o.Name))
+	return optionmeta.Option{Canonical: strings.ToLower(strings.TrimSpace(o.Name))}
 }
 
 func decodeDuration(dst *OptionalDuration, o parse.Option) error {

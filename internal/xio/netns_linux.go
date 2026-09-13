@@ -36,7 +36,7 @@ func WithNetNS(name string, g *Global, fn func() error) (err error) {
 		}
 	}()
 
-	const procNetNS = "/proc/self/ns/net"
+	const procNetNS = "/proc/thread-self/ns/net"
 	saved, err := unix.Open(procNetNS, unix.O_RDONLY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return fmt.Errorf("open(%s, O_RDONLY|O_CLOEXEC): %w", procNetNS, err)

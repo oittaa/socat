@@ -4,19 +4,11 @@ import (
 	"fmt"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/optionmeta"
 )
 
 // Linux IPPROTO_RAW. IP4-SENDTO:host:255 uses this protocol;
 // IP_ROUTER_ALERT returns EINVAL there (not a silent no-op).
 const ipprotoRaw = 255
-
-func getOnlyKernelName(name string) string {
-	if def, ok := optionmeta.Lookup(name); ok && def.Kernel != "" {
-		return def.Kernel
-	}
-	return name
-}
 
 func getOnlyNames(action addrconfig.SocketAction) (spelling, kernel string) {
 	canonical := "ip-mtu"
@@ -27,7 +19,11 @@ func getOnlyNames(action addrconfig.SocketAction) (spelling, kernel string) {
 	if action.Text != "" {
 		spelling = action.Text
 	}
-	return spelling, getOnlyKernelName(canonical)
+	kernel = action.Kernel
+	if kernel == "" {
+		kernel = canonical
+	}
+	return spelling, kernel
 }
 
 func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.SocketAction) error {

@@ -10,7 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
+func socketAction(o parse.Option, name, kernel string) (SocketAction, bool, error) {
 	switch name {
 	case "setsockopt-listen", "setsockopt-socket", "setsockopt", "setsockopt-bin",
 		"setsockopt-int", "setsockopt-string", "setsockopt-connected":
@@ -72,7 +72,7 @@ func socketAction(o parse.Option, name string) (SocketAction, bool, error) {
 		if name == "ip-pktoptions" {
 			id = IPGetOnlyPktoptions
 		}
-		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, GetOnly: id, Text: name}, true, nil
+		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, GetOnly: id, Kernel: kernel, Text: name}, true, nil
 	}
 	if id := namedSocketID(name); id != NamedSocketNone {
 		n, err := optionalNamedSocketInt(o, name)

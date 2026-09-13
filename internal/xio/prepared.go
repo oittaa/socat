@@ -53,7 +53,8 @@ func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
 func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	typ := strings.ToUpper(strings.TrimSpace(spec.Type))
 	desc, registered := registeredAddresses.resolve(typ)
-	if err := rejectUnknownOptions(spec, desc, registered); err != nil {
+	options, err := resolveAddressOptions(spec, desc, registered)
+	if err != nil {
 		return PreparedAddress{}, err
 	}
 	facts := addrconfig.Facts{Type: spec.Type}
@@ -67,15 +68,15 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 			Family: desc.Family,
 		}
 	}
-	config, err := addrconfig.Decode(spec, facts)
+	config, err := addrconfig.DecodeResolved(spec, facts, options.definitions)
 	if err != nil {
 		return PreparedAddress{}, err
 	}
 	if err := rejectPreparedStaticChecks(config); err != nil {
 		return PreparedAddress{}, err
 	}
-	if err := rejectOptionScope(spec, desc, registered); err != nil {
-		return PreparedAddress{}, err
+	if options.scopeError != nil {
+		return PreparedAddress{}, options.scopeError
 	}
 	if err := RejectUnsupportedRemainingIPv4(config); err != nil {
 		return PreparedAddress{}, err
