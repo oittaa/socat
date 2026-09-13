@@ -447,10 +447,6 @@ func (e *escapeReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-func ApplyEscape(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	return applyEscape(s.Transfer.Escape, stream), nil
-}
-
 func applyEscape(esc addrconfig.OptionalByte, stream relay.Stream) relay.Stream {
 	if !esc.Set {
 		return stream

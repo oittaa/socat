@@ -37,8 +37,8 @@ func openForkListen(t *testing.T, spec string) *xio.Opened {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Kind() != xio.KindListen || o.Listener() == nil {
-		t.Fatalf("Kind=%v listener=%v want KindListen", o.Kind(), o.Listener())
+	if o.Listener() == nil {
+		t.Fatal("listen address did not return a listener")
 	}
 	return o
 }

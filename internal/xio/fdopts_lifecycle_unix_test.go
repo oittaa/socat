@@ -144,7 +144,7 @@ func TestApplyFDOptionsPermChmodsFD(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,perm=0600"))); err != nil {
+	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,perm=04700"))); err != nil {
 		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
 			t.Skipf("fchmod not permitted: %v", err)
 		}
@@ -154,8 +154,8 @@ func TestApplyFDOptionsPermChmodsFD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st.Mode().Perm() != 0o600 {
-		t.Fatalf("perm=%#o want 0600", st.Mode().Perm())
+	if mode := FileModeToUnix(st.Mode()); mode != 0o4700 {
+		t.Fatalf("mode=%#o want 04700", mode)
 	}
 }
 

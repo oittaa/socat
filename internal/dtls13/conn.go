@@ -90,8 +90,6 @@ type connDriver struct {
 	session            *session
 	sendingApplication *connCommand
 	pending            *connCommand
-	handshakeCredit    uint64
-	cookieValidated    bool
 	writeClosed        bool
 
 	started             time.Time
@@ -451,12 +449,6 @@ func (d *connDriver) attach(s *session) {
 }
 
 func (d *connDriver) sendPacket(data []byte) error {
-	if d.session != nil && !d.cookieValidated && !d.session.handshake.client && !d.session.handshake.complete && d.session.handshake.schedule == nil {
-		if uint64(len(data)) > d.handshakeCredit {
-			return nil
-		}
-		d.handshakeCredit -= uint64(len(data))
-	}
 	c := d.conn
 	c.shared.mu.Lock()
 	peer, deadline := c.shared.remote, c.shared.writeDeadline
@@ -619,9 +611,6 @@ func (d *connDriver) receivePacket(packet incomingPacket) bool {
 	if !d.ready && !d.handshakeDeadline.IsZero() && !time.Now().Before(d.handshakeDeadline) {
 		c.fail(context.DeadlineExceeded)
 		return false
-	}
-	if !s.handshake.client && !s.handshake.complete && s.handshake.schedule == nil {
-		d.handshakeCredit = min(1<<30, d.handshakeCredit+3*uint64(len(packet.data)))
 	}
 	data, err := s.receiveFrom(packet.data, packetPath{packet.peer, 1}, time.Now())
 	if err != nil {

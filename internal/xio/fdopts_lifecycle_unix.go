@@ -229,7 +229,7 @@ func applyConfiguredTruncate(fd int, action addrconfig.FileAction) error {
 }
 
 func applyConfiguredPerm(fd int, action addrconfig.FileAction) error {
-	if err := unix.Fchmod(fd, FileModeToUnix(UnixModeToFileMode(action.Mode))); err != nil {
+	if err := unix.Fchmod(fd, action.Mode&0o7777); err != nil {
 		return fmt.Errorf("fchmod: %w", err)
 	}
 	return nil

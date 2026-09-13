@@ -211,7 +211,6 @@ func (l *Listener) admitHello(peer netip.AddrPort, p *pendingHello) {
 		return
 	}
 	c := newConn(peer)
-	c.driver.cookieValidated = true
 	c.config.transport, c.config.packetBudget = l.transport, &l.packets
 	s := newSession(h.handshakeState, h.handle, c.driver.sendPacket)
 	s.reassembly.budget, s.reassembly.next = &l.fragments, 1
