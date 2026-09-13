@@ -47,7 +47,7 @@ func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 }
 
 func (s *session) requestKeyUpdate(requestPeer bool, now time.Time) error {
-	if !s.handshake.complete || s.closed {
+	if !s.handshake.complete {
 		return errUnexpectedMessage
 	}
 	if s.currentWriteEpoch() >= 1<<48-1 {

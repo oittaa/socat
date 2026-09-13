@@ -403,14 +403,6 @@ func ListenPort(s addrconfig.Address) (addrconfig.PortTarget, error) {
 	return port, nil
 }
 
-func ListenPortText(s addrconfig.Address) (string, error) {
-	port, err := ListenPort(s)
-	if err != nil {
-		return "", err
-	}
-	return port.Text(), nil
-}
-
 func ConnectTimeout(config addrconfig.Address) time.Duration {
 	if config.Common.ConnectTimeout.Set {
 		return config.Common.ConnectTimeout.Value

@@ -318,20 +318,6 @@ func (g *Global) markStatsPrinted() {
 	g.statsPrinted.Store(true)
 }
 
-// OpenedKind names the payload variant. Kind() reports it from the payload.
-type OpenedKind int
-
-const (
-	// KindReady: transfer I/O is already open.
-	KindReady OpenedKind = iota
-	// KindListen: bound listener; Run accepts in a fork loop.
-	KindListen
-	// KindDial: repeated-connect parent; Run dials in a fork loop.
-	KindDial
-	// KindExec: EXEC/SYSTEM,nofork; Run starts the process after the peer is open.
-	KindExec
-)
-
 // Opened is a live address endpoint. Construct it with NewReady, NewReadySplit,
 // NewAcceptParent, NewRepeatedDial, or NewDeferredNoFork. Variant data lives
 // in one private payload; see the ownership table in endpoint_variant.go.

@@ -77,7 +77,6 @@ type session struct {
 	outbound            *flight
 	ack                 ackState
 	handshakeReadExpiry time.Time
-	closed              bool
 	post                map[byte]*flight
 	keyUpdate           keyUpdateState
 	peerClosed          *recordNumber
@@ -302,9 +301,6 @@ func (s *session) receive(datagram []byte, now time.Time) ([][]byte, error) {
 }
 
 func (s *session) receiveFrom(datagram []byte, from packetPath, now time.Time) ([][]byte, error) {
-	if s.closed {
-		return nil, nil
-	}
 	s.expireHandshakeRead(now)
 	if s.path != nil && from.remote != s.path.peer.remote &&
 		(!s.handshake.complete || !s.handshake.rrc || !s.handshake.cidNegotiated) {
@@ -661,7 +657,7 @@ func (s *session) handshakeFlightSent() bool {
 }
 
 func (s *session) application(body []byte) error {
-	if !s.handshake.complete || s.closed {
+	if !s.handshake.complete {
 		return errUnexpectedMessage
 	}
 	if s.path != nil && s.path.probe != nil {

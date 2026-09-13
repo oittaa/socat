@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/testutil"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestTCPListenRejectsInvalidBacklog(t *testing.T) {
@@ -27,8 +26,8 @@ func TestUDPListenAcceptsBacklogWithoutListenQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	if o.Kind() != xio.KindListen {
-		t.Fatalf("Kind=%v want KindListen", o.Kind())
+	if o.Listener() == nil {
+		t.Fatal("UDP-LISTEN,fork did not return a listener")
 	}
 }
 

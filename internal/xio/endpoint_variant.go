@@ -24,12 +24,10 @@ import (
 // WrapDial, HandshakeTimeout. AfterAccept is accept-parent only.
 //
 // Invalid combinations (ready I/O plus a listener, nofork plus a dialer, …)
-// have no representation. Run type-switches on the payload. Kind() is
-// derived from the payload so it cannot diverge.
+// have no representation. Run type-switches on the payload.
 
 // openedPayload is the exclusive live state of one Opened.
 type openedPayload interface {
-	kind() OpenedKind
 	close() error
 }
 
@@ -52,8 +50,6 @@ var (
 	errRepeatRequiresDialer   = errors.New("xio: repeated-dial parent requires a dialer")
 )
 
-func (p *readyIO) kind() OpenedKind { return KindReady }
-
 func (p *readyIO) close() error {
 	if p == nil || p.stream == nil {
 		return nil
@@ -69,8 +65,6 @@ type acceptParent struct {
 	afterAccept    func(*Global, net.Conn) error
 	knobs          parentKnobs
 }
-
-func (p *acceptParent) kind() OpenedKind { return KindListen }
 
 func (p *acceptParent) close() error {
 	if p == nil || p.listener == nil {
@@ -89,15 +83,11 @@ type repeatedDial struct {
 	knobs    parentKnobs
 }
 
-func (p *repeatedDial) kind() OpenedKind { return KindDial }
-
 func (p *repeatedDial) close() error { return nil }
 
 type deferredNoFork struct {
 	config addrconfig.Address
 }
-
-func (p *deferredNoFork) kind() OpenedKind { return KindExec }
 
 func (p *deferredNoFork) close() error { return nil }
 
@@ -190,15 +180,6 @@ func NewDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
 
 func newOpened(label string, payload openedPayload) *Opened {
 	return &Opened{Label: label, payload: payload}
-}
-
-// Kind reports the payload variant. It is derived, so it cannot diverge
-// from the live endpoint.
-func (o *Opened) Kind() OpenedKind {
-	if o == nil || o.payload == nil {
-		return 0
-	}
-	return o.payload.kind()
 }
 
 func (o *Opened) ready() *readyIO {
