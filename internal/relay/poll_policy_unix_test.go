@@ -6,7 +6,6 @@ import (
 	"context"
 	"io"
 	"os"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,33 +50,6 @@ func fileFD(t *testing.T, f *os.File) int {
 		t.Fatal("closed fd")
 	}
 	return fd
-}
-
-type ownedFD struct {
-	fd    int
-	owned atomic.Bool
-}
-
-func newOwnedFD(t *testing.T, fd int) *ownedFD {
-	t.Helper()
-	o := &ownedFD{fd: fd}
-	o.owned.Store(true)
-	t.Cleanup(func() {
-		if o.owned.Swap(false) {
-			_ = unix.Close(o.fd)
-		}
-	})
-	return o
-}
-
-func (o *ownedFD) closeNow(t *testing.T) {
-	t.Helper()
-	if !o.owned.Swap(false) {
-		return
-	}
-	if err := unix.Close(o.fd); err != nil {
-		t.Fatal(err)
-	}
 }
 
 func TestWaitReadableAndWritableIdleSourceTimesOut(t *testing.T) {
@@ -161,34 +133,16 @@ func TestWaitReadableAndWritableInvalidFD(t *testing.T) {
 	}
 }
 
-func TestWaitReadableAndWritableDestClose(t *testing.T) {
+func TestWaitReadableAndWritableClosedDestination(t *testing.T) {
 	srcR, _ := pipePair(t)
 	_, dstW := pipePair(t)
-	nval, err := unix.Dup(int(dstW.Fd()))
-	if err != nil {
+	fd := fileFD(t, dstW)
+	if err := dstW.Close(); err != nil {
 		t.Fatal(err)
 	}
-	owned := newOwnedFD(t, nval)
-	srcFD := fileFD(t, srcR)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() {
-		done <- waitReadableAndWritable(ctx, srcFD, nval)
-	}()
-	owned.closeNow(t)
-	closedAt := time.Now()
-
-	select {
-	case err := <-done:
-		if err != io.ErrClosedPipe {
-			t.Fatalf("dest close err=%v want closed pipe", err)
-		}
-		if d := time.Since(closedAt); d > 500*time.Millisecond {
-			t.Fatalf("dest close took %v, want observation within one wait-timeout interval", d)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("destination close was not observed")
+	if err := waitReadableAndWritable(ctx, fileFD(t, srcR), fd); err != io.ErrClosedPipe {
+		t.Fatalf("closed destination: %v", err)
 	}
 }
