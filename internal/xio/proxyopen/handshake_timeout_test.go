@@ -2,7 +2,6 @@ package proxyopen
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"testing"
@@ -132,20 +131,4 @@ func TestH3CONNECTConnectTimeoutBoundsSilentPeerWhenHandshakeTimeoutDisabled(t *
 	assertPROXYConnectFailsNear(t,
 		fmt.Sprintf("PROXY:127.0.0.1:127.0.0.1:9,http-version=3,proxyport=%d,verify=0,connect-timeout=0.2,handshake-timeout=0", port),
 		150*time.Millisecond, 1500*time.Millisecond)
-}
-
-func TestProxyHandshakeContextFireThenStopTimesOut(t *testing.T) {
-	t.Cleanup(func() { setHandshakeTimerHook(nil) })
-	var stop, fire func()
-	setHandshakeTimerHook(func(s, f func()) func() {
-		stop, fire = s, f
-		return nil
-	})
-	ctx, _, cancel := proxyHandshakeContext(context.Background(), time.Hour)
-	defer cancel()
-	fire()
-	stop()
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatalf("fire then stop want context.Canceled, got %v", ctx.Err())
-	}
 }

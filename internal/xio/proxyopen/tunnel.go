@@ -251,28 +251,6 @@ func openCONNECTTunnel(t connectTunnel) (net.Conn, error) {
 	return newPipeConn(resp.Body, pw, staticAddr(t.network, t.url), staticAddr(t.network, t.authority), t.closers), nil
 }
 
-// handshakeTimerHook, if set, is invoked when a handshake timer is armed.
-// stop marks completion; fire is the AfterFunc body. A non-nil return
-// replaces the success-side stop function (it must still invoke stop).
-// Tests use this to race completion with the timeout callback without
-// depending on wall-clock timing.
-var (
-	handshakeTimerHookMu sync.Mutex
-	handshakeTimerHook   func(stop, fire func()) (wrap func())
-)
-
-func setHandshakeTimerHook(hook func(stop, fire func()) (wrap func())) {
-	handshakeTimerHookMu.Lock()
-	handshakeTimerHook = hook
-	handshakeTimerHookMu.Unlock()
-}
-
-func handshakeTimerHookSnapshot() func(stop, fire func()) (wrap func()) {
-	handshakeTimerHookMu.Lock()
-	defer handshakeTimerHookMu.Unlock()
-	return handshakeTimerHook
-}
-
 // finishCONNECTHandshake stops the handshake timer without cancelling the
 // request context. HTTP/2 and HTTP/3 abort CONNECT if that context is
 // cancelled, so success must not cancel. If the timeout callback already
@@ -312,11 +290,6 @@ func proxyHandshakeContext(parent context.Context, timeout time.Duration) (ctx c
 		defer mu.Unlock()
 		completed = true
 		timer.Stop()
-	}
-	if hook := handshakeTimerHookSnapshot(); hook != nil {
-		if wrap := hook(stopTimer, fire); wrap != nil {
-			stopTimer = wrap
-		}
 	}
 	return ctx, stopTimer, cancel
 }

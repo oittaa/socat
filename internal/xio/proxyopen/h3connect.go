@@ -15,10 +15,6 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-// testHookH3PacketConn, when set, sees the HTTP/3 UDP PacketConn after
-// ListenControl socket options and before QUIC dials on it.
-var testHookH3PacketConn func(net.PacketConn)
-
 // listenH3Packet binds the HTTP/3 UDP socket with ListenControl so send-side
 // IP/ancillary options apply after socket() and before bind, instead of
 // http3.Transport creating its own UDP socket and ignoring those options.
@@ -68,9 +64,6 @@ func dialH3CONNECT(ctx context.Context, s addrconfig.Address, g *xio.Global, t p
 			stopTimer()
 			cancelHandshake()
 			return e
-		}
-		if h := testHookH3PacketConn; h != nil {
-			h(pc)
 		}
 		qtr := &quic.Transport{Conn: pc}
 		tr := &http3.Transport{
