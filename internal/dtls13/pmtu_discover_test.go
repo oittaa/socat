@@ -72,7 +72,7 @@ func TestMTUDiscoveryRequiresRRC(t *testing.T) {
 	if err := client.tick(now); err != nil {
 		t.Fatal(err)
 	}
-	if client.mtu.outstanding != nil || client.mtuDiscoveryEnabled() {
+	if client.mtu.outstanding != nil || client.canSendMTUProbe() != errProbeDisabled {
 		t.Fatal("search started without CID/RRC")
 	}
 }
@@ -138,20 +138,6 @@ func TestMTUDiscoveryDefersToKeyUpdate(t *testing.T) {
 	}
 	if p.client.mtu.outstanding != nil {
 		t.Fatal("discovery probed during KeyUpdate")
-	}
-}
-
-func TestMTUDiscoveryManualProbeStillDoesNotRaise(t *testing.T) {
-	p := newDiscoveryPaths(t)
-	now := time.Unix(1000, 0)
-	working := p.client.effectiveMTU()
-	size := probeDatagramSize(p.client, 80)
-	if err := p.client.startMTUProbe(size, now); err != nil {
-		t.Fatal(err)
-	}
-	p.deliver(t, now)
-	if p.client.effectiveMTU() != working || p.client.working.pathMTU != 0 {
-		t.Fatalf("manual probe raised usable MTU to %d", p.client.effectiveMTU())
 	}
 }
 
