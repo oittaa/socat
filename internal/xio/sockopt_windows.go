@@ -19,8 +19,7 @@ const (
 	ipprotoIPv6 = windows.IPPROTO_IPV6
 	ipv6V6only  = windows.IPV6_V6ONLY
 	soRcvtimeo  = windows.SO_RCVTIMEO
-	// x/sys/windows does not currently expose Winsock's SO_SNDTIMEO.
-	soSndtimeo  = 0x1005
+	soSndtimeo  = windows.SO_SNDTIMEO
 	soSndbuf    = windows.SO_SNDBUF
 	soRcvbuf    = windows.SO_RCVBUF
 	soKeepalive = windows.SO_KEEPALIVE
