@@ -4,9 +4,11 @@ package xio
 
 import (
 	"errors"
+	"strings"
 	"syscall"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"golang.org/x/sys/unix"
 )
@@ -88,22 +90,29 @@ func TestApplySocketOptionsSCTPMaxsegOnUDPLinux(t *testing.T) {
 	}
 }
 
-func TestApplySocketOptionsRejectsInvalidSCTPNodelayLinux(t *testing.T) {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+func TestSCTPNodelayNoDisablesLinux(t *testing.T) {
+	spec, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay=no")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = unix.Close(fd) })
-	spec, err := parse.ParseSpec("SCTP:127.0.0.1:9,sctp-nodelay=no")
+	config := mustDecodeAddress(t, spec)
+	got := namedSocketNumber(config, addrconfig.NamedSocketSCTPNodelay)
+	if !got.ok || got.n != 0 {
+		t.Fatalf("sctp-nodelay=no decoded as %+v want 0", got)
+	}
+	bad, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay=on")
 	if err != nil {
 		t.Fatal(err)
 	}
-	config, err := decodeAddress(spec)
-	if err == nil {
-		err = ApplySocketOptions(fd, config)
+	if _, err := decodeAddress(bad); err == nil || !strings.Contains(err.Error(), "want an integer") {
+		t.Fatalf("sctp-nodelay=on: %v", err)
 	}
-	if err == nil {
-		t.Fatal("sctp-nodelay=no must fail (TYPE_INT), not no-op")
+	fd := openSCTPStream(t)
+	if err := ApplySocketOptions(fd, config); err != nil {
+		t.Fatal(err)
+	}
+	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 0 {
+		t.Fatalf("sctp-nodelay=no SCTP_NODELAY=%d want 0", got)
 	}
 }
 

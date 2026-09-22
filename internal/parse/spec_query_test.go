@@ -1,7 +1,5 @@
 package parse
 
-import "strings"
-
 // Parser tests inspect last-wins option storage. Execution reads
 // addrconfig.Address, not these helpers.
 
@@ -30,23 +28,4 @@ func optionValue(s Spec, name, def string) string {
 		return "1"
 	}
 	return o.Value
-}
-
-func optionActive(o Option) bool {
-	if !o.Has {
-		return true
-	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	if v == "" {
-		return false
-	}
-	return v != "0" && v != "false" && v != "no" && v != "off"
-}
-
-func boolOption(s Spec, name string) bool {
-	o, ok := optionNamed(s, name)
-	if !ok {
-		return false
-	}
-	return optionActive(o)
 }

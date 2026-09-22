@@ -541,7 +541,8 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.Range, n.RangeSet = parsed, true
 		return true, nil
 	case "tcpwrap":
-		n.TCPWrap = activeBool(o)
+		// Daemon name, not a boolean. Presence enables the filter.
+		n.TCPWrap = OptionalBool{Set: true, Value: true}
 		n.TCPWrapDaemon = ""
 		if o.Has && o.Value != "" && o.Value != "1" {
 			n.TCPWrapDaemon = o.Value
@@ -598,18 +599,23 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.SocketProtocol = OptionalInt{Set: true, Value: value}
 		return true, nil
 	case "reuseaddr":
+		if o.Has && o.Value == "" {
+			// Documented empty form: do not call setsockopt.
+			n.ReuseAddr = OptionalBool{Set: true, Value: false}
+			return true, nil
+		}
 		return true, setActive(&n.ReuseAddr, o)
 	case "reuseport":
-		return true, setActive(&n.ReusePort, o)
+		return true, setFlagInt(&n.ReusePort, o)
 	case "ipv6-v6only":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		a.Common.IPv6V6Only = v
 		return true, err
 	case "unix-bind-tempname":
 		n.UnixBindTempname = OptionalString{Set: true, Value: optionText(o)}
 		return true, nil
 	case "unix-tightsocklen":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		n.UnixTightSocklen = v
 		return true, err
 	case "backlog":
@@ -620,7 +626,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.Backlog = OptionalInt{Set: true, Value: backlog}
 		return true, nil
 	case "keepalive":
-		return true, setActive(&n.KeepAlive, o)
+		return true, setFlagInt(&n.KeepAlive, o)
 	case "keepidle":
 		return true, decodePositiveDuration(&n.KeepIdle, o)
 	case "keepintvl":
@@ -633,7 +639,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.KeepCnt = OptionalInt{Set: true, Value: count}
 		return true, nil
 	case "nodelay":
-		return true, setActive(&n.NoDelay, o)
+		return true, setFlagInt(&n.NoDelay, o)
 	}
 	if action, ok, err := socketAction(o, name, kernel); ok {
 		if err != nil {

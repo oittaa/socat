@@ -268,8 +268,27 @@ address and option spellings are audited automatically. The
   leave the parent process partially remapped.
 - Omitted `setpgid`, `setpgid=0`, and `setpgid=1` all create a new process
   group as documented.
-- `end-close[=<bool>]` and the `close` alias accept omission, `0`, and `1` as
-  documented. Classic C rejects explicit `=0` and `=1` despite the man page.
+- Boolean options accept `0`, `1`, or an omitted value (meaning `1`). They
+  also accept `yes`, `no`, `true`, and `false` in any case. Any other value
+  is rejected, including `on`, `off`, `2`, `00`, and an empty `opt=`. Options
+  documented as `[=<bool>]`, and options documented without a value that are
+  booleans, such as `fork`, `forever`, `ignoreeof`, `pty`, and
+  `ip-transparent`, use the same forms. An empty `reuseaddr=` remains the
+  documented form that skips the setsockopt call.
+- Integer flag options accept a C integer, and any nonzero value means on.
+  `keepalive`, `reuseport`, `nodelay`, `so-debug`, `so-dontroute`,
+  `so-oobinline`, `broadcast`, `tcp-cork`, `ip-freebind`, `sctp-nodelay`,
+  `nopush`, and `noopt` also accept `yes`, `no`, `true`, and `false`.
+- Those four words are also accepted by the ancillary integer options
+  `so-timestamp`, `ip-pktinfo`, `ip-recvttl`, `ip-recvtos`, `ip-recvopts`,
+  `ip-recverr`, `ip-retopts`, `ip-recvdstaddr`, `ip-recvif`, `ip-ttl`,
+  `ip-tos`, `ip-hdrincl`, `ipv6-recvpktinfo`, `ipv6-recvhoplimit`,
+  `ipv6-recvtclass`, `ipv6-recvdstopts`, `ipv6-recvhopopts`,
+  `ipv6-recvrthdr`, `ipv6-recvpathmtu`, `ipv6-unicast-hops`, `ipv6-tclass`,
+  and `ipv6-recverr`.
+- `end-close[=<bool>]`, the `close` alias, and `shut-none`, `shut-down`,
+  `shut-close`, and `shut-null` accept those boolean forms. Classic C rejects
+  explicit `=0` and `=1` despite the man page.
 - Lock files and unlink-on-close paths are removed only if they still refer to
   the object created by this process.
 - Boolean unlink options honor `=0`; they do not delete merely because the

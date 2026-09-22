@@ -30,7 +30,7 @@ func decodeSpec(t *testing.T, text string) Address {
 }
 
 func TestDecodeCommonSettings(t *testing.T) {
-	got := decodeSpec(t, "TCP:host:9,fork,maxchildren=3,retry=2,forever,interval=250ms,connect-timeout=0,handshake-timeout=2,readbytes=-1,escape=0x1b,ignoreof=off,crlf,shut-close=1")
+	got := decodeSpec(t, "TCP:host:9,fork,maxchildren=3,retry=2,forever,interval=250ms,connect-timeout=0,handshake-timeout=2,readbytes=-1,escape=0x1b,ignoreof=false,crlf,shut-close=1")
 
 	if got.Common.MaxChildren != (OptionalInt{Set: true, Value: 3}) {
 		t.Fatalf("max children=%+v", got.Common.MaxChildren)
@@ -49,18 +49,104 @@ func TestDecodeCommonSettings(t *testing.T) {
 	}
 }
 
-func TestDecodePreservesFlagGrammar(t *testing.T) {
-	got := decodeSpec(t, "TCP:host:9,fork=no,forever=maybe,crorlf=,null-eof=false,end-close=0")
+func TestIntegerFlagsKeepCIntegersAndWords(t *testing.T) {
+	udp := Facts{Type: "UDP4", Kind: AddressKindUDP, Role: AddressRoleConnect, Family: IPFamilyIPv4}
+	checks := []struct {
+		text  string
+		facts Facts
+		want  func(Address) bool
+	}{
+		{"TCP:host:9,keepalive=2", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=00", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && !a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=0x2", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=no", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && !a.Network.KeepAlive.Value }},
+		{"TCP:host:9,reuseport=7", tcpConnect, func(a Address) bool { return a.Network.ReusePort.Value }},
+		{"TCP:host:9,nodelay=false", tcpConnect, func(a Address) bool { return a.Network.NoDelay.Set && !a.Network.NoDelay.Value }},
+		{"TCP:host:9,so-debug=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "so-debug") == 1 }},
+		{"TCP:host:9,so-debug=2", tcpConnect, func(a Address) bool { return actionNumber(a, "so-debug") == 2 }},
+		{"TCP:host:9,dontroute=no", tcpConnect, func(a Address) bool { return actionNumber(a, "so-dontroute") == 0 }},
+		{"TCP:host:9,oobinline=true", tcpConnect, func(a Address) bool { return actionNumber(a, "so-oobinline") == 1 }},
+		{"TCP:host:9,broadcast=7", tcpConnect, func(a Address) bool { return actionNumber(a, "broadcast") == 7 }},
+		{"TCP:host:9,tcp-cork=false", tcpConnect, func(a Address) bool { return actionNumber(a, "tcp-cork") == 0 }},
+		{"TCP:host:9,sctp-nodelay=no", tcpConnect, func(a Address) bool { return actionNumber(a, "sctp-nodelay") == 0 }},
+		{"TCP:host:9,tcp-nopush=no", tcpConnect, func(a Address) bool { return actionNumber(a, "nopush") == 0 }},
+		{"TCP:host:9,tcp-noopt=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "noopt") == 1 }},
+		{"TCP:host:9,ip-freebind=no", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-freebind") == 0 }},
+		{"TCP:host:9,ip-ttl=2", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-ttl") == 2 }},
+		{"TCP:host:9,ip-ttl=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-ttl") == 1 }},
+		{"UDP4:127.0.0.1:9,mcloop=yes", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv4) == 1 }},
+		{"UDP4:127.0.0.1:9,mcloop=no", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv4) == 0 }},
+		{"UDP4:127.0.0.1:9,mcloop6=YES", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv6) == 1 }},
+		{"UDP4:127.0.0.1:9,ip-multicast-ttl=0x1", udp, func(a Address) bool { return multicastValue(a, MulticastTTLIPv4) == 1 }},
+		{"UDP4:127.0.0.1:9,ip-multicast-ttl=2", udp, func(a Address) bool { return multicastValue(a, MulticastTTLIPv4) == 2 }},
+		{"TCP:host:9,ip-transparent=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 1 }},
+		{"TCP:host:9,ip-transparent=0", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 0 }},
+		{"TCP:host:9,tcpwrap=0", tcpConnect, func(a Address) bool {
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "0"
+		}},
+		{"TCP:host:9,tcpwrap=no", tcpConnect, func(a Address) bool {
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "no"
+		}},
+		{"TCP:host:9,shut-close=1,shut=no", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+	}
+	for _, tc := range checks {
+		got, err := Decode(mustParseSpec(t, tc.text), tc.facts)
+		if err != nil {
+			t.Errorf("%s: %v", tc.text, err)
+			continue
+		}
+		if !tc.want(got) {
+			t.Errorf("%s: decoded value mismatch", tc.text)
+		}
+	}
 
-	if got.Common.Fork.Value {
-		t.Fatal("fork=no must disable fork")
+	rejects := []struct {
+		text string
+		want string
+	}{
+		{"TCP:host:9,keepalive=on", intValueForms},
+		{"TCP:host:9,so-debug=on", intValueForms},
+		{"TCP:host:9,ip-ttl=on", intValueForms},
+		{"TCP:host:9,ip-ttl=", intValueForms},
+		{"TCP:host:9,so-rcvlowat=no", "invalid value"},
+		{"TCP:host:9,so-priority=yes", "invalid value"},
+		{"UDP4:127.0.0.1:9,ip-multicast-ttl=yes", "invalid value"},
+		{"UDP4:127.0.0.1:9,ip-multicast-loop=00", boolValueForms},
+		{"UDP4:127.0.0.1:9,ip-multicast-loop=0x1", boolValueForms},
+		{"UDP4:127.0.0.1:9,mcloop6=2", boolValueForms},
+		{"TCP:host:9,ip-transparent=2", boolValueForms},
+		{"TCP:host:9,ip-transparent=7", boolValueForms},
+		{"TCP:host:9,fork=2", boolValueForms},
+		{"TCP:host:9,shut=off", "want none, down, close, or null"},
 	}
-	if !got.Common.Retry.Forever.Value {
-		t.Fatal("forever=maybe must retain legacy truthiness")
+	for _, tc := range rejects {
+		facts := tcpConnect
+		if strings.HasPrefix(tc.text, "UDP") {
+			facts = udp
+		}
+		_, err := Decode(mustParseSpec(t, tc.text), facts)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.text, err)
+		}
 	}
-	if got.Transfer.LineEnding != LineEndingRaw || got.Transfer.NullEOF.Value || got.Transfer.EndClose.Value {
-		t.Fatalf("flags=%+v", got.Transfer)
+}
+
+func actionNumber(a Address, name string) int {
+	for _, action := range a.Network.Actions {
+		if action.Text == name {
+			return action.Number
+		}
 	}
+	return -1
+}
+
+func multicastValue(a Address, kind MulticastKind) int {
+	for _, action := range a.Network.Actions {
+		if action.Kind == SocketActionMulticast && action.Multicast.Kind == kind {
+			return action.Multicast.Value
+		}
+	}
+	return -1
 }
 
 func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
@@ -424,8 +510,12 @@ func TestDecodeIPv6V6Only(t *testing.T) {
 		t.Fatalf("bare ipv6-v6only=%+v", got.Common.IPv6V6Only)
 	}
 
-	if _, err := Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false"), facts); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
-		t.Fatalf("ipv6-v6only=false error=%v", err)
+	got, err = Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Common.IPv6V6Only.Set || got.Common.IPv6V6Only.Value {
+		t.Fatalf("ipv6-v6only=false=%+v", got.Common.IPv6V6Only)
 	}
 }
 
