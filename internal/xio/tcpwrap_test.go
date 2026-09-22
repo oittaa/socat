@@ -945,9 +945,12 @@ func TestTCPWrapLocalAccountOptionIsNotExecuted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := user.Lookup(account.Username); err != nil {
+		t.Skip("current account name is not resolvable by user.Lookup")
+	}
 	group, err := user.LookupGroupId(account.Gid)
 	if err != nil {
-		t.Fatal(err)
+		t.Skip("current account group id is not resolvable by user.LookupGroupId")
 	}
 	var buf bytes.Buffer
 	lg := logx.New()

@@ -313,11 +313,8 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	lookupCtx, cancel := context.WithTimeout(parent, tcpwrapLookupTimeout)
 	defer cancel()
 	names, err := resolver.LookupAddr(lookupCtx, ipStr)
-	if parent.Err() != nil {
-		return "", nameUnknown, parent.Err()
-	}
-	if lookupCtx.Err() != nil {
-		return "", nameUnknown, lookupTimedOut()
+	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
+		return "", nameUnknown, deadlineErr
 	}
 	if len(names) == 0 {
 		if dnsInvalidName(err) {
@@ -332,12 +329,11 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	if numericDNSName(name) {
 		return "", nameParanoid, nil
 	}
-	cname, err := resolver.LookupCNAME(lookupCtx, name)
-	if parent.Err() != nil {
-		return "", nameUnknown, parent.Err()
-	}
-	if lookupCtx.Err() != nil {
-		return "", nameUnknown, lookupTimedOut()
+	// Ask for the absolute name. A search suffix would make the
+	// canonical name differ from the PTR without a CNAME record.
+	cname, err := resolver.LookupCNAME(lookupCtx, rootedDNSName(name))
+	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
+		return "", nameUnknown, deadlineErr
 	}
 	if err == nil && normDNSName(cname) != normDNSName(name) {
 		return "", nameParanoid, nil
@@ -346,11 +342,8 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 		return "", nameParanoid, nil
 	}
 	ips, err := resolver.LookupIP(lookupCtx, "ip", name)
-	if parent.Err() != nil {
-		return "", nameUnknown, parent.Err()
-	}
-	if lookupCtx.Err() != nil {
-		return "", nameUnknown, lookupTimedOut()
+	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
+		return "", nameUnknown, deadlineErr
 	}
 	if err != nil {
 		return "", nameParanoid, nil
@@ -367,8 +360,32 @@ func lookupTimedOut() error {
 	return &hostsLookupError{Detail: "tcpwrap reverse lookup timed out"}
 }
 
+// lookupDeadline reports a session cancellation or a reverse lookup that
+// did not finish. A resolver timeout is not always visible on the context
+// after Lookup returns.
+func lookupDeadline(parent, lookup context.Context, err error) error {
+	if parent.Err() != nil {
+		return parent.Err()
+	}
+	if lookup.Err() != nil || errors.Is(err, context.DeadlineExceeded) {
+		return lookupTimedOut()
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) && dnsErr.Timeout() {
+		return lookupTimedOut()
+	}
+	return nil
+}
+
 func normDNSName(name string) string {
 	return strings.TrimSuffix(strings.ToLower(name), ".")
+}
+
+func rootedDNSName(name string) string {
+	if strings.HasSuffix(name, ".") {
+		return name
+	}
+	return name + "."
 }
 
 func numericDNSName(name string) bool {

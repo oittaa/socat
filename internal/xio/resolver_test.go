@@ -220,6 +220,15 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, trun
 		}
 		switch question.Type {
 		case dnsmessage.TypeA:
+			hdr := resourceHeader
+			if target, ok, err := aliasCNAME(cname); err != nil {
+				return nil, err
+			} else if ok {
+				if err := builder.CNAMEResource(hdr, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+					return nil, err
+				}
+				hdr.Name = target
+			}
 			for _, answer := range answers {
 				ip4 := answer.To4()
 				if ip4 == nil {
@@ -227,11 +236,20 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, trun
 				}
 				var a [4]byte
 				copy(a[:], ip4)
-				if err := builder.AResource(resourceHeader, dnsmessage.AResource{A: a}); err != nil {
+				if err := builder.AResource(hdr, dnsmessage.AResource{A: a}); err != nil {
 					return nil, err
 				}
 			}
 		case dnsmessage.TypeAAAA:
+			hdr := resourceHeader
+			if target, ok, err := aliasCNAME(cname); err != nil {
+				return nil, err
+			} else if ok {
+				if err := builder.CNAMEResource(hdr, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+					return nil, err
+				}
+				hdr.Name = target
+			}
 			for _, answer := range answers {
 				if answer.To4() != nil {
 					continue
@@ -242,7 +260,7 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, trun
 				}
 				var aaaa [16]byte
 				copy(aaaa[:], ip16)
-				if err := builder.AAAAResource(resourceHeader, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
+				if err := builder.AAAAResource(hdr, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
 					return nil, err
 				}
 			}
@@ -272,6 +290,20 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, trun
 		}
 	}
 	return builder.Finish()
+}
+
+// aliasCNAME is the canonical name to put ahead of address records.
+// The Go resolver can take the canonical name from the first address
+// answer and ignore a separate CNAME query.
+func aliasCNAME(cname string) (dnsmessage.Name, bool, error) {
+	if cname == "" {
+		return dnsmessage.Name{}, false, nil
+	}
+	target, err := dnsmessage.NewName(cname)
+	if err != nil {
+		return dnsmessage.Name{}, false, err
+	}
+	return target, true, nil
 }
 
 func resolverConfig(t *testing.T, s parse.Spec) addrconfig.Address {
