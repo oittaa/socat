@@ -89,7 +89,7 @@ func (s *fakeDNSServer) serveUDP() {
 		if s.dropping() {
 			continue
 		}
-		if spoof, nx := s.rejectedAnswer(); spoof != "" {
+		if spoof, nx := s.rejectedAnswer(); spoof != "" && dnsQueryIsPTR(buf[:n]) {
 			forged, err := makeDNSResponse(buf[:n], nil, spoof, "", false)
 			if err == nil && len(forged) >= 2 {
 				forged[0] ^= 0xff
@@ -208,6 +208,15 @@ func cloneIP(ip net.IP) net.IP {
 		return nil
 	}
 	return append(net.IP(nil), ip...)
+}
+
+func dnsQueryIsPTR(query []byte) bool {
+	var parser dnsmessage.Parser
+	if _, err := parser.Start(query); err != nil {
+		return false
+	}
+	q, err := parser.Question()
+	return err == nil && q.Type == dnsmessage.TypePTR
 }
 
 func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, truncated bool) ([]byte, error) {
