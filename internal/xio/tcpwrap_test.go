@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -477,10 +478,20 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			ip:    "127.0.0.1", wantDeny: true,
 		},
 		{
-			name:  "backslash CRLF is not a continuation",
-			allow: "socat: 127.0.0.1 \\\r\n10.0.0.1\n",
+			name:  "backslash CRLF is an ordinary allow line",
+			allow: "socat: 127.0.0.1 \\\r\n",
 			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "backslash CRLF does not swallow the next rule",
+			allow: "socat: 10.0.0.9 \\\r\nsocat: ALL: deny\n",
 			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "backslash CRLF in deny does not deny another peer",
+			deny: "socat: 10.0.0.9 \\\r\n",
+			ip:   "127.0.0.1",
 		},
 		{
 			name:  "continuation at end of allow is ignored",
@@ -515,6 +526,187 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			allow: "socat: 127.0.0.1\n",
 			deny:  "ALL: ALL\n",
 			ip:    "::ffff:127.0.0.1",
+		},
+		{
+			name:  "spawn without a command denies",
+			allow: "socat: 127.0.0.1: spawn\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "keepalive does not take a value",
+			allow: "socat: 127.0.0.1: keepalive 1\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "keepalive with no value still allows",
+			allow: "socat: 127.0.0.1: keepalive\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "severity value must be a syslog level",
+			allow: "socat: 127.0.0.1: severity bogus.level\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "severity equals form is accepted",
+			allow: "socat: 127.0.0.1: severity=auth.info\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "umask must be octal",
+			allow: "socat: 127.0.0.1: umask 999\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "valid umask does not deny",
+			allow: "socat: 127.0.0.1: umask 022\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "linger must be a number",
+			allow: "socat: 127.0.0.1: linger abc\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "unknown user denies",
+			allow: "socat: 127.0.0.1: user nosuchuser-not-real\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "unknown group denies",
+			allow: "socat: 127.0.0.1: group nosuchgroup-not-real\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "empty option field denies",
+			allow: "socat: 127.0.0.1:\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "whitespace option field denies",
+			allow: "socat: 127.0.0.1:   \n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "escaped colon in the client field still separates options",
+			allow: "socat: 127.0.0.1 \\: deny\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "backslash does not escape a colon in the daemon field",
+			deny: "socat\\: ALL\n",
+			ip:   "10.0.0.1",
+		},
+		{
+			name: "deny file allow equals permits",
+			deny: "socat: 127.0.0.1: allow=\n",
+			ip:   "127.0.0.1",
+		},
+		{
+			name:      "plus port matches the local port",
+			deny:      "+80: ALL\n",
+			ip:        "10.0.0.1",
+			local:     "127.0.0.1",
+			localPort: 80, wantDeny: true,
+		},
+		{
+			name: "octal network matches the decimal peer",
+			deny: "socat: 010.0.0.0/255.0.0.0\n",
+			ip:   "8.1.1.1", wantDeny: true,
+		},
+		{
+			name: "octal network does not match a decimal lookalike",
+			deny: "socat: 010.0.0.0/255.0.0.0\n",
+			ip:   "10.1.1.1",
+		},
+		{
+			name: "exact hex host is not an inet_addr",
+			deny: "socat: 0x7f.0.0.1\n",
+			ip:   "127.0.0.1",
+		},
+		{
+			name:  "exact hex host does not override deny",
+			allow: "socat: 0x7f.0.0.1\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "exact octal host does not match the decimal address",
+			allow: "socat: 0177.0.0.1\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "hex network matches the decimal peer",
+			deny: "socat: 0x7f.0.0.0/255.0.0.0\n",
+			ip:   "127.1.2.3", wantDeny: true,
+		},
+		{
+			name:  "hex mask matches inside the prefix",
+			allow: "socat: 10.0.0.0/0xff.0.0.0\n",
+			deny:  "ALL: ALL\n",
+			ip:    "10.9.8.7",
+		},
+		{
+			name:  "nice without a value still allows",
+			allow: "socat: 127.0.0.1: nice\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "severity value may follow a spaced equals",
+			allow: "socat: 127.0.0.1: severity =info\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "setenv needs a name",
+			allow: "socat: 127.0.0.1: setenv\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "setenv with only a name still allows",
+			allow: "socat: 127.0.0.1: setenv FOO\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "prefix 32 matches the host",
+			allow: "socat: 127.0.0.1/32\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "dotted zero mask matches",
+			allow: "socat: 0.0.0.0/0.0.0.0\n",
+			deny:  "ALL: ALL\n",
+			ip:    "10.1.2.3",
+		},
+		{
+			name: "NUL in a deny line denies another peer",
+			deny: "socat: ALL\x00 EXCEPT 127.0.0.1\n",
+			ip:   "10.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "line of 2046 bytes still matches",
+			allow: "socat: 127.0.0.1" + strings.Repeat(" ", hostsAccessLineMax-len("socat: 127.0.0.1")) + "\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "line of 2047 bytes is ignored",
+			allow: "socat: 127.0.0.1" + strings.Repeat(" ", hostsAccessLineMax-len("socat: 127.0.0.1")+1) + "\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "continued line over 2046 bytes is ignored",
+			allow: "socat: 127.0.0.1 \\\n" + strings.Repeat(" ", 2100) + "\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
 		},
 	}
 	for _, tc := range cases {
@@ -690,12 +882,84 @@ func TestTCPWrapDroppedReverseLookupDenies(t *testing.T) {
 	if err == nil {
 		t.Fatal("dropped reverse lookup permitted the peer")
 	}
+	var lookup *hostsLookupError
+	if !errors.As(err, &lookup) {
+		t.Fatal("dropped reverse lookup was not a lookup failure")
+	}
 	var syntax *hostsAccessSyntaxError
-	if !errors.As(err, &syntax) {
-		t.Fatal("dropped reverse lookup was not a logged refusal")
+	if errors.As(err, &syntax) {
+		t.Fatal("dropped reverse lookup was reported as hosts_access syntax")
+	}
+	var buf bytes.Buffer
+	lg := logx.New()
+	lg.SetOutput(&buf)
+	lg.SetLevel(logx.Warning)
+	LogRefusedPeer(lg, err)
+	if buf.Len() == 0 {
+		t.Fatal("lookup failure produced no warning")
 	}
 	if elapsed >= 8*time.Second {
 		t.Fatalf("reverse lookup stalled for %s", elapsed)
+	}
+}
+
+func TestTCPWrapNumericPTRIsParanoid(t *testing.T) {
+	const ip = "192.0.2.55"
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.ParseIP(ip), ip, false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver := LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr)))
+	peer := tcpPeer(t, ip, "")
+	known := writeWrapTables(t, "socat: KNOWN\n", "ALL: ALL\n")
+	if err := tcpwrapAllowedWithResolver(t.Context(), resolver, known, peer, nil, nil); err == nil {
+		t.Fatal("KNOWN permitted a numeric reverse name")
+	}
+	paranoid := writeWrapTables(t, "", "socat: PARANOID\n")
+	if err := tcpwrapAllowedWithResolver(t.Context(), resolver, paranoid, peer, nil, nil); err == nil {
+		t.Fatal("PARANOID permitted a numeric reverse name")
+	}
+}
+
+func TestTCPWrapCNAMEPTRIsParanoid(t *testing.T) {
+	const ip = "192.0.2.55"
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.ParseIP(ip), "alias.example", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.setCNAME("canon.example.")
+	resolver := LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr)))
+	cfg := writeWrapTables(t, "", "socat: PARANOID\n")
+	err = tcpwrapAllowedWithResolver(t.Context(), resolver, cfg, tcpPeer(t, ip, ""), nil, nil)
+	if err == nil {
+		t.Fatal("PARANOID permitted a CNAME reverse name")
+	}
+	var lookup *hostsLookupError
+	if errors.As(err, &lookup) {
+		t.Fatal("CNAME reverse name timed out")
+	}
+}
+
+func TestTCPWrapLocalAccountOptionIsNotExecuted(t *testing.T) {
+	account, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, err := user.LookupGroupId(account.Gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	lg := logx.New()
+	lg.SetOutput(&buf)
+	lg.SetLevel(logx.Warning)
+	cfg := writeWrapTables(t, "socat: 127.0.0.1: user "+account.Username+" : group "+group.Name+"\n", "ALL: ALL\n")
+	err = tcpwrapAllowedWithResolver(context.Background(), nil, cfg, tcpPeer(t, "127.0.0.1", ""), nil, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("account option produced no warning")
 	}
 }
 

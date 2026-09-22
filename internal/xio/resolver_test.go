@@ -29,6 +29,7 @@ type fakeDNSServer struct {
 	mu      sync.Mutex
 	answer  net.IP
 	answers []net.IP
+	cname   string
 }
 
 func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServer, error) {
@@ -86,7 +87,7 @@ func (s *fakeDNSServer) serveUDP() {
 		if s.dropping() {
 			continue
 		}
-		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.truncateUDP)
+		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.cnameTarget(), s.truncateUDP)
 		if err == nil {
 			_, _ = s.udp.WriteTo(response, peer)
 		}
@@ -118,7 +119,7 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	if s.dropping() {
 		return
 	}
-	response, err := makeDNSResponse(query, s.records(), s.ptrName, false)
+	response, err := makeDNSResponse(query, s.records(), s.ptrName, s.cnameTarget(), false)
 	if err != nil {
 		return
 	}
@@ -137,6 +138,18 @@ func (s *fakeDNSServer) setAnswers(ips []net.IP) {
 	s.mu.Lock()
 	s.answers = cloned
 	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) setCNAME(name string) {
+	s.mu.Lock()
+	s.cname = name
+	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) cnameTarget() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cname
 }
 
 func (s *fakeDNSServer) records() []net.IP {
@@ -166,7 +179,7 @@ func cloneIP(ip net.IP) net.IP {
 	return append(net.IP(nil), ip...)
 }
 
-func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated bool) ([]byte, error) {
+func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, truncated bool) ([]byte, error) {
 	var parser dnsmessage.Parser
 	header, err := parser.Start(query)
 	if err != nil {
@@ -232,6 +245,18 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 				if err := builder.AAAAResource(resourceHeader, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
 					return nil, err
 				}
+			}
+		case dnsmessage.TypeCNAME:
+			target := question.Name
+			if cname != "" {
+				var err error
+				target, err = dnsmessage.NewName(cname)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if err := builder.CNAMEResource(resourceHeader, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+				return nil, err
 			}
 		case dnsmessage.TypePTR:
 			if ptrName == "" {

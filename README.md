@@ -337,44 +337,57 @@ address and option spellings are audited automatically. The
 `tcpwrap` reads `hosts.allow` and then `hosts.deny`. The first matching
 rule wins. Access is granted when neither file matches. Patterns are
 case-insensitive. Only a `#` in column 0 starts a comment. A newline
-after a backslash continues the rule. A final line with no newline, a
-line longer than 2047 bytes, a continuation at the end of the file, and
-a backslash followed by CRLF are errors: the rest of that `hosts.allow`
-is ignored, and `hosts.deny` denies every peer that did not match an
-earlier line. Those errors are logged.
+after a backslash continues the rule. A backslash before CRLF does not.
+A final line with no newline, a logical line longer than 2046 bytes
+(including continuations), a continuation at the end of the file, and a
+NUL byte are errors: the rest of that `hosts.allow` is ignored, and
+`hosts.deny` denies every peer that did not match an earlier line.
+Those errors are logged.
 
 The optional third field is a colon-separated options list. `\:` is a
-literal colon. `allow` and `deny` decide the rule and must be the last
-option. `twist`, `aclexec`, and any unknown or malformed option deny
-the peer and are logged. Side-effect options such as `spawn`,
-`severity`, and `banners` are not executed; a warning is logged and the
-rule's allow or deny decision still applies.
+literal colon only in that field. An empty option field denies the
+peer. `allow` and `deny` decide the rule, take no value, and must be
+the last option. The keyword ends at the first `=`, space, tab, or
+newline. `twist` and `aclexec` are not executed, so those rules deny
+the peer. Known side-effect options (`spawn`, `severity`, `keepalive`,
+`linger`, `umask`, `user`, `group`, `banners`, and the others listed
+with them) are checked and not executed; a warning is logged and the
+rule's allow or deny decision still applies. A missing or invalid value
+denies the peer. `user` and `group` are checked against the local
+account database and are not applied.
 
 Supported patterns:
 
 - `ALL`, exact daemon names, `*` and `?` wildcards, and `EXCEPT`
   (`a EXCEPT b EXCEPT c` means `a EXCEPT (b EXCEPT c)`)
-- an all-digit daemon token from 0 through 65535, which matches the
-  local server port, including `port@host`
-- exact host names and IP addresses, including bracketed IPv6
+- an all-digit daemon token from 0 through 65535, or `+` followed by
+  those digits, which matches the local server port, including
+  `port@host`
+- exact host names and IP addresses, including bracketed IPv6. An
+  exact host token is matched as written
 - a leading-dot domain suffix (`.example.com`) and a trailing-dot
   address prefix (`127.`)
-- IPv4 `n.n.n.n/m.m.m.m` and `n.n.n.n/prefixlen`. The peer address
-  masked with that mask must equal the pattern address, so host bits
-  in the pattern must be zero. An all-zero or all-ones mask (`/0`,
-  `0.0.0.0`, `/32`, `255.255.255.255`) is rejected
+- IPv4 `n.n.n.n/m.m.m.m` and `n.n.n.n/prefixlen`. Each octet may be
+  decimal, octal with a leading `0`, or hex with a leading `0x`. The
+  peer address masked with that mask must equal the pattern address,
+  so host bits in the pattern must be zero. Prefix length `/0` and a
+  dotted mask of `255.255.255.255` are rejected. `/32` and a dotted
+  mask of `0.0.0.0` are accepted
 - IPv6 `[address]/prefixlen`. Only the prefix bits are compared
 - `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`. `PARANOID` matches a
-  reverse name that does not forward-resolve to the peer. Only the
-  first reverse name is used. A reverse lookup that exceeds its
-  deadline denies that peer
+  reverse name that does not forward-resolve to the peer, a numeric
+  reverse name, or a name whose canonical name differs. Only the first
+  reverse name is used. A reverse lookup that exceeds its deadline
+  denies that peer; that refusal is a lookup failure, not a syntax
+  error
 - `daemon@host` server endpoint patterns, with the same host patterns
 
 A pattern this build cannot evaluate denies the peer and is logged.
 That includes NIS `@netgroup`, a `/file` pattern list, `user@host`
 (no IDENT lookup), `{RBL}` patterns, a malformed net/mask, a wildcard
 combined with a leading dot, a trailing dot, or a net/mask, and a line
-with no `:` separator.
+with no `:` separator. Shell commands are not run. An option form this
+build cannot validate is rejected instead of approximated.
 
 Unsupported names are omitted from help and rejected if used. They are not
 silently emulated with a different protocol.

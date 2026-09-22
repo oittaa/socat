@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/netip"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -22,9 +23,11 @@ import (
 // nameserver cannot stall the accept loop.
 const tcpwrapLookupTimeout = 2 * time.Second
 
-// hostsAccessLineMax is the longest physical hosts_access line. A longer
-// line, a missing final newline, or a broken continuation is a framing error.
-const hostsAccessLineMax = 2047
+// hostsAccessLineMax is the longest logical hosts_access line, including
+// text joined by continuations and excluding the newline. A longer line,
+// a missing final newline, a continuation at end of file, or a NUL byte
+// is a framing error.
+const hostsAccessLineMax = 2046
 
 // tcpwrapConfig holds libwrap / tcpwrappers options for peer checks.
 type tcpwrapConfig struct {
@@ -99,6 +102,16 @@ func (e *hostsAccessSyntaxError) Error() string {
 	return e.Detail
 }
 
+// hostsLookupError is a reverse lookup that did not finish in time.
+// Callers deny the peer. It is not a syntax error.
+type hostsLookupError struct {
+	Detail string
+}
+
+func (e *hostsLookupError) Error() string {
+	return e.Detail
+}
+
 // hostsSyntax refuses a pattern this build does not evaluate.
 // Skipping the token would permit the peer.
 func hostsSyntax(tok string) error {
@@ -112,7 +125,8 @@ func LogRefusedPeer(log *logx.Logger, err error) {
 		return
 	}
 	var syntax *hostsAccessSyntaxError
-	if errors.As(err, &syntax) {
+	var lookup *hostsLookupError
+	if errors.As(err, &syntax) || errors.As(err, &lookup) {
 		log.Warningf("%s", err)
 		return
 	}
@@ -303,21 +317,40 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 		return "", nameUnknown, parent.Err()
 	}
 	if lookupCtx.Err() != nil {
-		return "", nameUnknown, hostsSyntax("reverse lookup timed out")
+		return "", nameUnknown, lookupTimedOut()
 	}
-	if err != nil || len(names) == 0 {
+	if len(names) == 0 {
+		if dnsInvalidName(err) {
+			return "", nameParanoid, nil
+		}
 		return "", nameUnknown, nil
 	}
 	name := strings.TrimSuffix(names[0], ".")
 	if name == "" {
 		return "", nameUnknown, nil
 	}
+	if numericDNSName(name) {
+		return "", nameParanoid, nil
+	}
+	cname, err := resolver.LookupCNAME(lookupCtx, name)
+	if parent.Err() != nil {
+		return "", nameUnknown, parent.Err()
+	}
+	if lookupCtx.Err() != nil {
+		return "", nameUnknown, lookupTimedOut()
+	}
+	if err == nil && normDNSName(cname) != normDNSName(name) {
+		return "", nameParanoid, nil
+	}
+	if err != nil && !dnsNotFound(err) {
+		return "", nameParanoid, nil
+	}
 	ips, err := resolver.LookupIP(lookupCtx, "ip", name)
 	if parent.Err() != nil {
 		return "", nameUnknown, parent.Err()
 	}
 	if lookupCtx.Err() != nil {
-		return "", nameUnknown, hostsSyntax("reverse lookup timed out")
+		return "", nameUnknown, lookupTimedOut()
 	}
 	if err != nil {
 		return "", nameParanoid, nil
@@ -328,6 +361,28 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 		}
 	}
 	return "", nameParanoid, nil
+}
+
+func lookupTimedOut() error {
+	return &hostsLookupError{Detail: "tcpwrap reverse lookup timed out"}
+}
+
+func normDNSName(name string) string {
+	return strings.TrimSuffix(strings.ToLower(name), ".")
+}
+
+func numericDNSName(name string) bool {
+	return net.ParseIP(name) != nil
+}
+
+func dnsNotFound(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
+}
+
+func dnsInvalidName(err error) bool {
+	var dnsErr *net.DNSError
+	return errors.As(err, &dnsErr) && dnsErr.Err == "DNS response contained records which contain invalid names"
 }
 
 func (e *endpoint) dnsName() (string, nameStatus, error) {
@@ -394,15 +449,23 @@ func parseHostsTable(r io.Reader) (hostsTable, error) {
 			table.frame = hostsSyntax("missing newline")
 			return table, nil
 		}
-		if strings.HasSuffix(phys, "\\\r") {
-			table.frame = hostsSyntax("backslash-CRLF continuation")
-			return table, nil
-		}
+		// A backslash before CRLF is part of the line. Only a backslash
+		// before a bare LF continues the line.
+		crlf := strings.HasSuffix(phys, "\r")
 		phys = strings.TrimSuffix(phys, "\r")
-		if strings.HasSuffix(phys, `\`) {
-			pending += phys[:len(phys)-1]
+		if !crlf && strings.HasSuffix(phys, `\`) {
+			piece := phys[:len(phys)-1]
+			if len(pending)+len(piece) > hostsAccessLineMax {
+				table.frame = hostsSyntax("line too long")
+				return table, nil
+			}
+			pending += piece
 			continued = true
 			continue
+		}
+		if len(pending)+len(phys) > hostsAccessLineMax {
+			table.frame = hostsSyntax("line too long")
+			return table, nil
 		}
 		if continued {
 			table.lines = append(table.lines, pending+phys)
@@ -435,6 +498,9 @@ func readHostsPhysical(br *bufio.Reader) (string, bool, error) {
 		if b == '\n' {
 			return string(buf), true, nil
 		}
+		if b == 0 {
+			return "", false, hostsSyntax("NUL in hosts_access line")
+		}
 		if len(buf) >= hostsAccessLineMax {
 			return "", false, hostsSyntax("line too long")
 		}
@@ -451,11 +517,11 @@ func matchHostsTable(lines []string, daemon string, client, server *endpoint, fr
 		if line == "" {
 			continue
 		}
-		fields := splitHostsFields(line)
-		if len(fields) < 2 {
-			return verdictNone, &hostsAccessSyntaxError{Detail: fmt.Sprintf("unsupported hosts_access syntax: missing \":\" in %q", line)}
+		daemonList, clientList, options, hasOpt, err := splitHostsRule(line)
+		if err != nil {
+			return verdictNone, err
 		}
-		daemonOK, err := matchList(splitHostsList(fields[0]), func(tok string) (bool, error) {
+		daemonOK, err := matchList(splitHostsList(daemonList), func(tok string) (bool, error) {
 			return serverToken(tok, daemon, server)
 		})
 		if err != nil {
@@ -464,7 +530,7 @@ func matchHostsTable(lines []string, daemon string, client, server *endpoint, fr
 		if !daemonOK {
 			continue
 		}
-		clientOK, err := matchList(splitHostsList(fields[1]), func(tok string) (bool, error) {
+		clientOK, err := matchList(splitHostsList(clientList), func(tok string) (bool, error) {
 			return clientToken(tok, client)
 		})
 		if err != nil {
@@ -473,31 +539,34 @@ func matchHostsTable(lines []string, daemon string, client, server *endpoint, fr
 		if !clientOK {
 			continue
 		}
-		return applyOptions(fields[2:], fromAllow, log)
+		if !hasOpt {
+			options = nil
+		}
+		return applyOptions(options, fromAllow, log)
 	}
 	return verdictNone, nil
 }
 
-// applyOptions evaluates a hosts_options field. allow and deny must be last.
-// twist, aclexec, and unknown options are not executed and deny the peer.
-// Side-effect options are not executed; the rule's decision still applies.
+// applyOptions evaluates a hosts_options field. allow and deny must be last
+// and take no value. twist and aclexec are not executed, so they deny.
+// Other known options are validated and not executed.
 func applyOptions(options []string, fromAllow bool, log *logx.Logger) (accessVerdict, error) {
 	implicit := verdictDeny
 	if fromAllow {
 		implicit = verdictPermit
 	}
-	if len(options) == 1 && options[0] == "" {
+	if len(options) == 0 {
 		return implicit, nil
 	}
 	for i, opt := range options {
-		parts := strings.Fields(opt)
-		if len(parts) == 0 {
-			return verdictNone, hostsSyntax(opt)
+		if strings.TrimSpace(opt) == "" {
+			return verdictNone, hostsSyntax("empty option")
 		}
-		key := strings.ToLower(parts[0])
+		key, value := splitOptionKey(opt)
+		key = strings.ToLower(key)
 		switch key {
 		case "allow", "deny":
-			if len(parts) != 1 || i != len(options)-1 {
+			if value != "" || i != len(options)-1 {
 				return verdictNone, hostsSyntax(opt)
 			}
 			if key == "allow" {
@@ -506,15 +575,175 @@ func applyOptions(options []string, fromAllow bool, log *logx.Logger) (accessVer
 			return verdictDeny, nil
 		case "twist", "aclexec":
 			return verdictNone, hostsSyntax(opt)
-		case "spawn", "severity", "banners", "nice", "keepalive", "linger", "rfc931", "setenv", "umask", "user":
-			if log != nil {
-				log.Warningf("tcpwrap option %q is not executed", key)
+		case "spawn":
+			if strings.TrimSpace(value) == "" {
+				return verdictNone, hostsSyntax(opt)
 			}
+			noteIgnoredOption(log, key)
+		case "keepalive":
+			if value != "" {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "severity":
+			if !validSeverity(value) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "umask":
+			if !validUmask(value) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "linger":
+			if !validNumber(value, false) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "nice":
+			if value != "" && !validNumber(value, true) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "rfc931":
+			if value != "" && !validNumber(value, false) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "banners":
+			if strings.TrimSpace(value) == "" {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "setenv":
+			if len(strings.Fields(value)) < 1 {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "user":
+			if !validUserOption(value) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
+		case "group":
+			if !validGroupOption(value) {
+				return verdictNone, hostsSyntax(opt)
+			}
+			noteIgnoredOption(log, key)
 		default:
 			return verdictNone, hostsSyntax(opt)
 		}
 	}
 	return implicit, nil
+}
+
+func noteIgnoredOption(log *logx.Logger, key string) {
+	if log != nil {
+		log.Warningf("tcpwrap option %q is not executed", key)
+	}
+}
+
+func splitOptionKey(opt string) (key, value string) {
+	for i := 0; i < len(opt); i++ {
+		switch opt[i] {
+		case '=', ' ', '\t', '\n':
+			rest := opt[i+1:]
+			if opt[i] != '=' {
+				rest = strings.TrimLeft(rest, " \t\n")
+				rest = strings.TrimPrefix(rest, "=")
+			}
+			return opt[:i], strings.TrimSpace(rest)
+		}
+	}
+	return opt, ""
+}
+
+func validSeverity(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || strings.Contains(value, " ") {
+		return false
+	}
+	fac, level, hasDot := strings.Cut(value, ".")
+	if !hasDot {
+		return syslogLevel(value)
+	}
+	return syslogFacility(fac) && syslogLevel(level)
+}
+
+func syslogLevel(s string) bool {
+	switch s {
+	case "emerg", "alert", "crit", "err", "error", "warning", "warn", "notice", "info", "debug":
+		return true
+	default:
+		return false
+	}
+}
+
+func syslogFacility(s string) bool {
+	switch s {
+	case "kern", "user", "mail", "daemon", "auth", "syslog", "lpr", "news", "uucp", "cron", "authpriv", "ftp":
+		return true
+	}
+	if strings.HasPrefix(s, "local") && len(s) == len("local")+1 && s[len("local")] >= '0' && s[len("local")] <= '7' {
+		return true
+	}
+	return false
+}
+
+func validUmask(value string) bool {
+	if value == "" || len(value) > 4 {
+		return false
+	}
+	n := 0
+	for _, c := range value {
+		if c < '0' || c > '7' {
+			return false
+		}
+		n = n*8 + int(c-'0')
+	}
+	return n <= 0o777
+}
+
+func validNumber(value string, negative bool) bool {
+	if value == "" {
+		return false
+	}
+	i := 0
+	if negative && value[0] == '-' {
+		if len(value) == 1 {
+			return false
+		}
+		i = 1
+	}
+	for ; i < len(value); i++ {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validUserOption(value string) bool {
+	name, group, hasGroup := strings.Cut(strings.TrimSpace(value), ".")
+	if name == "" {
+		return false
+	}
+	if _, err := user.Lookup(name); err != nil {
+		return false
+	}
+	if !hasGroup {
+		return true
+	}
+	return validGroupOption(group)
+}
+
+func validGroupOption(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \t") {
+		return false
+	}
+	_, err := user.LookupGroup(value)
+	return err == nil
 }
 
 // matchList applies hosts_access EXCEPT. a EXCEPT b EXCEPT c is a EXCEPT (b EXCEPT c).
@@ -553,16 +782,36 @@ func matchListAt(tokens []string, i *int, match func(string) (bool, error)) (boo
 	return false, nil
 }
 
-// splitHostsFields splits on unescaped ':' outside [...]. A backslash
-// escapes the next byte, so "\:" is a literal colon.
-func splitHostsFields(line string) []string {
-	var fields []string
+// splitHostsRule splits "daemon : client [ : options ]". A backslash escapes
+// the next byte only inside the option field, so "\:" is a literal colon there
+// and a field separator before that.
+func splitHostsRule(line string) (daemonList, clientList string, options []string, hasOpt bool, err error) {
+	dEnd := indexHostsColon(line, false)
+	if dEnd < 0 {
+		return "", "", nil, false, &hostsAccessSyntaxError{Detail: fmt.Sprintf("unsupported hosts_access syntax: missing \":\" in %q", line)}
+	}
+	daemonList = strings.TrimSpace(line[:dEnd])
+	rest := line[dEnd+1:]
+	cEnd := indexHostsColon(rest, false)
+	if cEnd < 0 {
+		return daemonList, strings.TrimSpace(rest), nil, false, nil
+	}
+	clientList = strings.TrimSpace(rest[:cEnd])
+	options, err = splitOptionField(rest[cEnd+1:])
+	if err != nil {
+		return "", "", nil, false, err
+	}
+	return daemonList, clientList, options, true, nil
+}
+
+func splitOptionField(raw string) ([]string, error) {
+	var parts []string
 	var b strings.Builder
 	depth := 0
-	for i := 0; i < len(line); i++ {
-		c := line[i]
-		if c == '\\' && i+1 < len(line) {
-			b.WriteByte(line[i+1])
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if c == '\\' && i+1 < len(raw) {
+			b.WriteByte(raw[i+1])
 			i++
 			continue
 		}
@@ -577,7 +826,7 @@ func splitHostsFields(line string) []string {
 			b.WriteByte(c)
 		case ':':
 			if depth == 0 {
-				fields = append(fields, strings.TrimSpace(b.String()))
+				parts = append(parts, strings.TrimSpace(b.String()))
 				b.Reset()
 				continue
 			}
@@ -586,8 +835,31 @@ func splitHostsFields(line string) []string {
 			b.WriteByte(c)
 		}
 	}
-	fields = append(fields, strings.TrimSpace(b.String()))
-	return fields
+	parts = append(parts, strings.TrimSpace(b.String()))
+	return parts, nil
+}
+
+func indexHostsColon(s string, honorEscape bool) int {
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		if honorEscape && s[i] == '\\' && i+1 < len(s) {
+			i++
+			continue
+		}
+		switch s[i] {
+		case '[':
+			depth++
+		case ']':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
 }
 
 func splitMarker(tok string) (left, right string, ok bool) {
@@ -631,6 +903,12 @@ func serverToken(tok, daemon string, server *endpoint) (bool, error) {
 func numericPort(tok string) (int, bool) {
 	if tok == "" {
 		return 0, false
+	}
+	if tok[0] == '+' {
+		tok = tok[1:]
+		if tok == "" {
+			return 0, false
+		}
 	}
 	n := 0
 	for _, c := range tok {
@@ -689,6 +967,8 @@ func hostMatch(tok string, ep *endpoint) (bool, error) {
 	if addr, ok := parseHostIP(tok); ok {
 		return ipMatches(addr, ep), nil
 	}
+	// inet_addr octal and hex apply to net/mask fields. An exact host
+	// token is matched as written, so 010.0.0.1 does not mean 8.0.0.1.
 	return hostStringMatch(tok, ep)
 }
 
@@ -845,12 +1125,15 @@ func matchV4(netTok, maskTok string, ep *endpoint) (bool, error) {
 	var mask [4]byte
 	if parsed, ok := parseDottedQuad(maskTok); ok {
 		mask = parsed
+		if mask == [4]byte{255, 255, 255, 255} {
+			return false, hostsSyntax(netTok + "/" + maskTok)
+		}
 	} else if bits, ok := parsePrefixLen(maskTok, 32); ok {
+		if bits == 0 {
+			return false, hostsSyntax(netTok + "/" + maskTok)
+		}
 		mask = maskFromLen(bits)
 	} else {
-		return false, hostsSyntax(netTok + "/" + maskTok)
-	}
-	if mask == [4]byte{} || mask == [4]byte{255, 255, 255, 255} {
 		return false, hostsSyntax(netTok + "/" + maskTok)
 	}
 	if ep.ip == nil {
@@ -930,28 +1213,67 @@ func ipMatches(pat netip.Addr, ep *endpoint) bool {
 }
 
 func parseDottedQuad(s string) ([4]byte, bool) {
+	return parseInetQuad(s)
+}
+
+// parseInetQuad parses an IPv4 address the way inet_addr does: four octets,
+// each decimal, octal with a leading 0, or hex with a leading 0x.
+func parseInetQuad(s string) ([4]byte, bool) {
 	parts := strings.Split(s, ".")
 	if len(parts) != 4 {
 		return [4]byte{}, false
 	}
 	var out [4]byte
 	for i, p := range parts {
-		if p == "" || len(p) > 3 {
+		n, ok := parseInetOctet(p)
+		if !ok {
 			return [4]byte{}, false
 		}
-		n := 0
-		for _, c := range p {
-			if c < '0' || c > '9' {
-				return [4]byte{}, false
-			}
-			n = n*10 + int(c-'0')
-		}
-		if n > 255 {
-			return [4]byte{}, false
-		}
-		out[i] = byte(n)
+		out[i] = n
 	}
 	return out, true
+}
+
+func parseInetOctet(s string) (byte, bool) {
+	if s == "" {
+		return 0, false
+	}
+	base := 10
+	i := 0
+	if s[0] == '0' && len(s) > 1 {
+		base = 8
+		i = 1
+		if s[1] == 'x' || s[1] == 'X' {
+			base = 16
+			i = 2
+		}
+	}
+	if i >= len(s) {
+		return 0, false
+	}
+	n := 0
+	for ; i < len(s); i++ {
+		c := s[i]
+		var d int
+		switch {
+		case c >= '0' && c <= '9':
+			d = int(c - '0')
+		case c >= 'a' && c <= 'f':
+			d = int(c-'a') + 10
+		case c >= 'A' && c <= 'F':
+			d = int(c-'A') + 10
+		default:
+			return 0, false
+		}
+		if d >= base {
+			return 0, false
+		}
+		n = n*base + d
+		if n > 255 {
+			return 0, false
+		}
+	}
+	return byte(n), true
 }
 
 func parsePrefixLen(s string, max int) (int, bool) {
