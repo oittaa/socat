@@ -184,13 +184,18 @@ func plainFlag(dst func(*Config) *string) func(cfg *Config, v string) error {
 
 func parseOption(a string, args []string, i *int, cfg *Config) error {
 	// -d / -dd / -ddd / -dddd accumulate. -d0 / -d2 / -d3 / -d4 set the count.
+	// A numeric suffix is ASCII digits only.
 	if strings.HasPrefix(a, "-d") {
 		rest := a[2:]
 		if rest == "" || strings.Trim(rest, "d") == "" {
 			bumpLogVerbosity(cfg, len(a)-1)
 			return nil
 		}
-		if n, err := strconv.Atoi(rest); err == nil {
+		if asciiDigits(rest) {
+			n, err := strconv.Atoi(rest)
+			if err != nil {
+				return fmt.Errorf("unknown option %q", a)
+			}
 			setLogVerbosity(cfg, n)
 			return nil
 		}
@@ -344,6 +349,19 @@ func setIdleFlag(cfg *Config, v string) error {
 		cfg.Idle = -1
 	}
 	return nil
+}
+
+// asciiDigits reports whether s is one or more ASCII digits.
+func asciiDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // bumpLogVerbosity adds steps to the accumulated -d count.

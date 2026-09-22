@@ -335,9 +335,9 @@ also accept `ip4`, `ipv4`, `inet`, and `inet4` for IPv4, and `ip6`, `ipv6`,
 and `inet6` for IPv6. Matching ignores case and surrounding space. An unset
 or empty value leaves the default, which is IPv4 for listen and for name
 resolution. Any other value is logged as a warning after `-d` and `-l*`
-logging is configured, and socat keeps that default. Classic reads only the
-first character of these variables and maps anything else to unspecified;
-an empty value here counts as unset.
+logging is configured, and socat keeps that default. How classic reads
+these variables is an
+[intentional difference](#intentional-differences-from-classic-socat).
 
 Child processes receive `SOCAT_*` connection metadata. TLS metadata is exposed
 as `SOCAT_TLS_*`, with `SOCAT_OPENSSL_*` aliases for compatible scripts.

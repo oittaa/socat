@@ -54,6 +54,8 @@ func TestMalformedLogVerbosityRejected(t *testing.T) {
 		{"-dddx"},
 		{"-d2x"},
 		{"-d0x2"},
+		{"-d+2"},
+		{"-d-1"},
 	}
 	for _, args := range cases {
 		_, err := ParseArgs(args)
