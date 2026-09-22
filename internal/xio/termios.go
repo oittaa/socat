@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -479,8 +480,25 @@ func AttachConfiguredTermios(o *Opened, fd int, config addrconfig.Terminal) erro
 	if saved == nil {
 		return nil
 	}
+	// Signal exit calls os.Exit and skips Close. Register the same restore
+	// there, and drop it once Close has restored this fd.
 	cp := *saved
-	o.AddTTYRestore(func() { _ = setTermios(fd, &cp) })
+	var mu sync.Mutex
+	live := true
+	restore := func() {
+		mu.Lock()
+		defer mu.Unlock()
+		if !live {
+			return
+		}
+		live = false
+		_ = setTermios(fd, &cp)
+	}
+	unregister := RegisterExitHook(restore)
+	o.AddTTYRestore(func() {
+		unregister()
+		restore()
+	})
 	return nil
 }
 
