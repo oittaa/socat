@@ -1,10 +1,12 @@
 package netopen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestVsockEmptyCIDIsAny(t *testing.T) {
@@ -25,8 +27,9 @@ func TestVsockConnectParams(t *testing.T) {
 	if !config.Network.VSOCKConnectSet || config.Network.VSOCKConnect.CID != 1 || config.Network.VSOCKConnect.Port != 0x22 {
 		t.Fatalf("got %+v", config.Network.VSOCKConnect)
 	}
-	if mustAddr(t, parse.Spec{Type: "VSOCK-CONNECT", Params: []string{"1"}}).Network.VSOCKConnectSet {
-		t.Fatal("expected missing port to leave Connect unset")
+	_, err = xio.PrepareSpec(parse.Spec{Type: "VSOCK-CONNECT", Params: []string{"1"}})
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (1 instead of 2)") {
+		t.Fatalf("missing port: %v", err)
 	}
 }
 

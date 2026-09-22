@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -38,22 +39,16 @@ func TestQUICTargetListen(t *testing.T) {
 }
 
 func TestQUICTargetListenRequiresPort(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC-LISTEN")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := quicTarget(mustAddr(t, s), true); err == nil {
-		t.Fatal("expected error")
+	_, _, err := quicTarget(addrconfig.Address{Type: "QUIC-LISTEN"}, true)
+	if err == nil || !strings.Contains(err.Error(), "requires port") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestQUICTargetConnectRequiresHostPort(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC:onlyhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := quicTarget(mustAddr(t, s), false); err == nil {
-		t.Fatal("expected error")
+	_, _, err := quicTarget(addrconfig.Address{Type: "QUIC"}, false)
+	if err == nil || !strings.Contains(err.Error(), "requires host and port") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

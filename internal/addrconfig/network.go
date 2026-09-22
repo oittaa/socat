@@ -426,8 +426,13 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	n := &a.Network
 	n.Kind = a.Facts.Kind
 	n.Role = a.Facts.Role
-	n.IPFamily = a.Facts.Family
-	n.TUNType = TUNTypeTUN
+	// pf= may already have selected a family during option decoding.
+	if !n.ProtocolSet {
+		n.IPFamily = a.Facts.Family
+	}
+	if n.TUNType == 0 {
+		n.TUNType = TUNTypeTUN
+	}
 
 	switch n.Kind {
 	case AddressKindFD:

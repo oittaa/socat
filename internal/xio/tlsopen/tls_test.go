@@ -17,7 +17,8 @@ import (
 
 func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
-		Type: "TLS",
+		Type:   "TLS",
+		Params: []string{"example.com", "443"},
 		Options: []parse.Option{
 			{Name: "commonname", Value: "", Has: true},
 			{Name: "verify", Value: "0"},
@@ -33,7 +34,8 @@ func TestTLSClientEmptyCommonNameKeepsDialSNI(t *testing.T) {
 
 func TestTLSClientNoSNI(t *testing.T) {
 	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
-		Type: "TLS",
+		Type:   "TLS",
+		Params: []string{"badssl.com", "443"},
 		Options: []parse.Option{
 			{Name: "openssl-no-sni"},
 			{Name: "verify", Value: "0"},
@@ -59,7 +61,8 @@ func TestTLSServerConfigRequiresCert(t *testing.T) {
 
 func TestTLSClientSNIHost(t *testing.T) {
 	cfg, err := tlsClientConfig(mustAddr(t, parse.Spec{
-		Type: "TLS",
+		Type:   "TLS",
+		Params: []string{"127.0.0.1", "443"},
 		Options: []parse.Option{
 			{Name: "openssl-snihost", Value: "sni.example", Has: true},
 			{Name: "verify", Value: "0"},

@@ -59,7 +59,7 @@ func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Gl
 	// STALL takes no parameters. STALL::::: is a syntax error so the process
 	// does not hang transferring.
 	if len(s.Params) > 0 {
-		return nil, fmt.Errorf("STALL: wrong number of parameters (expected 0)")
+		return nil, addrconfig.WrongParameterCount(s.Type, len(s.Params), 0, 0, s.Type)
 	}
 	var r io.Reader = xio.EOFReader{}
 	var w = io.Discard

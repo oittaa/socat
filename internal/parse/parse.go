@@ -81,8 +81,9 @@ func ParseSpec(s string) (Spec, error) {
 		return Spec{Type: "GOPEN", Params: params, Options: opts, Raw: s}, nil
 	}
 
-	// TYPE:params,options  or  TYPE,options  or just TYPE
-	typeName, rest := splitType(s)
+	// TYPE:params,options  or  TYPE,options  or just TYPE.
+	// A colon with nothing after it is one empty parameter, so TYPE and TYPE: differ.
+	typeName, rest, hadColon := splitType(s)
 	if typeName == "" {
 		return Spec{}, fmt.Errorf("missing address type in %q", s)
 	}
@@ -90,6 +91,9 @@ func ParseSpec(s string) (Spec, error) {
 	params, opts, err := splitParamsAndOptions(rest, pathParamType(typeName))
 	if err != nil {
 		return Spec{}, err
+	}
+	if hadColon && len(params) == 0 {
+		params = []string{""}
 	}
 
 	return Spec{
@@ -114,17 +118,17 @@ func splitDual(s string) (left, right string, ok bool) {
 	}
 }
 
-func splitType(s string) (typeName, rest string) {
+func splitType(s string) (typeName, rest string, hadColon bool) {
 	// TYPE is up to first : or , (outside nesting) — but TYPE itself has no nesting
 	for i := 0; i < len(s); i++ {
 		switch s[i] {
 		case ':':
-			return s[:i], s[i+1:]
+			return s[:i], s[i+1:], true
 		case ',':
-			return s[:i], s[i:] // rest starts with comma → no params
+			return s[:i], s[i:], false // rest starts with comma → no params
 		}
 	}
-	return s, ""
+	return s, "", false
 }
 
 // splitParamsAndOptions splits "p1:p2,opt,opt=val" into params and options.

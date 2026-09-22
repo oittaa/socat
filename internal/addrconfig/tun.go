@@ -17,7 +17,7 @@ func decodeTUNPositional(a *Address) error {
 		}
 	}
 	if n > 1 || len(a.Params) > 1 {
-		return fmt.Errorf("too many parameters (%d instead of 0 or 1)", len(a.Params))
+		return parameterCountError(len(a.Params), 0, 1)
 	}
 	if len(a.Params) == 0 || a.Params[0] == "" {
 		return nil

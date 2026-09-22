@@ -61,6 +61,8 @@ type AddressDesc struct {
 	Family      addrconfig.IPFamily
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
+	// Params is the accepted positional count. Syntax is help text only.
+	Params ParamCount
 }
 
 type addressRegistry struct {
@@ -120,6 +122,12 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	if len(desc.OptionCaps) == 0 {
 		panic("xio: address registration requires OptionCaps: " + name)
 	}
+	if strings.TrimSpace(desc.Syntax) == "" {
+		panic("xio: address registration requires syntax: " + name)
+	}
+	if !desc.Params.explicit {
+		panic("xio: address registration requires parameter count: " + name)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -163,16 +171,6 @@ func (r *addressRegistry) register(desc AddressDesc) {
 		}
 		r.addrsByGroup[desc.Group] = append(r.addrsByGroup[desc.Group], desc)
 	}
-}
-
-// Register associates an address type name with an opener.
-// It does not add a -h line; prefer RegisterAddress with Syntax set.
-func Register(name string, fn Opener) {
-	RegisterAddress(AddressDesc{
-		Name:       name,
-		Opener:     fn,
-		OptionCaps: CapsFD,
-	})
 }
 
 // resolve returns the registered descriptor for typ. Direct RegisterAddress
@@ -229,6 +227,8 @@ type AddressRegistration struct {
 	Kind       addrconfig.AddressKind
 	Role       addrconfig.AddressRole
 	Family     addrconfig.IPFamily
+	ParamMin   int
+	ParamMax   int // inclusive; negative means no maximum
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -288,6 +288,8 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 		Kind:       d.Kind,
 		Role:       d.Role,
 		Family:     d.Family,
+		ParamMin:   d.Params.Min,
+		ParamMax:   d.Params.Max,
 	}
 }
 

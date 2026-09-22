@@ -49,6 +49,19 @@ func TestDecodeTUNStillRequiresIPv4Prefix(t *testing.T) {
 	}
 }
 
+func TestDecodeTUNTypeOptionSurvivesDefault(t *testing.T) {
+	facts := Facts{Type: "TUN", Kind: AddressKindTUN}
+	for _, text := range []string{"TUN,tun-type=tap", "TUN:10.0.0.1/24,tun-type=tap"} {
+		config, err := Decode(mustParseSpec(t, text), facts)
+		if err != nil {
+			t.Fatalf("%s: %v", text, err)
+		}
+		if config.Network.TUNType != TUNTypeTAP {
+			t.Fatalf("%s type=%v want TAP", text, config.Network.TUNType)
+		}
+	}
+}
+
 func TestDecodeTUNPrefix(t *testing.T) {
 	spec := mustParseSpec(t, "TUN:10.1.2.3/24")
 	config, err := Decode(spec, Facts{Type: "TUN", Group: "Linux TUN / INTERFACE", Kind: AddressKindTUN})

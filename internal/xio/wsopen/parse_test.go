@@ -1,8 +1,10 @@
 package wsopen
 
 import (
+	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -155,21 +157,15 @@ func TestWSTargetEmptyPathKeepsPositional(t *testing.T) {
 }
 
 func TestWSTargetListenRequiresPort(t *testing.T) {
-	s, err := parse.ParseSpec("WS-LISTEN")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := wsTarget(mustAddr(t, s), true); err == nil {
-		t.Fatal("expected error")
+	_, _, _, err := wsTarget(addrconfig.Address{Type: "WS-LISTEN"}, true)
+	if err == nil || !strings.Contains(err.Error(), "requires port") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestWSTargetConnectRequiresHostPort(t *testing.T) {
-	s, err := parse.ParseSpec("WS:onlyhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, _, _, err := wsTarget(mustAddr(t, s), false); err == nil {
-		t.Fatal("expected error")
+	_, _, _, err := wsTarget(addrconfig.Address{Type: "WS"}, false)
+	if err == nil || !strings.Contains(err.Error(), "requires host and port") {
+		t.Fatalf("err=%v", err)
 	}
 }
