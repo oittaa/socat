@@ -159,9 +159,7 @@ func UnlinkRegisteredPaths() {
 		UnlinkIfSameFile(entry.path, entry.info)
 	}
 	for i := len(hooks) - 1; i >= 0; i-- {
-		if hooks[i].fn != nil {
-			hooks[i].fn()
-		}
+		hooks[i].fn()
 	}
 }
 

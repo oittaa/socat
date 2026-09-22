@@ -94,11 +94,18 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	config := terminalConfig(t, "STDIO,raw,echo=0")
+	before := exitHookCount()
 	if err := AttachConfiguredTermios(o, fd, config); err != nil {
 		t.Fatal(err)
 	}
+	if got := exitHookCount(); got != before+1 {
+		t.Fatalf("exit hooks=%d want %d", got, before+1)
+	}
 	if err := o.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if got := exitHookCount(); got != before {
+		t.Fatalf("close left the exit hook registered: hooks=%d want %d", got, before)
 	}
 	restored, err := getTermios(fd)
 	if err != nil {
@@ -118,6 +125,12 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 	if got.Lflag&unix.ECHO != 0 || got.Lflag&unix.ICANON != 0 {
 		t.Fatalf("closed endpoint's exit hook restored termios: %s", formatTermios(got))
 	}
+}
+
+func exitHookCount() int {
+	unlinkMu.Lock()
+	defer unlinkMu.Unlock()
+	return len(exitHooks)
 }
 
 func terminalConfig(t *testing.T, spec string) addrconfig.Terminal {

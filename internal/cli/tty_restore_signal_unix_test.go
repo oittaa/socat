@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -99,36 +100,17 @@ func assertSignalRestoresTerminal(t *testing.T, sig syscall.Signal) {
 	}
 	// A marker that comes back has been copied by the transfer loop, so both
 	// stdio descriptors are open and their restore hooks are registered.
-	// PTY masters do not support SetReadDeadline, so bound the read with
-	// context cancellation instead.
+	// Poll first: a PTY master read is not deadline-capable, and an unbounded
+	// Read would stick if the byte never arrives.
 	if _, err := master.Write([]byte("m")); err != nil {
 		t.Fatal(err)
 	}
-	type markerResult struct {
-		b   byte
-		err error
+	marker, err := readPolledByte(master)
+	if err != nil {
+		t.Fatalf("marker: %v stderr=%s", err, readTestFile(t, stderr.Name()))
 	}
-	markerCh := make(chan markerResult, 1)
-	go func() {
-		var buf [1]byte
-		_, err := master.Read(buf[:])
-		markerCh <- markerResult{buf[0], err}
-	}()
-	markerCtx, markerCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer markerCancel()
-	var marker markerResult
-	select {
-	case marker = <-markerCh:
-	case <-done:
-		t.Fatalf("socat exited before marker: %v stderr=%s", waitErr, readTestFile(t, stderr.Name()))
-	case <-markerCtx.Done():
-		t.Fatalf("marker: %v stderr=%s", markerCtx.Err(), readTestFile(t, stderr.Name()))
-	}
-	if marker.err != nil {
-		t.Fatalf("marker: %v stderr=%s", marker.err, readTestFile(t, stderr.Name()))
-	}
-	if marker.b != 'm' {
-		t.Fatalf("marker=%q stderr=%s", marker.b, readTestFile(t, stderr.Name()))
+	if marker != 'm' {
+		t.Fatalf("marker=%q stderr=%s", marker, readTestFile(t, stderr.Name()))
 	}
 	if err := cmd.Process.Signal(sig); err != nil {
 		t.Fatal(err)
@@ -151,6 +133,66 @@ func assertSignalRestoresTerminal(t *testing.T, sig syscall.Signal) {
 	}
 	if !ptyTermiosEqual(orig, got) {
 		t.Fatalf("%s left the terminal changed\n orig %s\n got  %s\n stderr=%s", sig, formatPTYTermios(orig), formatPTYTermios(got), readTestFile(t, stderr.Name()))
+	}
+}
+
+func TestExitHooksRunBeforeCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var mu sync.Mutex
+	var order []string
+	record := func(step string) {
+		mu.Lock()
+		order = append(order, step)
+		mu.Unlock()
+	}
+	unregister := xio.RegisterExitHook(func() { record("hook") })
+	t.Cleanup(unregister)
+	sigCh := make(chan os.Signal, 1)
+	stop := startSignalHandlers(ctx, func() {
+		record("cancel")
+		cancel()
+	}, nil, 0, nil, sigCh, make(chan os.Signal), nil)
+	t.Cleanup(stop)
+	sigCh <- syscall.SIGTERM
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("cancel was not called")
+	}
+	mu.Lock()
+	got := append([]string(nil), order...)
+	mu.Unlock()
+	if len(got) != 2 || got[0] != "hook" || got[1] != "cancel" {
+		t.Fatalf("order=%v want hook then cancel", got)
+	}
+}
+
+// readPolledByte waits until fd is readable, then reads one byte.
+func readPolledByte(f *os.File) (byte, error) {
+	fd := int(f.Fd())
+	if fd < 0 || fd > 1<<30 {
+		return 0, fmt.Errorf("fd %d", fd)
+	}
+	pfd := []unix.PollFd{{Fd: int32(fd), Events: unix.POLLIN}}
+	for {
+		n, err := unix.Poll(pfd, 5000)
+		if err == unix.EINTR {
+			continue
+		}
+		if err != nil {
+			return 0, err
+		}
+		if n == 0 {
+			return 0, fmt.Errorf("poll timeout")
+		}
+		if pfd[0].Revents&unix.POLLIN == 0 {
+			return 0, fmt.Errorf("poll revents=%#x", pfd[0].Revents)
+		}
+		var buf [1]byte
+		if _, err := unix.Read(fd, buf[:]); err != nil {
+			return 0, err
+		}
+		return buf[0], nil
 	}
 }
 
