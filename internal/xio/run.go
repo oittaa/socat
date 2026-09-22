@@ -232,7 +232,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			}
 		}
 		if logAccept {
-			g.Log.Infof("accepted %s", conn.RemoteAddr())
+			g.Log.Noticef("accepted %s", conn.RemoteAddr())
 		}
 		time.Sleep(g.Options().ForkWait)
 		children.Add(1)
@@ -290,7 +290,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			return err
 		}
 		if g != nil && g.Log != nil {
-			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
+			g.Log.Noticef("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
 		time.Sleep(g.Options().ForkWait)
 		children.Add(1)

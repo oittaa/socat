@@ -119,7 +119,7 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		return openUnixDgramClient(req, path, bindPath, false)
 	}
 	if g != nil && g.Log != nil {
-		g.Log.Infof("successfully connected to %s", path)
+		g.Log.Noticef("successfully connected to %s", path)
 	}
 	if g != nil {
 		if bindPath != "" {
@@ -257,7 +257,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 		return nil, err
 	}
 	if req.g != nil && req.g.Log != nil {
-		req.g.Log.Infof("successfully connected to %s", path)
+		req.g.Log.Noticef("successfully connected to %s", path)
 	}
 	if req.g != nil {
 		if bindPath != "" {

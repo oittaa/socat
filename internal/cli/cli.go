@@ -68,6 +68,11 @@ type Config struct {
 	RawRight      string // -R
 	SignalLogMask uint64 // -S: signals whose termination is logged
 	Addresses     []string
+
+	// logVerbosity is the accumulated -d count. It is set only after a -d
+	// flag; the default (unset) level is warning.
+	logVerbositySet bool
+	logVerbosity    int
 }
 
 // ParseArgs parses os.Args-style arguments (without program name).
@@ -179,25 +184,15 @@ func plainFlag(dst func(*Config) *string) func(cfg *Config, v string) error {
 }
 
 func parseOption(a string, args []string, i *int, cfg *Config) error {
-	// -d / -dd / -ddd / -dddd / -d0 / -d2 …
+	// -d / -dd / -ddd / -dddd accumulate. -d0 / -d2 / -d3 / -d4 set the count.
 	if strings.HasPrefix(a, "-d") {
 		rest := a[2:]
-		if rest == "" {
-			// each bare -d increases one level from current (min Notice)
-			if cfg.LogLevel < logx.Notice {
-				cfg.LogLevel = logx.Notice
-			} else if cfg.LogLevel < logx.Debug {
-				cfg.LogLevel++
-			}
+		if rest == "" || strings.Trim(rest, "d") == "" {
+			bumpLogVerbosity(cfg, len(a)-1)
 			return nil
 		}
 		if n, err := strconv.Atoi(rest); err == nil {
-			cfg.LogLevel = levelFromN(n)
-			return nil
-		}
-		// -dd, -ddd, -dddd
-		if strings.Trim(rest, "d") == "" {
-			cfg.LogLevel = levelFromN(len(a) - 1)
+			setLogVerbosity(cfg, n)
 			return nil
 		}
 	}
@@ -231,9 +226,9 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 			return f.set(cfg, v)
 		}
 	}
-	// Legacy catch: unrecognized -d combos (-dx) act as bare verbosity.
+	// Unrecognized -d forms act as one -d.
 	if strings.HasPrefix(a, "-d") {
-		cfg.LogLevel = logx.Notice
+		setLogVerbosity(cfg, 1)
 		return nil
 	}
 	return fmt.Errorf("unknown option %q", a)
@@ -356,18 +351,31 @@ func setIdleFlag(cfg *Config, v string) error {
 	return nil
 }
 
+// bumpLogVerbosity adds steps to the accumulated -d count.
+func bumpLogVerbosity(cfg *Config, steps int) {
+	n := 0
+	if cfg.logVerbositySet {
+		n = cfg.logVerbosity
+	}
+	setLogVerbosity(cfg, n+steps)
+}
+
+// setLogVerbosity stores an absolute -d count and the level it selects.
+func setLogVerbosity(cfg *Config, n int) {
+	cfg.logVerbositySet = true
+	cfg.logVerbosity = n
+	cfg.LogLevel = levelFromN(n)
+}
+
+// levelFromN maps a -d count: 0 is errors only, 1 and 2 are notice,
+// 3 is info, and 4 and above are debug.
 func levelFromN(n int) logx.Level {
-	// n = number of -d or -dn value
-	// 0: error only (no warning); -d0 is fatal+error
-	// 1: +notice
-	// 2: +info
-	// 3+: debug
 	switch {
 	case n <= 0:
 		return logx.Error
-	case n == 1:
+	case n <= 2:
 		return logx.Notice
-	case n == 2:
+	case n == 3:
 		return logx.Info
 	default:
 		return logx.Debug
@@ -403,7 +411,7 @@ func (c *Config) fieldRawRight() *string { return &c.RawRight }
 // owned by cmd/socat so tests can exercise signal handling without terminating
 // the test process.
 func Run(args []string, signalExit func(int)) int {
-	envOptions, mainWait := environmentOptions()
+	envOptions, mainWait, envWarnings := environmentOptions()
 	time.Sleep(mainWait)
 	cfg, err := ParseArgs(args)
 	if err != nil {
@@ -436,6 +444,7 @@ func Run(args []string, signalExit func(int)) int {
 		return cliWriteErr("socat: %v\n", err)
 	}
 	defer closeLog()
+	emitEnvironmentWarnings(log, envWarnings)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -569,23 +578,37 @@ func acquireLockFiles(ctx context.Context, cfg *Config) (func(), error) {
 	}, nil
 }
 
+// ipVersionAliases is the shared name table for SOCAT_DEFAULT_LISTEN_IP and
+// SOCAT_PREFERRED_RESOLVE_IP. The digit 0 is not an alias.
+var ipVersionAliases = map[string]xio.IPVersion{
+	"4":     xio.IPv4,
+	"ip4":   xio.IPv4,
+	"ipv4":  xio.IPv4,
+	"inet":  xio.IPv4,
+	"inet4": xio.IPv4,
+	"6":     xio.IPv6,
+	"ip6":   xio.IPv6,
+	"ipv6":  xio.IPv6,
+	"inet6": xio.IPv6,
+}
+
+// envWarning is an unrecognized IP-version environment value. It is logged
+// after the process logger exists so -d and -l* apply.
+type envWarning struct {
+	name  string
+	value string
+}
+
 // environmentOptions snapshots process defaults before runtime starts.
-func environmentOptions() (xio.Options, time.Duration) {
-	listenIP := xio.IPv4Default
-	switch strings.ToLower(strings.TrimSpace(os.Getenv("SOCAT_DEFAULT_LISTEN_IP"))) {
-	case "4", "ip4", "ipv4", "inet", "2":
-		listenIP = xio.IPv4
-	case "6", "ip6", "ipv6", "inet6", "10":
-		listenIP = xio.IPv6
+func environmentOptions() (xio.Options, time.Duration, []envWarning) {
+	var warnings []envWarning
+	listenIP, listenWarn := environmentIPVersion("SOCAT_DEFAULT_LISTEN_IP", false)
+	if listenWarn != nil {
+		warnings = append(warnings, *listenWarn)
 	}
-	resolveIP := xio.IPv4Default
-	switch strings.TrimSpace(os.Getenv("SOCAT_PREFERRED_RESOLVE_IP")) {
-	case "0":
-		resolveIP = xio.IPvAny
-	case "6":
-		resolveIP = xio.IPv6
-	case "4":
-		resolveIP = xio.IPv4
+	resolveIP, resolveWarn := environmentIPVersion("SOCAT_PREFERRED_RESOLVE_IP", true)
+	if resolveWarn != nil {
+		warnings = append(warnings, *resolveWarn)
 	}
 	socksUser := os.Getenv("LOGNAME")
 	if socksUser == "" {
@@ -605,7 +628,36 @@ func environmentOptions() (xio.Options, time.Duration) {
 		Shell:                     shell,
 		ForkWait:                  environmentWaitDuration(os.Getenv("SOCAT_FORK_WAIT")),
 		TransferWait:              environmentWaitDuration(os.Getenv("SOCAT_TRANSFER_WAIT")),
-	}, environmentWaitDuration(os.Getenv("SOCAT_MAIN_WAIT"))
+	}, environmentWaitDuration(os.Getenv("SOCAT_MAIN_WAIT")), warnings
+}
+
+// environmentIPVersion reads one IP-version variable. An unset or empty
+// value keeps the default. allowAny accepts 0 as "any".
+func environmentIPVersion(name string, allowAny bool) (xio.IPVersion, *envWarning) {
+	raw, ok := os.LookupEnv(name)
+	if !ok {
+		return xio.IPv4Default, nil
+	}
+	value := strings.ToLower(strings.TrimSpace(raw))
+	if value == "" {
+		return xio.IPv4Default, nil
+	}
+	if allowAny && value == "0" {
+		return xio.IPvAny, nil
+	}
+	if ver, ok := ipVersionAliases[value]; ok {
+		return ver, nil
+	}
+	return xio.IPv4Default, &envWarning{name: name, value: value}
+}
+
+func emitEnvironmentWarnings(log *logx.Logger, warnings []envWarning) {
+	if log == nil {
+		return
+	}
+	for _, w := range warnings {
+		log.Warningf("environment variable %s has unrecognized value %q; using the default", w.name, w.value)
+	}
 }
 
 func environmentWaitDuration(value string) time.Duration {
