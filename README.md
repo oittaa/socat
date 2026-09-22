@@ -275,11 +275,10 @@ address and option spellings are audited automatically. The
   booleans, such as `fork`, `forever`, `ignoreeof`, `pty`, and
   `ip-transparent`, use the same forms. An empty `reuseaddr=` remains the
   documented form that skips the setsockopt call.
-- Where the man page shows no value and the value is an integer flag, a C
-  integer is accepted and any nonzero value means on. `keepalive`,
-  `reuseport`, `nodelay`, `so-debug`, `so-dontroute`, `so-oobinline`,
-  `broadcast`, `tcp-cork`, and `ip-freebind` also accept `yes`, `no`,
-  `true`, and `false`.
+- Integer flag options accept a C integer, and any nonzero value means on.
+  `keepalive`, `reuseport`, `nodelay`, `so-debug`, `so-dontroute`,
+  `so-oobinline`, `broadcast`, `tcp-cork`, `ip-freebind`, `sctp-nodelay`,
+  `nopush`, and `noopt` also accept `yes`, `no`, `true`, and `false`.
 - Those four words are also accepted by the ancillary integer options
   `so-timestamp`, `ip-pktinfo`, `ip-recvttl`, `ip-recvtos`, `ip-recvopts`,
   `ip-recverr`, `ip-retopts`, `ip-recvdstaddr`, `ip-recvif`, `ip-ttl`,

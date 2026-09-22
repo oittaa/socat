@@ -232,7 +232,8 @@ func optionalNamedSocketInt(o parse.Option, name string) (int, error) {
 
 func namedSocketAcceptsBoolWord(name string) bool {
 	switch name {
-	case "so-debug", "so-dontroute", "so-oobinline", "tcp-cork":
+	case "so-debug", "so-dontroute", "so-oobinline", "tcp-cork",
+		"sctp-nodelay", "nopush", "tcp-nopush", "noopt", "tcp-noopt":
 		return true
 	default:
 		return false

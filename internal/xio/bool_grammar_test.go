@@ -218,6 +218,11 @@ func TestIntegerFlagGrammar(t *testing.T) {
 		"TCP:127.0.0.1:9,so-oobinline=true",
 		"TCP:127.0.0.1:9,broadcast=7",
 		"TCP:127.0.0.1:9,tcp-cork=false",
+		"TCP:127.0.0.1:9,nopush=yes",
+		"TCP:127.0.0.1:9,tcp-nopush=no",
+		"TCP:127.0.0.1:9,noopt=false",
+		"TCP:127.0.0.1:9,tcp-noopt=yes",
+		"SCTP4:127.0.0.1:9,sctp-nodelay=no",
 		"TCP:127.0.0.1:9,ip-freebind=1",
 		"TCP:127.0.0.1:9,ip-ttl=2",
 		"TCP:127.0.0.1:9,ip-ttl=no",
@@ -252,7 +257,6 @@ func TestIntegerFlagGrammar(t *testing.T) {
 		"TCP:127.0.0.1:9,tcp-defer-accept=no",
 		"UDP4:127.0.0.1:9,ip-multicast-ttl=yes",
 		"SCTP4:127.0.0.1:9,sctp-maxseg=yes",
-		"SCTP4:127.0.0.1:9,sctp-nodelay=no",
 	} {
 		err := prepareBool(t, spec)
 		if err == nil || !strings.Contains(err.Error(), "invalid value") {
