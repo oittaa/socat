@@ -10,7 +10,7 @@ func TestAddressSlashEscapes(t *testing.T) {
 		{in: `TEXT:a\0b`, want: "a\x00b"},
 		{in: `TEXT:a\ab`, want: "a\ab"},
 		{in: `TEXT:a\bb`, want: "a\bb"},
-		{in: `TEXT:a\eb`, want: "a\x1bb"},
+		{in: `TEXT:a\eb`, want: "aeb"},
 		{in: `TEXT:a\fb`, want: "a\fb"},
 		{in: `TEXT:a\nb`, want: "a\nb"},
 		{in: `TEXT:a\rb`, want: "a\rb"},

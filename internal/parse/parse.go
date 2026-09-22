@@ -331,7 +331,7 @@ func checkBalancedQuotes(s string) error {
 	return nil
 }
 
-// expandSlashEscapes resolves \0 \a \b \e \f \n \r \t \v \\ and \xHH.
+// expandSlashEscapes resolves \0 \a \b \f \n \r \t \v \\ and \xHH.
 // \xHH is exactly two hex digits. A short or non-hex \x sequence is an error.
 func expandSlashEscapes(s string) (string, error) {
 	var b strings.Builder
@@ -351,8 +351,6 @@ func expandSlashEscapes(s string) (string, error) {
 			b.WriteByte('\a')
 		case 'b':
 			b.WriteByte('\b')
-		case 'e':
-			b.WriteByte(0x1b)
 		case 'f':
 			b.WriteByte('\f')
 		case 'n':
