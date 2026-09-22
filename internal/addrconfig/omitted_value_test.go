@@ -107,9 +107,21 @@ var omittedValueCases = []omittedValueCase{
 			t.Fatalf("fdin=%+v", a.Process.FDIn)
 		}
 	}},
-	{name: "seek", signature: "seek=<offset>", spec: "FD:3,seek", facts: fdFacts, wantErr: `option "seek" requires a value`},
-	{name: "seek-cur", signature: "seek-cur=<offset>", spec: "FD:3,seek-cur", facts: fdFacts, wantErr: `option "seek-cur" requires a value`},
-	{name: "seek-end", signature: "seek-end=<offset>", spec: "FD:3,seek-end", facts: fdFacts, wantErr: `option "seek-end" requires a value`},
+	{name: "seek", signature: "seek=<offset> (missing value defaults to 1, not 0)", spec: "FD:3,seek", facts: fdFacts, check: func(t *testing.T, a Address) {
+		if offset := fileOffset(a, FileActionSeekStart); offset != 1 {
+			t.Fatalf("seek offset=%d", offset)
+		}
+	}},
+	{name: "seek-cur", signature: "seek-cur=<offset> (missing value defaults to 1, not 0)", spec: "FD:3,seek-cur", facts: fdFacts, check: func(t *testing.T, a Address) {
+		if offset := fileOffset(a, FileActionSeekCurrent); offset != 1 {
+			t.Fatalf("seek-cur offset=%d", offset)
+		}
+	}},
+	{name: "seek-end", signature: "seek-end=<offset> (missing value defaults to 1, not 0)", spec: "FD:3,seek-end", facts: fdFacts, check: func(t *testing.T, a Address) {
+		if offset := fileOffset(a, FileActionSeekEnd); offset != 1 {
+			t.Fatalf("seek-end offset=%d", offset)
+		}
+	}},
 	{name: "seek=1", signature: "seek=<offset>", spec: "FD:3,seek=1", facts: fdFacts, check: func(t *testing.T, a Address) {
 		if offset := fileOffset(a, FileActionSeekStart); offset != 1 {
 			t.Fatalf("seek offset=%d", offset)
@@ -151,6 +163,7 @@ var omittedValueCases = []omittedValueCase{
 	{name: "origin", signature: "Go extension origin (value required)", spec: "WS:example.test:443,origin", facts: wsFacts, wantErr: `option "origin" requires a value`},
 	{name: "protocol", signature: "Go extension WebSocket protocol (value required)", spec: "WS:example.test:443,protocol", facts: wsFacts, wantErr: `option "protocol" requires a value`},
 	{name: "unix-bind-tempname", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX]", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname", facts: unixFacts, check: wantOmitted(func(a Address) OptionalString { return a.Network.UnixBindTempname })},
+	{name: "unix-bind-tempname=", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX] (empty follows classic)", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname=", facts: unixFacts, check: wantText(func(a Address) OptionalString { return a.Network.UnixBindTempname }, "")},
 	{name: "unix-bind-tempname=1", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX]", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname=1", facts: unixFacts, check: wantText(func(a Address) OptionalString { return a.Network.UnixBindTempname }, "1")},
 	{name: "tcpwrap", signature: "tcpwrap[=<name>]", spec: "TCP:127.0.0.1:9,tcpwrap", facts: tcpConnect, check: func(t *testing.T, a Address) {
 		if !a.Network.TCPWrap.Set || !a.Network.TCPWrap.Value || !a.Network.TCPWrapDaemon.Omitted {

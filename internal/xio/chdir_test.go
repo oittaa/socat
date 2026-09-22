@@ -155,6 +155,19 @@ func TestResolveChdirLeavesOmittedUnixBindTempname(t *testing.T) {
 	}
 }
 
+func TestResolveChdirLeavesEmptyUnixBindTempname(t *testing.T) {
+	dir := t.TempDir()
+	got := decodeAndResolveChdir(t, "UNIX-CONNECT:server.sock,unix-bind-tempname=,chdir="+dir, addrconfig.Facts{
+		Type: "UNIX-CONNECT",
+		Kind: addrconfig.AddressKindUNIX,
+		Role: addrconfig.AddressRoleConnect,
+	})
+	name := got.Network.UnixBindTempname
+	if !name.Set || name.Omitted || name.Value != "" {
+		t.Fatalf("tempname=%+v", name)
+	}
+}
+
 func TestResolveChdirRewritesExplicitUnixBindTempnameOne(t *testing.T) {
 	dir := t.TempDir()
 	got := decodeAndResolveChdir(t, "UNIX-CONNECT:server.sock,unix-bind-tempname=1,chdir="+dir, addrconfig.Facts{

@@ -32,13 +32,10 @@ func resolveUnixBindConfig(config addrconfig.Address) (string, error) {
 	if !hasTemp {
 		return xio.BindHost(config).Original(), nil
 	}
-	// Omitted uses the built-in template. An explicit pattern is used as written.
-	if config.Network.UnixBindTempname.Omitted {
-		return unixTempnam("")
-	}
+	// Omitted and "" both use the built-in template. An explicit pattern is used as written.
 	pat := config.Network.UnixBindTempname.Value
-	if pat == "" {
-		return "", fmt.Errorf("unix-bind-tempname: path pattern is not valid")
+	if config.Network.UnixBindTempname.Omitted || pat == "" {
+		return unixTempnam("")
 	}
 	return unixTempnam(pat)
 }

@@ -277,9 +277,6 @@ address and option spellings are audited automatically. The
   leave the parent process partially remapped.
 - Omitted `setpgid`, `setpgid=0`, and `setpgid=1` all create a new process
   group as documented.
-- `seek`, `seek-cur`, and `seek-end` require an offset. doc/socat.yo notes
-  that a missing value defaults to 1; the `=<offset>` signature is followed,
-  so a missing value is an error.
 - Boolean options accept `0`, `1`, or an omitted value (meaning `1`). They
   also accept `yes`, `no`, `true`, and `false` in any case. Any other value
   is rejected, including `on`, `off`, `2`, `00`, and an empty `opt=`. Options

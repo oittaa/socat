@@ -498,9 +498,9 @@ func nonnegativeInt64(o parse.Option) (int64, error) {
 }
 
 func seekOffset(o parse.Option) (int64, error) {
-	// doc/socat.yo signature is seek=<offset>. A missing value is an error.
+	// doc/socat.yo: a missing value defaults to 1, not 0.
 	if !o.Has {
-		return 0, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+		return 1, nil
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
 	if err != nil {
