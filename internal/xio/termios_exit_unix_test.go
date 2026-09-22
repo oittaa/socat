@@ -128,38 +128,39 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 	}
 }
 
+// ptyHalfClose is what ShutdownWrite must do to a raw terminal.
+type ptyHalfClose int
+
+const (
+	ptyNoHalfClose ptyHalfClose = iota
+	ptyHalfStaysRaw
+	ptyHalfStaysRawError
+	ptyHalfRestores
+)
+
 // TestPTYTermiosScenarios covers the paths that restore a raw terminal, and
 // the half-closes that must leave it raw. shut-close closes the descriptor,
-// so it restores during ShutdownWrite.
+// so it restores during ShutdownWrite. A row with no custom stream is built
+// from its address spec.
 func TestPTYTermiosScenarios(t *testing.T) {
-	file := func(slave *os.File) relay.Stream { return FileStream(slave) }
+	stdio := func(slave *os.File) relay.Stream {
+		return relay.FDStream{R: slave, W: slave, C: NopCloser{}, CloseW: func() error { return nil }}
+	}
 	cases := []struct {
-		name                  string
-		spec                  string
-		stream                func(*os.File) relay.Stream
-		wrapSpec              bool
-		shutdown              bool
-		shutdownErr           bool
-		rawAfterShutdown      bool
-		openAfterShutdown     bool
-		restoredAfterShutdown bool
-		endClose              bool
-		close                 bool
-		openAfterClose        bool
+		name   string
+		spec   string
+		stream func(*os.File) relay.Stream
+		half   ptyHalfClose
 	}{
-		{name: "stream close", spec: "OPEN,raw,echo=0", stream: file, close: true},
-		{name: "half-close", spec: "OPEN,raw,echo=0", stream: file, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "escape", spec: "OPEN:/dev/null,raw,echo=0,escape=0x1d", stream: file, wrapSpec: true, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "readbytes", spec: "OPEN:/dev/null,raw,echo=0,readbytes=100", stream: file, wrapSpec: true, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "stdio", spec: "STDIO,raw,echo=0", stream: func(slave *os.File) relay.Stream {
-			return relay.FDStream{R: slave, W: slave, C: NopCloser{}, CloseW: func() error { return nil }}
-		}, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true, openAfterClose: true},
-		{name: "shut-none", spec: "OPEN:/dev/null,raw,echo=0,shut-none", stream: file, wrapSpec: true, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "shut-down", spec: "OPEN:/dev/null,raw,echo=0,shut-down", stream: file, wrapSpec: true, shutdown: true, shutdownErr: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "end-close", spec: "OPEN,raw,echo=0,end-close", stream: func(slave *os.File) relay.Stream {
-			return endCloseStream{Stream: FileStream(slave)}
-		}, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, endClose: true, close: true, openAfterClose: true},
-		{name: "shut-close", spec: "OPEN:/dev/null,raw,echo=0,shut-close", stream: file, wrapSpec: true, shutdown: true, restoredAfterShutdown: true, close: true},
+		{name: "stream close", spec: "OPEN,raw,echo=0"},
+		{name: "half-close", spec: "OPEN,raw,echo=0", half: ptyHalfStaysRaw},
+		{name: "escape", spec: "OPEN:/dev/null,raw,echo=0,escape=0x1d", half: ptyHalfStaysRaw},
+		{name: "readbytes", spec: "OPEN:/dev/null,raw,echo=0,readbytes=100", half: ptyHalfStaysRaw},
+		{name: "stdio", spec: "STDIO,raw,echo=0", stream: stdio, half: ptyHalfStaysRaw},
+		{name: "shut-none", spec: "OPEN:/dev/null,raw,echo=0,shut-none", half: ptyHalfStaysRaw},
+		{name: "shut-down", spec: "OPEN:/dev/null,raw,echo=0,shut-down", half: ptyHalfStaysRawError},
+		{name: "end-close", spec: "OPEN,raw,echo=0,end-close", half: ptyHalfStaysRaw},
+		{name: "shut-close", spec: "OPEN:/dev/null,raw,echo=0,shut-close", half: ptyHalfRestores},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -181,10 +182,12 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			if orig.Lflag&unix.ECHO == 0 || orig.Lflag&unix.ICANON == 0 {
 				t.Fatalf("pty slave is not cooked: %s", formatTermios(orig))
 			}
-			st := tc.stream(slave)
-			if tc.wrapSpec {
-				config := mustDecodeAddress(t, mustSpec(t, tc.spec))
-				st, err = WrapAfterFD(config, st)
+			config := mustDecodeAddress(t, mustSpec(t, tc.spec))
+			var st relay.Stream
+			if tc.stream != nil {
+				st = tc.stream(slave)
+			} else {
+				st, err = WrapAfterFD(config, FileStream(slave))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -194,7 +197,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = o.Close() })
-			if err := AttachConfiguredTermios(o, fd, terminalConfig(t, tc.spec)); err != nil {
+			if err := AttachConfiguredTermios(o, fd, config.Terminal); err != nil {
 				t.Fatal(err)
 			}
 			raw, err := getTermios(dupFD)
@@ -204,50 +207,53 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			if raw.Lflag&unix.ECHO != 0 || raw.Lflag&unix.ICANON != 0 {
 				t.Fatalf("raw,echo=0 did not clear echo/canonical: %s", formatTermios(raw))
 			}
-			if tc.endClose && !StreamIsEndClose(o.Stream()) {
+			if config.Transfer.EndClose.Value && !StreamIsEndClose(o.Stream()) {
 				t.Fatal("termios restore wrapper hid end-close")
 			}
-			if tc.shutdown {
+			if tc.half != ptyNoHalfClose {
 				err := o.Stream().ShutdownWrite()
-				if tc.shutdownErr {
+				if tc.half == ptyHalfStaysRawError {
 					if err == nil {
 						t.Fatal("half-close succeeded")
 					}
 				} else if err != nil {
 					t.Fatal(err)
 				}
-				if tc.openAfterShutdown {
+				if tc.half == ptyHalfRestores {
+					mid, err := getTermios(dupFD)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if !termiosEqual(orig, mid) {
+						t.Fatalf("half-close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(mid))
+					}
+				} else {
 					if _, err := getTermios(fd); err != nil {
 						t.Fatalf("half-close closed the terminal: %v", err)
 					}
-				}
-				mid, err := getTermios(dupFD)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if tc.rawAfterShutdown {
+					mid, err := getTermios(dupFD)
+					if err != nil {
+						t.Fatal(err)
+					}
 					if mid.Lflag&unix.ECHO != 0 || mid.Lflag&unix.ICANON != 0 || termiosEqual(orig, mid) {
 						t.Fatalf("half-close left %s", formatTermios(mid))
 					}
 				}
-				if tc.restoredAfterShutdown && !termiosEqual(orig, mid) {
-					t.Fatalf("half-close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(mid))
-				}
 			}
-			if tc.close {
-				if err := o.Stream().Close(); err != nil {
-					t.Fatal(err)
-				}
-				got, err := getTermios(dupFD)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if !termiosEqual(orig, got) {
-					t.Fatalf("close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
-				}
-				_, openErr := getTermios(fd)
-				if tc.openAfterClose && openErr != nil {
-					t.Fatalf("close closed the descriptor: %v", openErr)
+			if err := o.Stream().Close(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := getTermios(dupFD)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !termiosEqual(orig, got) {
+				t.Fatalf("close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
+			}
+			// STDIO and end-close leave the descriptor open.
+			if config.Type == "STDIO" || config.Transfer.EndClose.Value {
+				if _, err := getTermios(fd); err != nil {
+					t.Fatalf("close closed the descriptor: %v", err)
 				}
 			}
 		})
