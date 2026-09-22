@@ -5,15 +5,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 )
+
+// tcpwrapLookupTimeout bounds one peer's reverse lookup so a silent
+// nameserver cannot stall the accept loop.
+const tcpwrapLookupTimeout = 2 * time.Second
+
+// hostsAccessLineMax is the longest physical hosts_access line. A longer
+// line, a missing final newline, or a broken continuation is a framing error.
+const hostsAccessLineMax = 2047
 
 // tcpwrapConfig holds libwrap / tcpwrappers options for peer checks.
 type tcpwrapConfig struct {
@@ -85,9 +96,6 @@ type hostsAccessSyntaxError struct {
 }
 
 func (e *hostsAccessSyntaxError) Error() string {
-	if e == nil {
-		return ""
-	}
 	return e.Detail
 }
 
@@ -111,13 +119,7 @@ func LogRefusedPeer(log *logx.Logger, err error) {
 	log.Noticef("%s", err)
 }
 
-// tcpwrapAllowed returns nil if the peer is allowed, or an error to refuse.
-// Allow table first; then deny; default permit if neither matches.
-func tcpwrapAllowed(cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
-	return tcpwrapAllowedWithResolver(context.Background(), nil, cfg, peer, local)
-}
-
-func tcpwrapAllowedWithResolver(ctx context.Context, resolver *net.Resolver, cfg tcpwrapConfig, peer net.Addr, local net.Addr) error {
+func tcpwrapAllowedWithResolver(ctx context.Context, resolver *net.Resolver, cfg tcpwrapConfig, peer net.Addr, local net.Addr, log *logx.Logger) error {
 	if !cfg.enabled {
 		return nil
 	}
@@ -129,29 +131,54 @@ func tcpwrapAllowedWithResolver(ctx context.Context, resolver *net.Resolver, cfg
 		return refusePeer(peer)
 	}
 	server := newEndpoint(local, ctx, resolver)
-	allowLines, err := readHostsTable(cfg.allow, cfg.allowRequired)
+	allow, err := readHostsTable(cfg.allow, cfg.allowRequired)
 	if err != nil {
 		return err
 	}
-	denyLines, err := readHostsTable(cfg.deny, cfg.denyRequired)
+	deny, err := readHostsTable(cfg.deny, cfg.denyRequired)
 	if err != nil {
 		return err
 	}
-	matched, err := matchHostsTable(allowLines, cfg.daemon, client, server)
+	// A broken allow file drops the bad line and everything after it.
+	warnFrame(log, allow.frame)
+	verdict, err := matchHostsTable(allow.lines, cfg.daemon, client, server, true, log)
 	if err != nil {
 		return refuseOrPass(peer, err)
 	}
-	if matched {
+	switch verdict {
+	case verdictPermit:
 		return nil
-	}
-	matched, err = matchHostsTable(denyLines, cfg.daemon, client, server)
-	if err != nil {
-		return refuseOrPass(peer, err)
-	}
-	if matched {
+	case verdictDeny:
 		return refusePeer(peer)
 	}
+	verdict, err = matchHostsTable(deny.lines, cfg.daemon, client, server, false, log)
+	if err != nil {
+		return refuseOrPass(peer, err)
+	}
+	switch verdict {
+	case verdictPermit:
+		if deny.frame != nil {
+			warnFrame(log, deny.frame)
+		}
+		return nil
+	case verdictDeny:
+		if deny.frame != nil {
+			warnFrame(log, deny.frame)
+		}
+		return refusePeer(peer)
+	}
+	// A broken deny file denies every peer that did not match an earlier line.
+	if deny.frame != nil {
+		return refuseOrPass(peer, deny.frame)
+	}
 	return nil
+}
+
+func warnFrame(log *logx.Logger, frame error) {
+	if log == nil || frame == nil {
+		return
+	}
+	log.Warningf("%s", frame)
 }
 
 func refusePeer(peer net.Addr) error {
@@ -159,9 +186,6 @@ func refusePeer(peer net.Addr) error {
 }
 
 func refuseOrPass(peer net.Addr, err error) error {
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return err
-	}
 	return fmt.Errorf("refusing connection from %s due to tcpwrapper option: %w", peer, err)
 }
 
@@ -173,6 +197,14 @@ const (
 	nameParanoid
 )
 
+type accessVerdict int
+
+const (
+	verdictNone accessVerdict = iota
+	verdictPermit
+	verdictDeny
+)
+
 // endpoint is one side of a hosts_access comparison. Hostname lookup is
 // deferred until a pattern needs it.
 type endpoint struct {
@@ -180,6 +212,7 @@ type endpoint struct {
 	zone     string
 	addrText string
 	literal  string
+	port     int
 	ctx      context.Context
 	resolver *net.Resolver
 
@@ -190,7 +223,7 @@ type endpoint struct {
 }
 
 func newEndpoint(addr net.Addr, ctx context.Context, resolver *net.Resolver) *endpoint {
-	ip, zone, literal := addrIdentity(addr)
+	ip, zone, literal, port := addrIdentity(addr)
 	text := "unknown"
 	if ip != nil {
 		text = ip.String()
@@ -203,59 +236,50 @@ func newEndpoint(addr net.Addr, ctx context.Context, resolver *net.Resolver) *en
 		zone:     zone,
 		addrText: text,
 		literal:  literal,
+		port:     port,
 		ctx:      ctx,
 		resolver: resolver,
 	}
 }
 
-func addrIdentity(addr net.Addr) (net.IP, string, string) {
+func addrIdentity(addr net.Addr) (net.IP, string, string, int) {
 	if addr == nil {
-		return nil, "", ""
+		return nil, "", "", 0
 	}
 	switch a := addr.(type) {
 	case *net.TCPAddr:
 		if a == nil {
-			return nil, "", ""
+			return nil, "", "", 0
 		}
-		return a.IP, a.Zone, ""
+		return a.IP, a.Zone, "", a.Port
 	case *net.UDPAddr:
 		if a == nil {
-			return nil, "", ""
+			return nil, "", "", 0
 		}
-		return a.IP, a.Zone, ""
+		return a.IP, a.Zone, "", a.Port
 	case *net.IPAddr:
 		if a == nil {
-			return nil, "", ""
+			return nil, "", "", 0
 		}
-		return a.IP, a.Zone, ""
+		return a.IP, a.Zone, "", 0
 	}
-	host, _, err := net.SplitHostPort(addr.String())
+	host, portText, err := net.SplitHostPort(addr.String())
+	port := 0
 	if err != nil {
 		host = addr.String()
+	} else if p, conv := strconv.Atoi(portText); conv == nil {
+		port = p
 	}
 	host = StripBrackets(host)
 	if i := strings.LastIndex(host, "%"); i >= 0 {
 		if ip := net.ParseIP(host[:i]); ip != nil {
-			return ip, host[i+1:], ""
+			return ip, host[i+1:], "", port
 		}
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		return ip, "", ""
+		return ip, "", "", port
 	}
-	return nil, "", host
-}
-
-// reverseHost returns a verified reverse-DNS name for ipStr, or "".
-// The name is only trusted when it forward-resolves back to the client IP.
-// Without this, systems that map all 127/8 to "localhost" would falsely
-// allow a client that is not localhost. Context cancellation is returned so
-// a shutting-down listener does not treat a canceled lookup as "no name".
-func reverseHost(ctx context.Context, resolver *net.Resolver, ipStr string) (string, error) {
-	name, status, err := lookupHostStatus(ctx, resolver, ipStr)
-	if err != nil || status != nameKnown {
-		return "", err
-	}
-	return name, nil
+	return nil, "", host, port
 }
 
 func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string) (string, nameStatus, error) {
@@ -269,37 +293,41 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	names, err := resolver.LookupAddr(ctx, ipStr)
-	if ctx.Err() != nil {
-		return "", nameUnknown, ctx.Err()
+	// The first PTR only. A deadline here denies this peer and leaves the
+	// session context running.
+	parent := ctx
+	lookupCtx, cancel := context.WithTimeout(parent, tcpwrapLookupTimeout)
+	defer cancel()
+	names, err := resolver.LookupAddr(lookupCtx, ipStr)
+	if parent.Err() != nil {
+		return "", nameUnknown, parent.Err()
+	}
+	if lookupCtx.Err() != nil {
+		return "", nameUnknown, hostsSyntax("reverse lookup timed out")
 	}
 	if err != nil || len(names) == 0 {
 		return "", nameUnknown, nil
 	}
-	sawName := false
-	for _, name := range names {
-		name = strings.TrimSuffix(name, ".")
-		if name == "" {
-			continue
-		}
-		sawName = true
-		ips, err := resolver.LookupIP(ctx, "ip", name)
-		if ctx.Err() != nil {
-			return "", nameUnknown, ctx.Err()
-		}
-		if err != nil {
-			continue
-		}
-		for _, resolved := range ips {
-			if resolved.Equal(ip) {
-				return name, nameKnown, nil
-			}
-		}
+	name := strings.TrimSuffix(names[0], ".")
+	if name == "" {
+		return "", nameUnknown, nil
 	}
-	if sawName {
+	ips, err := resolver.LookupIP(lookupCtx, "ip", name)
+	if parent.Err() != nil {
+		return "", nameUnknown, parent.Err()
+	}
+	if lookupCtx.Err() != nil {
+		return "", nameUnknown, hostsSyntax("reverse lookup timed out")
+	}
+	if err != nil {
 		return "", nameParanoid, nil
 	}
-	return "", nameUnknown, nil
+	for _, resolved := range ips {
+		if resolved.Equal(ip) {
+			return name, nameKnown, nil
+		}
+	}
+	return "", nameParanoid, nil
 }
 
 func (e *endpoint) dnsName() (string, nameStatus, error) {
@@ -320,79 +348,173 @@ func (e *endpoint) dnsName() (string, nameStatus, error) {
 	return e.name, e.status, nil
 }
 
-func readHostsTable(path string, required bool) ([]string, error) {
+type hostsTable struct {
+	lines []string
+	frame error
+}
+
+func readHostsTable(path string, required bool) (hostsTable, error) {
 	if path == "" {
-		return nil, nil
+		return hostsTable{}, nil
 	}
 	f, err := os.Open(path) // #nosec G304 -- path is an explicit tcpwrap table or a system default
 	if err != nil {
 		if !required && os.IsNotExist(err) {
-			return nil, nil
+			return hostsTable{}, nil
 		}
-		return nil, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
+		return hostsTable{}, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
-	var lines []string
-	var b strings.Builder
-	cont := false
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		line := strings.TrimRight(sc.Text(), "\r")
-		if cont {
-			b.WriteString(line)
-		} else {
-			b.Reset()
-			b.WriteString(line)
-		}
-		s := b.String()
-		if strings.HasSuffix(s, `\`) {
-			b.Reset()
-			b.WriteString(s[:len(s)-1])
-			cont = true
-			continue
-		}
-		lines = append(lines, s)
-		cont = false
+	table, err := parseHostsTable(f)
+	if err != nil {
+		return hostsTable{}, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
 	}
-	if err := sc.Err(); err != nil {
-		return nil, fmt.Errorf("read tcpwrapper table %q: %w", path, err)
-	}
-	if cont {
-		lines = append(lines, b.String())
-	}
-	return lines, nil
+	return table, nil
 }
 
-func matchHostsTable(lines []string, daemon string, client, server *endpoint) (bool, error) {
-	for _, raw := range lines {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
+func parseHostsTable(r io.Reader) (hostsTable, error) {
+	br := bufio.NewReader(r)
+	var table hostsTable
+	var pending string
+	continued := false
+	for {
+		phys, hasNL, err := readHostsPhysical(br)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			var syntax *hostsAccessSyntaxError
+			if errors.As(err, &syntax) {
+				table.frame = err
+				return table, nil
+			}
+			return hostsTable{}, err
+		}
+		if !hasNL {
+			table.frame = hostsSyntax("missing newline")
+			return table, nil
+		}
+		if strings.HasSuffix(phys, "\\\r") {
+			table.frame = hostsSyntax("backslash-CRLF continuation")
+			return table, nil
+		}
+		phys = strings.TrimSuffix(phys, "\r")
+		if strings.HasSuffix(phys, `\`) {
+			pending += phys[:len(phys)-1]
+			continued = true
 			continue
 		}
-		daemonList, clientList, ok := splitHostsAccessLine(line)
-		if !ok {
-			return false, &hostsAccessSyntaxError{Detail: fmt.Sprintf("unsupported hosts_access syntax: missing \":\" in %q", line)}
+		if continued {
+			table.lines = append(table.lines, pending+phys)
+			pending = ""
+			continued = false
+			continue
 		}
-		daemonOK, err := matchList(splitHostsList(daemonList), func(tok string) (bool, error) {
+		table.lines = append(table.lines, phys)
+	}
+	if continued {
+		table.frame = hostsSyntax("continuation at end of file")
+		return table, nil
+	}
+	return table, nil
+}
+
+func readHostsPhysical(br *bufio.Reader) (string, bool, error) {
+	var buf []byte
+	for {
+		b, err := br.ReadByte()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				if len(buf) == 0 {
+					return "", false, io.EOF
+				}
+				return string(buf), false, nil
+			}
+			return "", false, err
+		}
+		if b == '\n' {
+			return string(buf), true, nil
+		}
+		if len(buf) >= hostsAccessLineMax {
+			return "", false, hostsSyntax("line too long")
+		}
+		buf = append(buf, b)
+	}
+}
+
+func matchHostsTable(lines []string, daemon string, client, server *endpoint, fromAllow bool, log *logx.Logger) (accessVerdict, error) {
+	for _, raw := range lines {
+		if raw == "" || raw[0] == '#' {
+			continue
+		}
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		fields := splitHostsFields(line)
+		if len(fields) < 2 {
+			return verdictNone, &hostsAccessSyntaxError{Detail: fmt.Sprintf("unsupported hosts_access syntax: missing \":\" in %q", line)}
+		}
+		daemonOK, err := matchList(splitHostsList(fields[0]), func(tok string) (bool, error) {
 			return serverToken(tok, daemon, server)
 		})
 		if err != nil {
-			return false, err
+			return verdictNone, err
 		}
 		if !daemonOK {
 			continue
 		}
-		clientOK, err := matchList(splitHostsList(clientList), func(tok string) (bool, error) {
+		clientOK, err := matchList(splitHostsList(fields[1]), func(tok string) (bool, error) {
 			return clientToken(tok, client)
 		})
 		if err != nil {
-			return false, err
+			return verdictNone, err
 		}
-		if clientOK {
-			return true, nil
+		if !clientOK {
+			continue
+		}
+		return applyOptions(fields[2:], fromAllow, log)
+	}
+	return verdictNone, nil
+}
+
+// applyOptions evaluates a hosts_options field. allow and deny must be last.
+// twist, aclexec, and unknown options are not executed and deny the peer.
+// Side-effect options are not executed; the rule's decision still applies.
+func applyOptions(options []string, fromAllow bool, log *logx.Logger) (accessVerdict, error) {
+	implicit := verdictDeny
+	if fromAllow {
+		implicit = verdictPermit
+	}
+	if len(options) == 1 && options[0] == "" {
+		return implicit, nil
+	}
+	for i, opt := range options {
+		parts := strings.Fields(opt)
+		if len(parts) == 0 {
+			return verdictNone, hostsSyntax(opt)
+		}
+		key := strings.ToLower(parts[0])
+		switch key {
+		case "allow", "deny":
+			if len(parts) != 1 || i != len(options)-1 {
+				return verdictNone, hostsSyntax(opt)
+			}
+			if key == "allow" {
+				return verdictPermit, nil
+			}
+			return verdictDeny, nil
+		case "twist", "aclexec":
+			return verdictNone, hostsSyntax(opt)
+		case "spawn", "severity", "banners", "nice", "keepalive", "linger", "rfc931", "setenv", "umask", "user":
+			if log != nil {
+				log.Warningf("tcpwrap option %q is not executed", key)
+			}
+		default:
+			return verdictNone, hostsSyntax(opt)
 		}
 	}
-	return false, nil
+	return implicit, nil
 }
 
 // matchList applies hosts_access EXCEPT. a EXCEPT b EXCEPT c is a EXCEPT (b EXCEPT c).
@@ -431,43 +553,41 @@ func matchListAt(tokens []string, i *int, match func(string) (bool, error)) (boo
 	return false, nil
 }
 
-// splitHostsAccessLine splits "daemon_list : client_list [ : shell_command ]".
-// Colons inside [...] (IPv6) are not field separators. The shell command is
-// not executed.
-func splitHostsAccessLine(line string) (daemonList, clientList string, ok bool) {
-	i := indexHostsFieldSep(line, 0)
-	if i < 0 {
-		return "", "", false
-	}
-	daemonList = strings.TrimSpace(line[:i])
-	rest := strings.TrimSpace(line[i+1:])
-	j := indexHostsFieldSep(rest, 0)
-	if j >= 0 {
-		clientList = strings.TrimSpace(rest[:j])
-	} else {
-		clientList = rest
-	}
-	return daemonList, clientList, true
-}
-
-// indexHostsFieldSep finds the next ':' that is not inside [...].
-func indexHostsFieldSep(s string, from int) int {
+// splitHostsFields splits on unescaped ':' outside [...]. A backslash
+// escapes the next byte, so "\:" is a literal colon.
+func splitHostsFields(line string) []string {
+	var fields []string
+	var b strings.Builder
 	depth := 0
-	for i := from; i < len(s); i++ {
-		switch s[i] {
+	for i := 0; i < len(line); i++ {
+		c := line[i]
+		if c == '\\' && i+1 < len(line) {
+			b.WriteByte(line[i+1])
+			i++
+			continue
+		}
+		switch c {
 		case '[':
 			depth++
+			b.WriteByte(c)
 		case ']':
 			if depth > 0 {
 				depth--
 			}
+			b.WriteByte(c)
 		case ':':
 			if depth == 0 {
-				return i
+				fields = append(fields, strings.TrimSpace(b.String()))
+				b.Reset()
+				continue
 			}
+			b.WriteByte(c)
+		default:
+			b.WriteByte(c)
 		}
 	}
-	return -1
+	fields = append(fields, strings.TrimSpace(b.String()))
+	return fields
 }
 
 func splitMarker(tok string) (left, right string, ok bool) {
@@ -485,13 +605,44 @@ func splitMarker(tok string) (left, right string, ok bool) {
 func serverToken(tok, daemon string, server *endpoint) (bool, error) {
 	name, host, ok := splitMarker(tok)
 	if !ok {
+		if port, isPort := numericPort(tok); isPort {
+			return server.port == port, nil
+		}
 		return stringMatch(tok, daemon)
 	}
-	matched, err := stringMatch(name, daemon)
-	if err != nil || !matched {
-		return false, err
+	matched := false
+	if port, isPort := numericPort(name); isPort {
+		matched = server.port == port
+	} else {
+		var err error
+		matched, err = stringMatch(name, daemon)
+		if err != nil || !matched {
+			return false, err
+		}
+	}
+	if !matched {
+		return false, nil
 	}
 	return hostMatch(host, server)
+}
+
+// numericPort reports an all-digit daemon token in 0..65535. That token
+// matches the local server port.
+func numericPort(tok string) (int, bool) {
+	if tok == "" {
+		return 0, false
+	}
+	n := 0
+	for _, c := range tok {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int(c-'0')
+		if n > 65535 {
+			return 0, false
+		}
+	}
+	return n, true
 }
 
 func clientToken(tok string, client *endpoint) (bool, error) {
@@ -699,6 +850,9 @@ func matchV4(netTok, maskTok string, ep *endpoint) (bool, error) {
 	} else {
 		return false, hostsSyntax(netTok + "/" + maskTok)
 	}
+	if mask == [4]byte{} || mask == [4]byte{255, 255, 255, 255} {
+		return false, hostsSyntax(netTok + "/" + maskTok)
+	}
 	if ep.ip == nil {
 		return false, nil
 	}
@@ -766,7 +920,6 @@ func ipMatches(pat netip.Addr, ep *endpoint) bool {
 		return false
 	}
 	got = got.Unmap()
-	pat = pat.Unmap()
 	if !got.IsValid() || got.BitLen() != pat.BitLen() {
 		return false
 	}

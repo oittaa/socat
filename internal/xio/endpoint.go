@@ -210,6 +210,14 @@ func (g *Global) Options() Options {
 	return *g.options
 }
 
+// Logger returns this session's logger. A nil session has no logger.
+func (g *Global) Logger() *logx.Logger {
+	if g == nil {
+		return nil
+	}
+	return g.Log
+}
+
 // NewSession creates a root logical session.
 //
 // Share: later ForkSession results share the heap-copied *Options and

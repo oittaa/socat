@@ -316,12 +316,12 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reverseHost(t.Context(), LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr))), "192.0.2.55")
+	got, status, err := lookupHostStatus(t.Context(), LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr))), "192.0.2.55")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != ptrName {
-		t.Fatalf("reverseHost=%q want %q", got, ptrName)
+	if status != nameKnown || got != ptrName {
+		t.Fatalf("reverse name=%q status=%v", got, status)
 	}
 	if server.udpQueries.Load() < 2 {
 		t.Fatalf("reverse and forward verification made %d DNS queries; want at least 2", server.udpQueries.Load())

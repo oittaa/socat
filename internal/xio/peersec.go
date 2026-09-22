@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/logx"
 )
 
 // CloseRefusedPeer closes a rejected accept without RST when the peer already
@@ -41,11 +42,12 @@ type PeerFilter struct {
 	sourcePort    addrconfig.PortTarget
 	lowport       bool
 	tcpwrap       tcpwrapConfig
+	log           *logx.Logger
 }
 
 // PreparedPeerFilter compiles the prepared peer policy for an opening.
-func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, opts Options) (*PeerFilter, error) {
-	return NewPeerFilter(ctx, config.Network, LookupResolver(config), opts)
+func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, opts Options, log *logx.Logger) (*PeerFilter, error) {
+	return NewPeerFilter(ctx, config.Network, LookupResolver(config), opts, log)
 }
 
 // NewPeerFilter compiles peer policy and resolves range= once. Callers must
@@ -54,7 +56,7 @@ func PreparedPeerFilter(ctx context.Context, config addrconfig.Address, opts Opt
 // peer. ctx cancels hostname range compilation; tcpwrap reverse DNS still
 // uses it per peer. Long-lived listeners pass the session context so
 // shutdown does not leave lookups running.
-func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, opts Options) (*PeerFilter, error) {
+func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net.Resolver, opts Options, log *logx.Logger) (*PeerFilter, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -66,6 +68,7 @@ func NewPeerFilter(ctx context.Context, policy addrconfig.Network, resolver *net
 		sourcePort:    policy.SourcePort,
 		lowport:       policy.LowPort.Value,
 		tcpwrap:       parseTCPWrap(policy, opts),
+		log:           log,
 	}
 	if policy.RangeSet {
 		matcher, err := compileIPRange(ctx, policy.Range, resolver)
@@ -99,7 +102,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
 		// Still run tcpwrap if enabled (unlikely for unix).
 		if f.tcpwrap.enabled {
-			return tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local)
+			return tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local, f.log)
 		}
 		return nil
 	}
@@ -125,7 +128,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	if f.tcpwrap.enabled {
-		if err := tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local); err != nil {
+		if err := tcpwrapAllowedWithResolver(ctx, f.resolver, f.tcpwrap, remote, local, f.log); err != nil {
 			return err
 		}
 	}

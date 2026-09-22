@@ -2,17 +2,24 @@ package xio
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 )
+
+func tcpwrapAllowed(cfg tcpwrapConfig, peer, local net.Addr) error {
+	return tcpwrapAllowedWithResolver(context.Background(), nil, cfg, peer, local, nil)
+}
 
 func decodePeerPolicy(t *testing.T, text string) addrconfig.Network {
 	t.Helper()
@@ -39,13 +46,22 @@ func TestTCPWrapExplicitMissingTableFailsClosed(t *testing.T) {
 func TestTCPWrapOversizedExplicitTableFailsClosed(t *testing.T) {
 	dir := t.TempDir()
 	allow := filepath.Join(dir, "hosts.allow")
-	if err := os.WriteFile(allow, []byte("socat: "+string(make([]byte, 70<<10))+"\n"), 0o644); err != nil {
+	deny := filepath.Join(dir, "hosts.deny")
+	line := "socat: 127.0.0.1 " + strings.Repeat("x", hostsAccessLineMax) + "\n"
+	if err := os.WriteFile(allow, []byte(line), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := tcpwrapConfig{enabled: true, daemon: "socat", allow: allow, allowRequired: true}
+	if err := os.WriteFile(deny, []byte("ALL: ALL\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg := tcpwrapConfig{
+		enabled: true, daemon: "socat",
+		allow: allow, deny: deny,
+		allowRequired: true, denyRequired: true,
+	}
 	peer := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 9999}
 	if err := tcpwrapAllowed(cfg, peer, nil); err == nil {
-		t.Fatal("unreadable explicit table unexpectedly permitted the peer")
+		t.Fatal("oversized allow line was applied")
 	}
 }
 
@@ -143,6 +159,7 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 		zone       string
 		local      string
 		localZone  string
+		localPort  int
 		daemon     string
 		wantDeny   bool
 		wantSyntax bool
@@ -361,6 +378,144 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			deny: "socat: [fe80::1%eth0]\n",
 			ip:   "fe80::1", zone: "eth1",
 		},
+		{
+			name:  "allow option deny",
+			allow: "socat: 127.0.0.1: deny\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "deny option allow",
+			deny: "socat: 127.0.0.1: allow\n",
+			ip:   "127.0.0.1",
+		},
+		{
+			name:  "unknown option denies",
+			allow: "socat: 127.0.0.1: /bin/true\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "unknown option on another peer is skipped",
+			allow: "socat: 10.0.0.1: /bin/true\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "aclexec denies",
+			allow: "socat: 127.0.0.1: aclexec /bin/false\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "twist denies",
+			allow: "socat: 127.0.0.1: twist /bin/false\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "allow option must be last",
+			allow: "socat: 127.0.0.1: allow : spawn /bin/true\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "escaped colon stays inside the option",
+			allow: "socat: 127.0.0.1: spawn /bin/echo\\:hi\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:      "numeric daemon matches the local port",
+			deny:      "8080: ALL\n",
+			ip:        "10.0.0.1",
+			local:     "127.0.0.1",
+			localPort: 8080, wantDeny: true,
+		},
+		{
+			name:      "numeric daemon ignores another port",
+			deny:      "8080: ALL\n",
+			ip:        "10.0.0.1",
+			local:     "127.0.0.1",
+			localPort: 9,
+		},
+		{
+			name:      "numeric daemon at host",
+			deny:      "8080@127.0.0.1: ALL\n",
+			ip:        "10.0.0.1",
+			local:     "127.0.0.1",
+			localPort: 8080, wantDeny: true,
+		},
+		{
+			name:      "numeric daemon at another host",
+			deny:      "8080@127.0.0.1: ALL\n",
+			ip:        "10.0.0.1",
+			local:     "10.0.0.1",
+			localPort: 8080,
+		},
+		{
+			name: "indented hash is not a comment",
+			deny: "  # ALL: ALL\n",
+			ip:   "10.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "allow line without newline is ignored",
+			allow: "socat: 127.0.0.1",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "earlier allow still matches before a short final line",
+			allow: "socat: 127.0.0.1\nnot a finished line",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name: "deny line without newline denies another peer",
+			deny: "socat: 10.0.0.1",
+			ip:   "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "long allow line is ignored",
+			allow: "socat: 127.0.0.1 " + strings.Repeat("x", hostsAccessLineMax) + "\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "backslash CRLF is not a continuation",
+			allow: "socat: 127.0.0.1 \\\r\n10.0.0.1\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "continuation at end of allow is ignored",
+			allow: "socat: 127.0.0.1 \\\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "crlf rule still matches",
+			allow: "socat: 127.0.0.1\r\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1",
+		},
+		{
+			name:  "zero mask denies",
+			allow: "socat: 0.0.0.0/0\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "all-ones mask denies",
+			allow: "socat: 127.0.0.1/255.255.255.255\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "mapped literal pattern does not match a mapped peer",
+			allow: "socat: [::ffff:127.0.0.1]\n",
+			deny:  "ALL: ALL\n",
+			ip:    "::ffff:127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "ipv4 pattern matches a mapped peer",
+			allow: "socat: 127.0.0.1\n",
+			deny:  "ALL: ALL\n",
+			ip:    "::ffff:127.0.0.1",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -370,7 +525,11 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			}
 			var local net.Addr
 			if tc.local != "" {
-				local = tcpPeer(t, tc.local, tc.localZone)
+				addr := tcpPeer(t, tc.local, tc.localZone)
+				if tc.localPort != 0 {
+					addr.Port = tc.localPort
+				}
+				local = addr
 			}
 			err := tcpwrapAllowed(cfg, tcpPeer(t, tc.ip, tc.zone), local)
 			if !tc.wantDeny {
@@ -382,9 +541,9 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			if err == nil {
 				t.Fatal("permitted")
 			}
-			syntax := strings.Contains(err.Error(), "unsupported hosts_access")
-			if syntax != tc.wantSyntax {
-				t.Fatalf("syntax=%v err=%v", syntax, err)
+			var syntax *hostsAccessSyntaxError
+			if errors.As(err, &syntax) != tc.wantSyntax {
+				t.Fatalf("syntax=%v err=%v", errors.As(err, &syntax), err)
 			}
 		})
 	}
@@ -407,56 +566,56 @@ func TestTCPWrapNamePatterns(t *testing.T) {
 
 	t.Run("local", func(t *testing.T) {
 		cfg := writeWrapTables(t, "", "socat: LOCAL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "router"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "router"), cfg, peer, nil, nil)
 		if err == nil {
 			t.Fatal("LOCAL permitted a dotless name")
 		}
 	})
 	t.Run("local dotted name", func(t *testing.T) {
 		cfg := writeWrapTables(t, "", "socat: LOCAL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("known", func(t *testing.T) {
 		cfg := writeWrapTables(t, "socat: KNOWN\n", "ALL: ALL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("unknown", func(t *testing.T) {
 		cfg := writeWrapTables(t, "socat: UNKNOWN\n", "ALL: ALL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, ""), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, ""), cfg, peer, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("paranoid", func(t *testing.T) {
 		cfg := writeWrapTables(t, "", "socat: PARANOID\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, other, "spoof.example"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, other, "spoof.example"), cfg, peer, nil, nil)
 		if err == nil {
 			t.Fatal("PARANOID permitted a name that does not forward-confirm")
 		}
 	})
 	t.Run("paranoid does not match a confirmed name", func(t *testing.T) {
 		cfg := writeWrapTables(t, "", "socat: PARANOID\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("suffix", func(t *testing.T) {
 		cfg := writeWrapTables(t, "socat: .example.com\n", "ALL: ALL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, verified, "www.example.com"), cfg, peer, nil, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
 	})
 	t.Run("spoofed suffix does not match", func(t *testing.T) {
 		cfg := writeWrapTables(t, "socat: .example.com\n", "ALL: ALL\n")
-		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, other, "www.example.com"), cfg, peer, nil)
+		err := tcpwrapAllowedWithResolver(t.Context(), wrapResolver(t, other, "www.example.com"), cfg, peer, nil, nil)
 		if err == nil {
 			t.Fatal("unconfirmed reverse name matched .example.com")
 		}
@@ -469,17 +628,84 @@ func TestTCPWrapSyntaxRefusalLogsAtWarning(t *testing.T) {
 	if err == nil {
 		t.Fatal("netgroup permitted the peer")
 	}
+	var syntax *hostsAccessSyntaxError
+	if !errors.As(err, &syntax) {
+		t.Fatal("netgroup refusal was not reported as hosts_access syntax")
+	}
 	var buf bytes.Buffer
 	lg := logx.New()
 	lg.SetOutput(&buf)
 	lg.SetLevel(logx.Warning)
 	LogRefusedPeer(lg, err)
-	if !strings.Contains(buf.String(), `unsupported hosts_access syntax "@mynet"`) {
-		t.Fatalf("warning log %q", buf.String())
+	if buf.Len() == 0 {
+		t.Fatal("syntax refusal produced no warning")
 	}
 	buf.Reset()
 	LogRefusedPeer(lg, fmt.Errorf("refusing connection from 127.0.0.1:1 due to tcpwrapper option"))
 	if buf.Len() != 0 {
-		t.Fatalf("ordinary refusal logged at warning: %q", buf.String())
+		t.Fatal("ordinary refusal logged at warning")
+	}
+}
+
+func TestTCPWrapIgnoredOptionLogsWarning(t *testing.T) {
+	cfg := writeWrapTables(t, "socat: 127.0.0.1: spawn /bin/true\n", "ALL: ALL\n")
+	var buf bytes.Buffer
+	lg := logx.New()
+	lg.SetOutput(&buf)
+	lg.SetLevel(logx.Warning)
+	err := tcpwrapAllowedWithResolver(context.Background(), nil, cfg, tcpPeer(t, "127.0.0.1", ""), nil, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("ignored option produced no warning")
+	}
+}
+
+func TestTCPWrapAllowFramingWarnsWithoutDenying(t *testing.T) {
+	cfg := writeWrapTables(t, "socat: 127.0.0.1", "")
+	var buf bytes.Buffer
+	lg := logx.New()
+	lg.SetOutput(&buf)
+	lg.SetLevel(logx.Warning)
+	err := tcpwrapAllowedWithResolver(context.Background(), nil, cfg, tcpPeer(t, "127.0.0.1", ""), nil, lg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() == 0 {
+		t.Fatal("allow framing error produced no warning")
+	}
+}
+
+func TestTCPWrapDroppedReverseLookupDenies(t *testing.T) {
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.ParseIP("192.0.2.55"), "evil.example", false, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := writeWrapTables(t, "", "socat: .evil.example\n")
+	resolver := LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr)))
+	start := time.Now()
+	err = tcpwrapAllowedWithResolver(t.Context(), resolver, cfg, tcpPeer(t, "192.0.2.55", ""), nil, nil)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("dropped reverse lookup permitted the peer")
+	}
+	var syntax *hostsAccessSyntaxError
+	if !errors.As(err, &syntax) {
+		t.Fatal("dropped reverse lookup was not a logged refusal")
+	}
+	if elapsed >= 8*time.Second {
+		t.Fatalf("reverse lookup stalled for %s", elapsed)
+	}
+}
+
+func TestTCPWrapRefusalIncludesPeer(t *testing.T) {
+	peer := tcpPeer(t, "127.0.0.1", "")
+	err := refuseOrPass(peer, context.DeadlineExceeded)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatal(err)
+	}
+	if !strings.Contains(err.Error(), peer.String()) {
+		t.Fatal("refusal omitted the peer")
 	}
 }

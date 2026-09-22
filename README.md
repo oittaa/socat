@@ -336,30 +336,45 @@ address and option spellings are audited automatically. The
 
 `tcpwrap` reads `hosts.allow` and then `hosts.deny`. The first matching
 rule wins. Access is granted when neither file matches. Patterns are
-case-insensitive. A newline after a backslash continues the rule. The
-optional third field is ignored and is not executed.
+case-insensitive. Only a `#` in column 0 starts a comment. A newline
+after a backslash continues the rule. A final line with no newline, a
+line longer than 2047 bytes, a continuation at the end of the file, and
+a backslash followed by CRLF are errors: the rest of that `hosts.allow`
+is ignored, and `hosts.deny` denies every peer that did not match an
+earlier line. Those errors are logged.
+
+The optional third field is a colon-separated options list. `\:` is a
+literal colon. `allow` and `deny` decide the rule and must be the last
+option. `twist`, `aclexec`, and any unknown or malformed option deny
+the peer and are logged. Side-effect options such as `spawn`,
+`severity`, and `banners` are not executed; a warning is logged and the
+rule's allow or deny decision still applies.
 
 Supported patterns:
 
 - `ALL`, exact daemon names, `*` and `?` wildcards, and `EXCEPT`
   (`a EXCEPT b EXCEPT c` means `a EXCEPT (b EXCEPT c)`)
+- an all-digit daemon token from 0 through 65535, which matches the
+  local server port, including `port@host`
 - exact host names and IP addresses, including bracketed IPv6
 - a leading-dot domain suffix (`.example.com`) and a trailing-dot
   address prefix (`127.`)
 - IPv4 `n.n.n.n/m.m.m.m` and `n.n.n.n/prefixlen`. The peer address
   masked with that mask must equal the pattern address, so host bits
-  in the pattern must be zero
+  in the pattern must be zero. An all-zero or all-ones mask (`/0`,
+  `0.0.0.0`, `/32`, `255.255.255.255`) is rejected
 - IPv6 `[address]/prefixlen`. Only the prefix bits are compared
-- `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`, using a reverse name
-  only when it forward-resolves to the peer address
+- `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`. `PARANOID` matches a
+  reverse name that does not forward-resolve to the peer. Only the
+  first reverse name is used. A reverse lookup that exceeds its
+  deadline denies that peer
 - `daemon@host` server endpoint patterns, with the same host patterns
 
 A pattern this build cannot evaluate denies the peer and is logged.
 That includes NIS `@netgroup`, a `/file` pattern list, `user@host`
 (no IDENT lookup), `{RBL}` patterns, a malformed net/mask, a wildcard
 combined with a leading dot, a trailing dot, or a net/mask, and a line
-with no `:` separator. `PARANOID` is not applied before the tables.
-`hosts_options(5)` keywords are not applied.
+with no `:` separator.
 
 Unsupported names are omitted from help and rejected if used. They are not
 silently emulated with a different protocol.
