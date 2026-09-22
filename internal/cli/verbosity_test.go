@@ -3,11 +3,11 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -73,24 +73,37 @@ func TestEnvironmentIPAliases(t *testing.T) {
 
 	cases := []struct {
 		listen, resolve string
+		unset           bool
 		listenVer       xio.IPVersion
 		resolveVer      xio.IPVersion
 		warnings        int
 	}{
-		{"", "", xio.IPv4Default, xio.IPv4Default, 0},
-		{"   ", "\t", xio.IPv4Default, xio.IPv4Default, 0},
-		{"4", "0", xio.IPv4, xio.IPvAny, 0},
-		{"6", "6", xio.IPv6, xio.IPv6, 0},
-		{" IPv4 ", "INET6", xio.IPv4, xio.IPv6, 0},
-		{"inet4", "ip6", xio.IPv4, xio.IPv6, 0},
-		{"ip4", "ipv4", xio.IPv4, xio.IPv4, 0},
-		{"0", "2", xio.IPv4Default, xio.IPv4Default, 2},
-		{"2", "10", xio.IPv4Default, xio.IPv4Default, 2},
-		{"10", "bogus", xio.IPv4Default, xio.IPv4Default, 2},
+		{"", "", false, xio.IPv4Default, xio.IPv4Default, 0},
+		{"   ", "\t", false, xio.IPv4Default, xio.IPv4Default, 0},
+		{"4", "0", false, xio.IPv4, xio.IPvAny, 0},
+		{"6", "6", false, xio.IPv6, xio.IPv6, 0},
+		{" IPv4 ", "INET6", false, xio.IPv4, xio.IPv6, 0},
+		{"inet4", "ip6", false, xio.IPv4, xio.IPv6, 0},
+		{"ip4", "ipv4", false, xio.IPv4, xio.IPv4, 0},
+		{"0", "2", false, xio.IPv4Default, xio.IPv4Default, 2},
+		{"2", "10", false, xio.IPv4Default, xio.IPv4Default, 2},
+		{"10", "bogus", false, xio.IPv4Default, xio.IPv4Default, 2},
+		{"6", "6", true, xio.IPv4Default, xio.IPv4Default, 0},
 	}
 	for _, tc := range cases {
-		t.Setenv("SOCAT_DEFAULT_LISTEN_IP", tc.listen)
-		t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", tc.resolve)
+		if tc.unset {
+			t.Setenv("SOCAT_DEFAULT_LISTEN_IP", tc.listen)
+			t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", tc.resolve)
+			if err := os.Unsetenv("SOCAT_DEFAULT_LISTEN_IP"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Unsetenv("SOCAT_PREFERRED_RESOLVE_IP"); err != nil {
+				t.Fatal(err)
+			}
+		} else {
+			t.Setenv("SOCAT_DEFAULT_LISTEN_IP", tc.listen)
+			t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", tc.resolve)
+		}
 		opts, _, warnings := environmentOptions()
 		if opts.DefaultListenIPVersion != tc.listenVer || opts.PreferredResolveIPVersion != tc.resolveVer {
 			t.Errorf("listen=%q resolve=%q got %v/%v want %v/%v",
@@ -99,18 +112,6 @@ func TestEnvironmentIPAliases(t *testing.T) {
 		if len(warnings) != tc.warnings {
 			t.Errorf("listen=%q resolve=%q warnings=%d want %d (%v)", tc.listen, tc.resolve, len(warnings), tc.warnings, warnings)
 		}
-	}
-}
-
-func TestEnvironmentIPUnsetIsDefault(t *testing.T) {
-	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "6")
-	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "6")
-	unsetEnv(t, "SOCAT_DEFAULT_LISTEN_IP")
-	unsetEnv(t, "SOCAT_PREFERRED_RESOLVE_IP")
-
-	opts, _, warnings := environmentOptions()
-	if len(warnings) != 0 || opts.DefaultListenIPVersion != xio.IPv4Default || opts.PreferredResolveIPVersion != xio.IPv4Default {
-		t.Fatalf("unset got %v/%v warnings=%v", opts.DefaultListenIPVersion, opts.PreferredResolveIPVersion, warnings)
 	}
 }
 
@@ -123,48 +124,49 @@ func TestEnvironmentWarningUsesConfiguredLogger(t *testing.T) {
 	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "4")
 
 	dir := t.TempDir()
-	path := filepath.Join(dir, "socat.log")
-	code := Run([]string{"-lf", path, "NOPE:bar", "STDIO"}, nil)
-	if code == 0 {
-		t.Fatal("expected unknown address to fail")
+	severity := regexp.MustCompile(`\[[0-9]+\] ([FEDWNI]) `)
+	for _, tc := range []struct {
+		name string
+		args []string
+		warn bool
+	}{
+		{"default level", []string{"-lf"}, true},
+		{"errors only", []string{"-d0", "-lf"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "-")+".log")
+			args := append(append([]string{}, tc.args...), path, "NOPE:bar", "STDIO")
+			if code := Run(args, nil); code == 0 {
+				t.Fatal("expected unknown address to fail")
+			}
+			text, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			levels := map[string]bool{}
+			rawWarning := false
+			for _, line := range strings.Split(string(text), "\n") {
+				if !strings.Contains(line, "SOCAT_DEFAULT_LISTEN_IP") {
+					continue
+				}
+				m := severity.FindStringSubmatch(line)
+				if m == nil {
+					continue
+				}
+				levels[m[1]] = true
+				if m[1] == "W" && strings.Contains(line, rawListen) {
+					rawWarning = true
+				}
+			}
+			if tc.warn {
+				if !rawWarning {
+					t.Fatalf("log missing warning for unrecognized listen IP:\n%s", text)
+				}
+				return
+			}
+			if len(levels) != 0 {
+				t.Fatalf("-d0 still logged environment warning at %v:\n%s", levels, text)
+			}
+		})
 	}
-	text, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !warningMentions(string(text), "SOCAT_DEFAULT_LISTEN_IP", rawListen) {
-		t.Fatalf("log missing warning for unrecognized listen IP:\n%s", text)
-	}
-
-	quiet := filepath.Join(dir, "quiet.log")
-	code = Run([]string{"-d0", "-lf", quiet, "NOPE:bar", "STDIO"}, nil)
-	if code == 0 {
-		t.Fatal("expected unknown address to fail")
-	}
-	text, err = os.ReadFile(quiet)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if levels := testutil.DiagnosticLevels(string(text), "SOCAT_DEFAULT_LISTEN_IP"); len(levels) != 0 {
-		t.Fatalf("-d0 still logged environment warning at %v:\n%s", levels, text)
-	}
-}
-
-func unsetEnv(t *testing.T, name string) {
-	t.Helper()
-	if err := os.Unsetenv(name); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func warningMentions(text, name, value string) bool {
-	for _, line := range strings.Split(text, "\n") {
-		if !strings.Contains(line, name) || !strings.Contains(line, value) {
-			continue
-		}
-		if testutil.DiagnosticLevels(line, name)["W"] {
-			return true
-		}
-	}
-	return false
 }

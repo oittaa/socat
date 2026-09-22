@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,28 +16,113 @@ import (
 )
 
 func TestTCPConnectSuccessLoggedAtNotice(t *testing.T) {
-	assertTCPConnectEndpoint(t, logx.Debug, true)
-}
-
-func TestTCPConnectSuccessHiddenBelowNotice(t *testing.T) {
-	assertTCPConnectEndpoint(t, logx.Warning, false)
+	for _, tc := range []struct {
+		name    string
+		level   logx.Level
+		visible bool
+	}{
+		{"visible", logx.Debug, true},
+		{"hidden below notice", logx.Warning, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx(t)
+			ln := listenLoopback(t)
+			peerCh := acceptRemote(t, ln)
+			g, buf := loggedSession(tc.level)
+			spec := "TCP4:" + ln.Addr().String() + ",connect-timeout=2"
+			o, err := xio.OpenChannel(ctx, mustParse(t, spec), xio.ModeRDWR, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			assertEndpointLevel(t, buf.String(), waitAddr(t, ctx, peerCh), tc.visible)
+		})
+	}
 }
 
 func TestTCPAcceptLoggedAtNotice(t *testing.T) {
-	assertTCPAcceptEndpoint(t, logx.Debug, true)
-}
+	for _, tc := range []struct {
+		name    string
+		level   logx.Level
+		visible bool
+	}{
+		{"visible", logx.Debug, true},
+		{"hidden below notice", logx.Warning, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx(t)
+			port := reserveLoopbackPort(t)
+			addr := fmt.Sprintf("127.0.0.1:%d", port)
+			peerCh := make(chan string, 1)
+			go func() {
+				var conn net.Conn
+				err := testutil.Until(ctx, func() (bool, error) {
+					c, dialErr := net.Dial("tcp4", addr)
+					if dialErr != nil {
+						return false, nil
+					}
+					conn = c
+					return true, nil
+				})
+				if err != nil || conn == nil {
+					return
+				}
+				peerCh <- conn.LocalAddr().String()
+				_ = conn.Close()
+			}()
 
-func TestTCPAcceptHiddenBelowNotice(t *testing.T) {
-	assertTCPAcceptEndpoint(t, logx.Warning, false)
+			g, buf := loggedSession(tc.level)
+			spec := fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port)
+			o, err := xio.OpenChannel(ctx, mustParse(t, spec), xio.ModeRDWR, g)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			assertEndpointLevel(t, buf.String(), waitAddr(t, ctx, peerCh), tc.visible)
+		})
+	}
 }
 
 func TestForkAcceptLoggedAtNotice(t *testing.T) {
 	ctx := testCtx(t)
 	side := listenLoopback(t)
 	g, buf := loggedSession(logx.Debug)
-	lo := openListen(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
-	peer := dialForkListen(t, ctx, lo, side, g)
-	requireNoticeEndpoint(t, buf.String(), peer)
+	lo, err := xio.OpenChannel(ctx, mustParse(t, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1"), xio.ModeRDWR, g)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lo.Listener() == nil {
+		_ = lo.Close()
+		t.Fatal("listen did not return a listener")
+	}
+	sideReady := acceptAndClose(side)
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		right := fmt.Sprintf("TCP4:%s,connect-timeout=2", side.Addr())
+		_ = xio.RunOpened(runCtx, lo, mustParse(t, right), g)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+
+	var client net.Conn
+	err = testutil.Until(ctx, func() (bool, error) {
+		c, dialErr := net.Dial("tcp4", lo.Listener().Addr().String())
+		if dialErr != nil {
+			return false, nil
+		}
+		client = c
+		return true, nil
+	})
+	if err != nil || client == nil {
+		t.Fatalf("dial listen: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	waitReady(t, ctx, sideReady)
+	assertEndpointLevel(t, buf.String(), client.LocalAddr().String(), true)
 }
 
 func TestConnectForkSuccessLoggedAtNotice(t *testing.T) {
@@ -65,111 +152,7 @@ func TestConnectForkSuccessLoggedAtNotice(t *testing.T) {
 	})
 
 	waitReady(t, ctx, sideReady)
-	peer := waitAddr(t, ctx, peerCh)
-	requireNoticeEndpoint(t, buf.String(), peer)
-}
-
-func assertTCPConnectEndpoint(t *testing.T, level logx.Level, visible bool) {
-	t.Helper()
-	ctx := testCtx(t)
-	ln := listenLoopback(t)
-	peerCh := acceptRemote(t, ln)
-	g, buf := loggedSession(level)
-	spec := "TCP4:" + ln.Addr().String() + ",connect-timeout=2"
-	o, err := xio.OpenChannel(ctx, mustParse(t, spec), xio.ModeRDWR, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = o.Close() })
-	peer := waitAddr(t, ctx, peerCh)
-	if visible {
-		requireNoticeEndpoint(t, buf.String(), peer)
-		return
-	}
-	requireEndpointAbsent(t, buf.String(), peer)
-}
-
-func assertTCPAcceptEndpoint(t *testing.T, level logx.Level, visible bool) {
-	t.Helper()
-	ctx := testCtx(t)
-	port := reserveLoopbackPort(t)
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	peerCh := make(chan string, 1)
-	go func() {
-		var conn net.Conn
-		err := testutil.Until(ctx, func() (bool, error) {
-			c, dialErr := net.Dial("tcp4", addr)
-			if dialErr != nil {
-				return false, nil
-			}
-			conn = c
-			return true, nil
-		})
-		if err != nil || conn == nil {
-			return
-		}
-		peerCh <- conn.LocalAddr().String()
-		_ = conn.Close()
-	}()
-
-	g, buf := loggedSession(level)
-	spec := fmt.Sprintf("TCP4-LISTEN:%d,reuseaddr,bind=127.0.0.1", port)
-	o, err := xio.OpenChannel(ctx, mustParse(t, spec), xio.ModeRDWR, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = o.Close() })
-	peer := waitAddr(t, ctx, peerCh)
-	if visible {
-		requireNoticeEndpoint(t, buf.String(), peer)
-		return
-	}
-	requireEndpointAbsent(t, buf.String(), peer)
-}
-
-func openListen(t *testing.T, ctx context.Context, g *xio.Global, spec string) *xio.Opened {
-	t.Helper()
-	lo, err := xio.OpenChannel(ctx, mustParse(t, spec), xio.ModeRDWR, g)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lo.Listener() == nil {
-		_ = lo.Close()
-		t.Fatal("listen did not return a listener")
-	}
-	return lo
-}
-
-func dialForkListen(t *testing.T, ctx context.Context, lo *xio.Opened, side net.Listener, g *xio.Global) string {
-	t.Helper()
-	sideReady := acceptAndClose(side)
-	runCtx, cancel := context.WithCancel(ctx)
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		right := fmt.Sprintf("TCP4:%s,connect-timeout=2", side.Addr())
-		_ = xio.RunOpened(runCtx, lo, mustParse(t, right), g)
-	}()
-	t.Cleanup(func() {
-		cancel()
-		<-done
-	})
-
-	var client net.Conn
-	err := testutil.Until(ctx, func() (bool, error) {
-		c, dialErr := net.Dial("tcp4", lo.Listener().Addr().String())
-		if dialErr != nil {
-			return false, nil
-		}
-		client = c
-		return true, nil
-	})
-	if err != nil || client == nil {
-		t.Fatalf("dial listen: %v", err)
-	}
-	t.Cleanup(func() { _ = client.Close() })
-	waitReady(t, ctx, sideReady)
-	return client.LocalAddr().String()
+	assertEndpointLevel(t, buf.String(), waitAddr(t, ctx, peerCh), true)
 }
 
 func listenLoopback(t *testing.T) net.Listener {
@@ -248,17 +231,28 @@ func loggedSession(level logx.Level) (*xio.Global, *lockedBuf) {
 	return xio.NewSession(xio.Options{BlockSize: 8192, Linger: 200 * time.Millisecond}, lg), &buf
 }
 
-func requireNoticeEndpoint(t *testing.T, text, endpoint string) {
-	t.Helper()
-	levels := testutil.DiagnosticLevels(text, endpoint)
-	if !levels["N"] || levels["I"] {
-		t.Fatalf("endpoint %s levels=%v\n%s", endpoint, levels, text)
-	}
-}
+var diagnosticSeverity = regexp.MustCompile(`\[[0-9]+\] ([FEDWNI]) `)
 
-func requireEndpointAbsent(t *testing.T, text, endpoint string) {
+func assertEndpointLevel(t *testing.T, text, endpoint string, visible bool) {
 	t.Helper()
-	if levels := testutil.DiagnosticLevels(text, endpoint); len(levels) != 0 {
+	levels := map[string]bool{}
+	for _, line := range strings.Split(text, "\n") {
+		if endpoint == "" || !strings.Contains(line, endpoint) {
+			continue
+		}
+		m := diagnosticSeverity.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		levels[m[1]] = true
+	}
+	if visible {
+		if !levels["N"] || levels["I"] {
+			t.Fatalf("endpoint %s levels=%v\n%s", endpoint, levels, text)
+		}
+		return
+	}
+	if len(levels) != 0 {
 		t.Fatalf("endpoint %s visible at %v\n%s", endpoint, levels, text)
 	}
 }
