@@ -41,8 +41,11 @@ func TestBoundsFromSyntax(t *testing.T) {
 		{syntax: "OPENSSL-DTLS-CLIENT:<host>:<port>", min: 2, max: 2},
 		{syntax: "SCTP-CONNECT:<host>:<port>", min: 2, max: 2},
 		{syntax: "VSOCK-CONNECT:<cid>:<port>", min: 2, max: 2},
+		{syntax: "ECHO[:<filename>]", min: 0, max: 1},
 		{syntax: "PROXY:<proxy>:<hostname>:<port>", min: 3, max: 3},
 		{syntax: "SOCKS4:<socks-server>:<host>:<port>", min: 3, max: 3},
+		{syntax: "SOCKS5:<socks-server>[:<socks-port>]:<target-host>:<target-port>", min: 3, max: 4},
+		{syntax: "SOCKS5-LISTEN:<socks-server>[:<socks-port>]:<listen-host>:<listen-port>", min: 3, max: 4},
 		{syntax: "SOCKET-CONNECT:<domain>:<protocol>:<remote-address>", min: 3, max: 3},
 		{syntax: "SOCKET-LISTEN:<domain>:<protocol>:<local-address>", min: 3, max: 3},
 		{syntax: "SOCKET-SENDTO:<domain>:<type>:<protocol>:<remote-address>", min: 4, max: 4},
@@ -64,9 +67,6 @@ func TestParamCountOverrides(t *testing.T) {
 		syntax   string
 		min, max int
 	}{
-		{name: "ECHO", syntax: "ECHO", min: 0, max: 1},
-		{name: "SOCKS5", syntax: "SOCKS5:<socks>:<host>:<port>", min: 3, max: 4},
-		{name: "SOCKS5-BIND", syntax: "SOCKS5-BIND:<socks>:<host>:<port>", min: 3, max: 4},
 		{name: "WS", syntax: "WS:<host>:<port>", min: 2, max: -1},
 		{name: "WSS-CONNECT", syntax: "WSS-CONNECT:<host>:<port>", min: 2, max: -1},
 		{name: "WS-LISTEN", syntax: "WS-LISTEN:<port>", min: 1, max: -1},

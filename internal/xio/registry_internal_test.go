@@ -7,6 +7,17 @@ import (
 	"testing"
 )
 
+func TestAddressRegistryRequiresSyntax(t *testing.T) {
+	r := newAddressRegistry()
+	defer func() {
+		got := recover()
+		if got == nil || !strings.Contains(fmt.Sprint(got), "requires syntax") {
+			t.Fatalf("panic=%v", got)
+		}
+	}()
+	r.register(AddressDesc{Name: "TCP", Group: GroupTCP, OptionCaps: []string{"fd"}})
+}
+
 func TestAddressRegistryRequiresOptionCaps(t *testing.T) {
 	r := newAddressRegistry()
 	defer func() {

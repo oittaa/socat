@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestQUICTargetConnect(t *testing.T) {
@@ -39,23 +39,15 @@ func TestQUICTargetListen(t *testing.T) {
 }
 
 func TestQUICTargetListenRequiresPort(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC-LISTEN")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = xio.PrepareSpec(s)
-	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (0 instead of 1)") {
+	_, _, err := quicTarget(addrconfig.Address{Type: "QUIC-LISTEN"}, true)
+	if err == nil || !strings.Contains(err.Error(), "requires port") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestQUICTargetConnectRequiresHostPort(t *testing.T) {
-	s, err := parse.ParseSpec("QUIC:onlyhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = xio.PrepareSpec(s)
-	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (1 instead of 2)") {
+	_, _, err := quicTarget(addrconfig.Address{Type: "QUIC"}, false)
+	if err == nil || !strings.Contains(err.Error(), "requires host and port") {
 		t.Fatalf("err=%v", err)
 	}
 }

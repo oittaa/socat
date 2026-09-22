@@ -25,12 +25,6 @@ func (p ParamCount) allows(n int) bool {
 // syntax. Brackets mark an optional parameter (PIPE[:<filename>]).
 func paramCountFor(name, syntax string) ParamCount {
 	switch name {
-	case "ECHO":
-		// ECHO is the same address as PIPE, including its optional filename.
-		return ParamCount{Min: 0, Max: 1}
-	case "SOCKS5", "SOCKS5-CONNECT", "SOCKS5-LISTEN", "SOCKS5-BIND":
-		// Optional socks-port: server:host:port or server:socks-port:host:port.
-		return ParamCount{Min: 3, Max: 4}
 	case "WS", "WS-CONNECT", "WSS", "WSS-CONNECT":
 		// Parameters after host and port are URL path segments.
 		return ParamCount{Min: 2, Max: -1}
@@ -71,9 +65,39 @@ func validateAddressParams(spec parse.Spec, desc AddressDesc) error {
 	if desc.Params.allows(n) {
 		return nil
 	}
-	name := spec.Type
-	if strings.TrimSpace(name) == "" {
-		name = desc.Name
+	name := typedAddressName(spec, desc.Name)
+	return addrconfig.WrongParameterCount(name, n, desc.Params.Min, desc.Params.Max, usageSyntax(name, desc.Name, desc.Syntax))
+}
+
+// typedAddressName keeps the keyword spelling from the original address.
+func typedAddressName(spec parse.Spec, fallback string) string {
+	raw := strings.TrimSpace(spec.Raw)
+	if raw != "" {
+		end := len(raw)
+		for i := 0; i < len(raw); i++ {
+			if raw[i] == ':' || raw[i] == ',' {
+				end = i
+				break
+			}
+		}
+		token := raw[:end]
+		if token != "" && (spec.Type == "" || strings.EqualFold(token, spec.Type)) {
+			return token
+		}
 	}
-	return addrconfig.WrongParameterCount(name, n, desc.Params.Min, desc.Params.Max)
+	if strings.TrimSpace(spec.Type) != "" {
+		return spec.Type
+	}
+	return fallback
+}
+
+// usageSyntax is the help form with the keyword as the user typed it.
+func usageSyntax(typed, canonical, syntax string) string {
+	if syntax == "" {
+		return typed
+	}
+	if canonical != "" && len(syntax) >= len(canonical) && strings.EqualFold(syntax[:len(canonical)], canonical) {
+		return typed + syntax[len(canonical):]
+	}
+	return syntax
 }

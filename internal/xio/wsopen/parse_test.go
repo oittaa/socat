@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestWSTargetConnect(t *testing.T) {
@@ -157,23 +157,15 @@ func TestWSTargetEmptyPathKeepsPositional(t *testing.T) {
 }
 
 func TestWSTargetListenRequiresPort(t *testing.T) {
-	s, err := parse.ParseSpec("WS-LISTEN")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = xio.PrepareSpec(s)
-	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (0 instead of 1 or more)") {
+	_, _, _, err := wsTarget(addrconfig.Address{Type: "WS-LISTEN"}, true)
+	if err == nil || !strings.Contains(err.Error(), "requires port") {
 		t.Fatalf("err=%v", err)
 	}
 }
 
 func TestWSTargetConnectRequiresHostPort(t *testing.T) {
-	s, err := parse.ParseSpec("WS:onlyhost")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = xio.PrepareSpec(s)
-	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (1 instead of 2 or more)") {
+	_, _, _, err := wsTarget(addrconfig.Address{Type: "WS"}, false)
+	if err == nil || !strings.Contains(err.Error(), "requires host and port") {
 		t.Fatalf("err=%v", err)
 	}
 }

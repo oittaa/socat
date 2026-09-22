@@ -122,6 +122,9 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	if len(desc.OptionCaps) == 0 {
 		panic("xio: address registration requires OptionCaps: " + name)
 	}
+	if strings.TrimSpace(desc.Syntax) == "" {
+		panic("xio: address registration requires syntax: " + name)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -166,16 +169,6 @@ func (r *addressRegistry) register(desc AddressDesc) {
 		}
 		r.addrsByGroup[desc.Group] = append(r.addrsByGroup[desc.Group], desc)
 	}
-}
-
-// Register associates an address type name with an opener.
-// It does not add a -h line; prefer RegisterAddress with Syntax set.
-func Register(name string, fn Opener) {
-	RegisterAddress(AddressDesc{
-		Name:       name,
-		Opener:     fn,
-		OptionCaps: CapsFD,
-	})
 }
 
 // resolve returns the registered descriptor for typ. Direct RegisterAddress

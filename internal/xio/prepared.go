@@ -57,13 +57,6 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	if err != nil {
 		return PreparedAddress{}, err
 	}
-	// Reject a bad parameter count before option values are decoded and
-	// before any opener can create a file or socket.
-	if registered {
-		if err := validateAddressParams(spec, desc); err != nil {
-			return PreparedAddress{}, err
-		}
-	}
 	facts := addrconfig.Facts{Type: spec.Type}
 	if registered {
 		facts = addrconfig.Facts{
@@ -73,6 +66,16 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 			Kind:   desc.Kind,
 			Role:   desc.Role,
 			Family: desc.Family,
+		}
+	}
+	// Unknown option, then a bad option value, then the parameter count.
+	// All of these run before an opener can create a file or socket.
+	if err := addrconfig.RejectBadOptionValues(spec, facts, options.definitions); err != nil {
+		return PreparedAddress{}, err
+	}
+	if registered {
+		if err := validateAddressParams(spec, desc); err != nil {
+			return PreparedAddress{}, err
 		}
 	}
 	config, err := addrconfig.DecodeResolved(spec, facts, options.definitions)

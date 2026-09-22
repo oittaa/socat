@@ -24,7 +24,7 @@ func init() {
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "ACCEPT", Syntax: "ACCEPT:<fdnum>", Desc: "same as ACCEPT-FD", Enabled: acceptFDEnabled, Opener: openAcceptFD, OptionCaps: xio.CapsAcceptFD, Kind: fd})
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "PIPE", Syntax: "PIPE[:<filename>]", Desc: "anonymous pipe or named FIFO", Opener: openPIPE, OptionCaps: xio.CapsPIPE, Kind: pipe})
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "FIFO", Syntax: "FIFO[:<filename>]", Desc: "same as PIPE", Opener: openPIPE, OptionCaps: xio.CapsPIPE, Kind: pipe})
-	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "ECHO", Syntax: "ECHO", Desc: "same as PIPE", Opener: openPIPE, OptionCaps: xio.CapsPIPE, Kind: pipe})
+	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "ECHO", Syntax: "ECHO[:<filename>]", Desc: "same as PIPE", Opener: openPIPE, OptionCaps: xio.CapsPIPE, Kind: pipe})
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "OPEN", Syntax: "OPEN:<filename>", Desc: "open a file", Opener: openOPEN, OptionCaps: xio.CapsOpen, Kind: file})
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "FILE", Syntax: "FILE:<filename>", Desc: "same as OPEN", Opener: openOPEN, OptionCaps: xio.CapsOpen, Kind: file})
 	xio.RegisterAddress(xio.AddressDesc{Group: files, Name: "CREATE", Syntax: "CREATE:<filename>", Desc: "create or truncate a file", Opener: openCREATE, OptionCaps: xio.CapsCreate, Directions: xio.ModeWrite, Kind: create})

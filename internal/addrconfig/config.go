@@ -169,12 +169,8 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 	return DecodeResolved(spec, facts, definitions)
 }
 
-// DecodeResolved decodes options whose catalog metadata preparation resolved.
-func DecodeResolved(spec parse.Spec, facts Facts, definitions []optionmeta.Option) (Address, error) {
-	if len(definitions) != len(spec.Options) {
-		return Address{}, fmt.Errorf("%s: invalid resolved option count", facts.Type)
-	}
-	d := decoder{
+func newDecoder(spec parse.Spec, facts Facts) decoder {
+	return decoder{
 		Address: Address{
 			Type:   facts.Type,
 			Params: append([]string(nil), spec.Params...),
@@ -191,6 +187,30 @@ func DecodeResolved(spec parse.Spec, facts Facts, definitions []optionmeta.Optio
 			},
 		},
 	}
+}
+
+// RejectBadOptionValues reports an invalid option value. It does not
+// interpret positional parameters, so a bad value can be reported before
+// a parameter-count error.
+func RejectBadOptionValues(spec parse.Spec, facts Facts, definitions []optionmeta.Option) error {
+	if len(definitions) != len(spec.Options) {
+		return fmt.Errorf("%s: invalid resolved option count", facts.Type)
+	}
+	d := newDecoder(spec, facts)
+	for i, option := range spec.Options {
+		if err := decodeOption(&d, option, definitions[i]); err != nil {
+			return fmt.Errorf("%s: %w", facts.Type, err)
+		}
+	}
+	return nil
+}
+
+// DecodeResolved decodes options whose catalog metadata preparation resolved.
+func DecodeResolved(spec parse.Spec, facts Facts, definitions []optionmeta.Option) (Address, error) {
+	if len(definitions) != len(spec.Options) {
+		return Address{}, fmt.Errorf("%s: invalid resolved option count", facts.Type)
+	}
+	d := newDecoder(spec, facts)
 
 	if err := decodeNetwork(&d, spec); err != nil {
 		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
