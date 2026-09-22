@@ -67,7 +67,7 @@ func ParseSpec(s string) (Spec, error) {
 	}
 	// Path-like without type keyword before first : or ,
 	if looksLikePath(s) {
-		params, opts, err := splitParamsAndOptions(s, true, false)
+		params, opts, err := splitParamsAndOptions(s, true, -1)
 		if err != nil {
 			return Spec{}, err
 		}
@@ -88,7 +88,7 @@ func ParseSpec(s string) (Spec, error) {
 		return Spec{}, fmt.Errorf("missing address type in %q", s)
 	}
 
-	params, opts, err := splitParamsAndOptions(rest, pathParamType(typeName), socketDataType(typeName))
+	params, opts, err := splitParamsAndOptions(rest, pathParamType(typeName), socketDataIndex(typeName))
 	if err != nil {
 		return Spec{}, err
 	}
@@ -133,7 +133,7 @@ func splitType(s string) (typeName, rest string, hadColon bool) {
 
 // splitParamsAndOptions splits "p1:p2,opt,opt=val" into params and options.
 // If s starts with ',', there are no params.
-func splitParamsAndOptions(s string, pathParam, preserveRaw bool) (params []string, opts []Option, err error) {
+func splitParamsAndOptions(s string, pathParam bool, dataIndex int) (params []string, opts []Option, err error) {
 	if s == "" {
 		return nil, nil, nil
 	}
@@ -151,7 +151,7 @@ func splitParamsAndOptions(s string, pathParam, preserveRaw bool) (params []stri
 	}
 
 	if paramPart != "" {
-		params, err = splitColonParams(paramPart, pathParam, preserveRaw)
+		params, err = splitColonParams(paramPart, pathParam, dataIndex)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -173,7 +173,7 @@ func findOptionsStart(s string) int {
 	return indexTopLevel(s, ',')
 }
 
-func splitColonParams(s string, pathParam, preserveRaw bool) ([]string, error) {
+func splitColonParams(s string, pathParam bool, dataIndex int) ([]string, error) {
 	if s == "" {
 		return nil, nil
 	}
@@ -181,20 +181,18 @@ func splitColonParams(s string, pathParam, preserveRaw bool) ([]string, error) {
 	// it intact supports drive-relative paths (C:foo), alternate data streams,
 	// and ordinary colons in Unix filenames.
 	if pathParam {
-		if preserveRaw {
-			return []string{s}, nil
-		}
 		part, err := unquote(s, true)
 		if err != nil {
 			return nil, err
 		}
 		return []string{part}, nil
 	}
-	// SOCKET data is decoded from these slices. Leaving quotes and escapes in
-	// place avoids a second scan of the original address text.
+	// SOCKET address data keeps its quotes and escapes. Domain, type, and
+	// protocol are ordinary parameters.
 	var parts []string
 	start := 0
-	sc := NewSpecScanner(s, !preserveRaw)
+	index := 0
+	sc := NewSpecScanner(s, dataIndex < 0)
 	for {
 		c, cls, ok := sc.Step()
 		if !ok {
@@ -204,15 +202,16 @@ func splitColonParams(s string, pathParam, preserveRaw bool) ([]string, error) {
 			if isWindowsDriveColon(s, start, sc.Pos()-1) {
 				continue
 			}
-			part, err := colonParam(s[start:sc.Pos()-1], preserveRaw)
+			part, err := colonParam(s[start:sc.Pos()-1], index >= dataIndex && dataIndex >= 0)
 			if err != nil {
 				return nil, err
 			}
 			parts = append(parts, part)
 			start = sc.Pos()
+			index++
 		}
 	}
-	part, err := colonParam(s[start:], preserveRaw)
+	part, err := colonParam(s[start:], index >= dataIndex && dataIndex >= 0)
 	if err != nil {
 		return nil, err
 	}

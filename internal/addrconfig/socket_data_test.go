@@ -18,6 +18,18 @@ func TestSocketAddressDecodedFromParamsNotRaw(t *testing.T) {
 	}
 }
 
+func TestQuotedSocketNumbersDecode(t *testing.T) {
+	spec := mustParseSpec(t, `SOCKET-SENDTO:"2":"2":"17":x00097f000001`)
+	got, err := Decode(spec, Facts{Type: "SOCKET-SENDTO", Kind: AddressKindSocket, Role: AddressRoleSendTo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := got.Network.RawSocket
+	if rs.Domain != 2 || rs.Type != 2 || rs.Protocol != 17 {
+		t.Fatalf("domain=%d type=%d protocol=%d", rs.Domain, rs.Type, rs.Protocol)
+	}
+}
+
 func TestSocketQuotedDataKeepsStringBytes(t *testing.T) {
 	spec := mustParseSpec(t, `SOCKET-SENDTO:2:2:17:"a:b"`)
 	spec.Raw = "SOCKET-SENDTO:2:2:17:x0000"
