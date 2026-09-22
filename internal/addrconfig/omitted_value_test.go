@@ -165,14 +165,8 @@ var omittedValueCases = []omittedValueCase{
 	{name: "socksuser=space", signature: "socksuser=<user> (whitespace is a value)", spec: `SOCKS:socks.test:target.test:80,socksuser=" "`, facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, " ")},
 	{name: "socksuser=1", signature: "socksuser=<user>", spec: "SOCKS:socks.test:target.test:80,socksuser=1", facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "1")},
 	{name: "sockspass", signature: "sockspass=<string>", spec: "SOCKS:socks.test:target.test:80,sockspass", facts: socksFacts, wantErr: `option "sockspass" requires a value`},
-	{name: "sockspass=", signature: "sockspass=<string> (empty password is a value)", spec: "SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=", facts: socksFacts, check: func(t *testing.T, a Address) {
-		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "nobody")(t, a)
-		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, "")(t, a)
-	}},
-	{name: "sockspass=space", signature: "sockspass=<string> (whitespace password is a value)", spec: `SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=" "`, facts: socksFacts, check: func(t *testing.T, a Address) {
-		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "nobody")(t, a)
-		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, " ")(t, a)
-	}},
+	{name: "sockspass=", signature: "sockspass=<string> (empty password is a value)", spec: "SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=", facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, "")},
+	{name: "sockspass=space", signature: "sockspass=<string> (whitespace password is a value)", spec: `SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=" "`, facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, " ")},
 	{name: "alpn", signature: "Go extension alpn= (value required)", spec: "OPENSSL:127.0.0.1:9,alpn", facts: tlsFacts, wantErr: `option "alpn" requires a value`},
 	{name: "alpn=1", signature: "Go extension alpn= (value required)", spec: "OPENSSL:127.0.0.1:9,alpn=1", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.ALPN }, "1")},
 	{name: "path", signature: "path=<string>", spec: "WS:example.test:443,path", facts: wsFacts, wantErr: `option "path" requires a value`},
