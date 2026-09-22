@@ -377,13 +377,15 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 	}
 	recvErr := xio.NeedRecvErr(l.config)
 	var peerAddr *net.UDPAddr
-	if peer != nil {
+	var remote net.Addr
+	if peer != nil && peer.UDPAddr != nil {
 		peerAddr = peer.UDPAddr
+		remote = peer.UDPAddr
 	}
 	return newOneshotForkConn(
 		append([]byte(nil), packet.data...),
 		local,
-		peer,
+		remote,
 		session,
 		&l.writeMu,
 		pc.SetWriteDeadline,
@@ -646,7 +648,14 @@ func (u *udpSessionConn) LocalAddr() net.Addr {
 	}
 	return nil
 }
-func (u *udpSessionConn) RemoteAddr() net.Addr { return u.peer }
+func (u *udpSessionConn) RemoteAddr() net.Addr {
+	if u.peer == nil || u.peer.UDPAddr == nil {
+		return nil
+	}
+	// The accept filter reads this address. The kernel scope stays on the
+	// session peer and is not carried as zone text.
+	return u.peer.UDPAddr
+}
 func (u *udpSessionConn) SetDeadline(t time.Time) error {
 	if err := u.SetReadDeadline(t); err != nil {
 		return err

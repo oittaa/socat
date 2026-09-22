@@ -50,7 +50,7 @@ func TestUDP6ForkKeepsKernelScopeWhenInterfaceNameIsNumeric(t *testing.T) {
 		if byName.Index == scopeIndex {
 			return fmt.Errorf("interface %s has index %d; the name does not collide with a different scope id", digit, byName.Index)
 		}
-		ch, err := parse.ParseChannel("UDP6-LISTEN:0,fork,reuseaddr,bind=[::]")
+		ch, err := parse.ParseChannel("UDP6-LISTEN:0,fork,reuseaddr,bind=[::],range=[fe80::]/10")
 		if err != nil {
 			return err
 		}
@@ -78,6 +78,13 @@ func TestUDP6ForkKeepsKernelScopeWhenInterfaceNameIsNumeric(t *testing.T) {
 					return err
 				}
 				defer func() { _ = c.Close() }()
+				filter := opened.PeerFilter()
+				if filter == nil {
+					return fmt.Errorf("UDP6-LISTEN,fork did not install a peer filter")
+				}
+				if err := filter(c); err != nil {
+					return err
+				}
 				st, err := opened.WrapDial()(c)
 				if err != nil {
 					return err
@@ -99,16 +106,33 @@ func TestUDP6ForkKeepsKernelScopeWhenInterfaceNameIsNumeric(t *testing.T) {
 		if _, err := client.WriteToUDP([]byte("ping"), dst); err != nil {
 			return err
 		}
-		_ = client.SetReadDeadline(time.Now().Add(4 * time.Second))
-		buf := make([]byte, 4)
-		n, err := client.Read(buf)
-		if err != nil {
-			return fmt.Errorf("reply: %w", err)
+		reply := make(chan error, 1)
+		go func() {
+			_ = client.SetReadDeadline(time.Now().Add(4 * time.Second))
+			buf := make([]byte, 4)
+			n, err := client.Read(buf)
+			if err != nil {
+				reply <- fmt.Errorf("reply: %w", err)
+				return
+			}
+			if string(buf[:n]) != "pong" {
+				reply <- fmt.Errorf("reply %q", buf[:n])
+				return
+			}
+			reply <- nil
+		}()
+		select {
+		case err := <-errc:
+			if err != nil {
+				return err
+			}
+			return <-reply
+		case err := <-reply:
+			if err != nil {
+				return err
+			}
+			return <-errc
 		}
-		if string(buf[:n]) != "pong" {
-			return fmt.Errorf("reply %q", buf[:n])
-		}
-		return <-errc
 	})
 	if err != nil {
 		t.Fatal(err)
