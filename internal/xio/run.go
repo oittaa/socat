@@ -255,7 +255,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 				if ctx.Err() != nil {
 					return nil
 				}
-				g.Log.Noticef("%s", ferr)
+				LogRefusedPeer(g.Log, ferr)
 				continue
 			}
 		}

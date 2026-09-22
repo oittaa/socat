@@ -207,8 +207,8 @@ func logOrStopPeerFilter(ctx context.Context, g *xio.Global, err error) error {
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("%s", err)
+	if g != nil {
+		xio.LogRefusedPeer(g.Log, err)
 	}
 	return nil
 }

@@ -334,6 +334,33 @@ address and option spellings are audited automatically. The
 
 ## Unsupported / security-related
 
+`tcpwrap` reads `hosts.allow` and then `hosts.deny`. The first matching
+rule wins. Access is granted when neither file matches. Patterns are
+case-insensitive. A newline after a backslash continues the rule. The
+optional third field is ignored and is not executed.
+
+Supported patterns:
+
+- `ALL`, exact daemon names, `*` and `?` wildcards, and `EXCEPT`
+  (`a EXCEPT b EXCEPT c` means `a EXCEPT (b EXCEPT c)`)
+- exact host names and IP addresses, including bracketed IPv6
+- a leading-dot domain suffix (`.example.com`) and a trailing-dot
+  address prefix (`127.`)
+- IPv4 `n.n.n.n/m.m.m.m` and `n.n.n.n/prefixlen`. The peer address
+  masked with that mask must equal the pattern address, so host bits
+  in the pattern must be zero
+- IPv6 `[address]/prefixlen`. Only the prefix bits are compared
+- `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`, using a reverse name
+  only when it forward-resolves to the peer address
+- `daemon@host` server endpoint patterns, with the same host patterns
+
+A pattern this build cannot evaluate denies the peer and is logged.
+That includes NIS `@netgroup`, a `/file` pattern list, `user@host`
+(no IDENT lookup), `{RBL}` patterns, a malformed net/mask, a wildcard
+combined with a leading dot, a trailing dot, or a net/mask, and a line
+with no `:` separator. `PARANOID` is not applied before the tables.
+`hosts_options(5)` keywords are not applied.
+
 Unsupported names are omitted from help and rejected if used. They are not
 silently emulated with a different protocol.
 

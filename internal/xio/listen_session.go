@@ -140,8 +140,8 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 				_ = safeCloseLn()
 				return nil, ctx.Err()
 			}
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", err)
+			if g != nil {
+				LogRefusedPeer(g.Log, err)
 			}
 			continue
 		}
