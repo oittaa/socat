@@ -588,8 +588,9 @@ func presentString(o parse.Option) (string, error) {
 	return o.Value, nil
 }
 
+// setRequiredString requires "=". The supplied text is kept, including "" and whitespace.
 func setRequiredString(dst *OptionalString, o parse.Option) error {
-	value, err := requiredString(o)
+	value, err := presentString(o)
 	if err != nil {
 		return err
 	}

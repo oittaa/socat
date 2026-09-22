@@ -8,7 +8,8 @@ import (
 
 // omittedValueCase records one option's omitted-value rule.
 // Signatures are from doc/socat.yo at classic tag-1.8.1.3 (12c08bf),
-// except rows marked as Go extensions. "=<x>" requires a value.
+// except rows marked as Go extensions. "=<x>" requires "=".
+// An explicit empty or whitespace value is kept.
 // "[=<x>]" stores omission on Optional.Omitted. The string "1" is a real
 // value, never a stand-in for omission.
 type omittedValueCase struct {
@@ -75,12 +76,17 @@ func wantOmitted(get func(Address) OptionalString) func(*testing.T, Address) {
 
 var omittedValueCases = []omittedValueCase{
 	{name: "shell", signature: "shell=<filename>", spec: "SHELL:true,shell", facts: shellFacts, wantErr: `option "shell" requires a value`},
+	{name: "shell=", signature: "shell=<filename> (empty is a value)", spec: "SHELL:true,shell=", facts: shellFacts, check: wantText(func(a Address) OptionalString { return a.Process.Shell }, "")},
 	{name: "shell=1", signature: "shell=<filename>", spec: "SHELL:true,shell=1", facts: shellFacts, check: wantText(func(a Address) OptionalString { return a.Process.Shell }, "1")},
 	{name: "cert", signature: "cert=<filename>", spec: "OPENSSL:127.0.0.1:9,cert", facts: tlsFacts, wantErr: `option "cert" requires a value`},
+	{name: "cert=", signature: "cert=<filename> (empty is a value)", spec: "OPENSSL:127.0.0.1:9,cert=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.Certificate }, "")},
 	{name: "cert=1", signature: "cert=<filename>", spec: "OPENSSL:127.0.0.1:9,cert=1", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.Certificate }, "1")},
 	{name: "key", signature: "key=<filename>", spec: "OPENSSL:127.0.0.1:9,key", facts: tlsFacts, wantErr: `option "key" requires a value`},
+	{name: "key=", signature: "key=<filename> (empty is a value)", spec: "OPENSSL:127.0.0.1:9,key=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.Key }, "")},
 	{name: "cafile", signature: "cafile=<filename>", spec: "OPENSSL:127.0.0.1:9,cafile", facts: tlsFacts, wantErr: `option "cafile" requires a value`},
+	{name: "cafile=", signature: "cafile=<filename> (empty is a value)", spec: "OPENSSL:127.0.0.1:9,cafile=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.CAFile }, "")},
 	{name: "capath", signature: "capath=<dirname>", spec: "OPENSSL:127.0.0.1:9,capath", facts: tlsFacts, wantErr: `option "capath" requires a value`},
+	{name: "capath=", signature: "capath=<dirname> (empty is a value)", spec: "OPENSSL:127.0.0.1:9,capath=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.CAPath }, "")},
 	{name: "bind", signature: "bind=<sockname>", spec: "TCP:127.0.0.1:9,bind", facts: tcpConnect, wantErr: `option "bind" requires a value`},
 	{name: "bind=1", signature: "bind=<sockname>", spec: "TCP:127.0.0.1:9,bind=1", facts: tcpConnect, check: func(t *testing.T, a Address) {
 		if !a.Network.BindSet || a.Network.Bind.Original() != "1" {
@@ -137,7 +143,9 @@ var omittedValueCases = []omittedValueCase{
 	{name: "commonname=", signature: "commonname=<string>", spec: "OPENSSL:127.0.0.1:9,commonname=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.CommonName }, "")},
 	{name: "commonname=1", signature: "commonname=<string>", spec: "OPENSSL:127.0.0.1:9,commonname=1", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.CommonName }, "1")},
 	{name: "proxy-authorization", signature: "proxy-authorization=<username>:<password>", spec: "PROXY:proxy.test:target.test:80,proxy-authorization", facts: proxyFacts, wantErr: `option "proxy-authorization" requires a value`},
+	{name: "proxy-authorization=", signature: "proxy-authorization=<username>:<password> (empty is a value)", spec: "PROXY:proxy.test:target.test:80,proxy-authorization=", facts: proxyFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.Authorization }, "")},
 	{name: "proxy-authorization-file", signature: "proxy-authorization-file=<filename>", spec: "PROXY:proxy.test:target.test:80,proxy-authorization-file", facts: proxyFacts, wantErr: `option "proxy-authorization-file" requires a value`},
+	{name: "proxy-authorization-file=", signature: "proxy-authorization-file=<filename> (empty is a value)", spec: "PROXY:proxy.test:target.test:80,proxy-authorization-file=", facts: proxyFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.AuthorizationFile }, "")},
 	{name: "pty-interval", signature: "pty-interval=<seconds>", spec: "PTY,pty-interval", facts: ptyFacts, wantErr: `option "pty-interval" requires a value`},
 	{name: "pty-interval=abc", signature: "pty-interval=<seconds>", spec: "PTY,pty-interval=abc", facts: ptyFacts, wantErr: `invalid pty-interval "abc"`},
 	{name: "pty-interval=1", signature: "pty-interval=<seconds>", spec: "PTY,pty-interval=1", facts: ptyFacts, check: func(t *testing.T, a Address) {
@@ -153,15 +161,27 @@ var omittedValueCases = []omittedValueCase{
 		}
 	}},
 	{name: "socksuser", signature: "socksuser=<user>", spec: "SOCKS:socks.test:target.test:80,socksuser", facts: socksFacts, wantErr: `option "socksuser" requires a value`},
+	{name: "socksuser=", signature: "socksuser=<user> (empty is a value)", spec: "SOCKS:socks.test:target.test:80,socksuser=", facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "")},
+	{name: "socksuser=space", signature: "socksuser=<user> (whitespace is a value)", spec: `SOCKS:socks.test:target.test:80,socksuser=" "`, facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, " ")},
 	{name: "socksuser=1", signature: "socksuser=<user>", spec: "SOCKS:socks.test:target.test:80,socksuser=1", facts: socksFacts, check: wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "1")},
 	{name: "sockspass", signature: "sockspass=<string>", spec: "SOCKS:socks.test:target.test:80,sockspass", facts: socksFacts, wantErr: `option "sockspass" requires a value`},
+	{name: "sockspass=", signature: "sockspass=<string> (empty password is a value)", spec: "SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=", facts: socksFacts, check: func(t *testing.T, a Address) {
+		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "nobody")(t, a)
+		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, "")(t, a)
+	}},
+	{name: "sockspass=space", signature: "sockspass=<string> (whitespace password is a value)", spec: `SOCKS:socks.test:target.test:80,socksuser=nobody,sockspass=" "`, facts: socksFacts, check: func(t *testing.T, a Address) {
+		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSUser }, "nobody")(t, a)
+		wantText(func(a Address) OptionalString { return a.Proxy.SOCKSPassword }, " ")(t, a)
+	}},
 	{name: "alpn", signature: "Go extension alpn= (value required)", spec: "OPENSSL:127.0.0.1:9,alpn", facts: tlsFacts, wantErr: `option "alpn" requires a value`},
 	{name: "alpn=1", signature: "Go extension alpn= (value required)", spec: "OPENSSL:127.0.0.1:9,alpn=1", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.ALPN }, "1")},
 	{name: "path", signature: "path=<string>", spec: "WS:example.test:443,path", facts: wsFacts, wantErr: `option "path" requires a value`},
 	{name: "path=", signature: "path=<string> (empty keeps the positional path)", spec: "WS:127.0.0.1:8080/service,path=", facts: wsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.WSPath }, "/service")},
 	{name: "path=1", signature: "path=<string>", spec: "WS:example.test:443,path=1", facts: wsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.WSPath }, "/1")},
 	{name: "origin", signature: "Go extension origin (value required)", spec: "WS:example.test:443,origin", facts: wsFacts, wantErr: `option "origin" requires a value`},
+	{name: "origin=", signature: "Go extension origin (empty is a value)", spec: "WS:example.test:443,origin=", facts: wsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.WSOrigin }, "")},
 	{name: "protocol", signature: "Go extension WebSocket protocol (value required)", spec: "WS:example.test:443,protocol", facts: wsFacts, wantErr: `option "protocol" requires a value`},
+	{name: "protocol=", signature: "Go extension WebSocket protocol (empty is a value)", spec: "WS:example.test:443,protocol=", facts: wsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.WSProtocol }, "")},
 	{name: "unix-bind-tempname", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX]", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname", facts: unixFacts, check: wantOmitted(func(a Address) OptionalString { return a.Network.UnixBindTempname })},
 	{name: "unix-bind-tempname=", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX] (empty follows classic)", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname=", facts: unixFacts, check: wantText(func(a Address) OptionalString { return a.Network.UnixBindTempname }, "")},
 	{name: "unix-bind-tempname=1", signature: "unix-bind-tempname[=/tmp/pre-XXXXXX]", spec: "UNIX-CONNECT:/tmp/x,unix-bind-tempname=1", facts: unixFacts, check: wantText(func(a Address) OptionalString { return a.Network.UnixBindTempname }, "1")},
