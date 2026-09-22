@@ -63,7 +63,7 @@ func TestEscapedTrailingSpace(t *testing.T) {
 	if got := optionValue(spec, "bind", ""); got != "a " {
 		t.Fatalf("bind %#q", got)
 	}
-	if !boolOption(spec, "fork") {
+	if !hasOption(spec, "fork") {
 		t.Fatal("missing fork")
 	}
 
