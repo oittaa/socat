@@ -289,6 +289,9 @@ address and option spellings are audited automatically. The
 - `end-close[=<bool>]`, the `close` alias, and `shut-none`, `shut-down`,
   `shut-close`, and `shut-null` accept those boolean forms. Classic C rejects
   explicit `=0` and `=1` despite the man page.
+- `shut-close` on a terminal restores saved settings before that half-close
+  closes the descriptor. Classic closes the descriptor and leaves the
+  terminal changed.
 - Lock files and unlink-on-close paths are removed only if they still refer to
   the object created by this process.
 - Boolean unlink options honor `=0`; they do not delete merely because the

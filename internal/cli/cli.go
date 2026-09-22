@@ -737,8 +737,10 @@ func ipVersionFromFlags(cfg *Config) xio.IPVersion {
 // fit (capacity 1 dropped that burst).
 const exitSignalChanSize = 64
 
-// installSignalHandling: exit signals cancel the context, unlink registered
-// FS entries and exit 128+signum, and SIGUSR1 prints live transfer statistics.
+// installSignalHandling: exit signals unlink registered paths, run exit
+// hooks, cancel the context, and exit 128+signum. SIGUSR1 prints live
+// transfer statistics. Hooks run before cancel so a terminal restore still
+// sees the descriptor the relay is about to close.
 // The returned stop releases both signal channels.
 func installSignalHandling(ctx context.Context, cancel context.CancelFunc, log *logx.Logger, signalLogMask uint64, signalExit func(int)) func() {
 	sigCh := make(chan os.Signal, exitSignalChanSize)
@@ -773,8 +775,8 @@ func startSignalHandlers(ctx context.Context, cancel context.CancelFunc, log *lo
 				if pass(sig) {
 					continue
 				}
-				cancel()
 				xio.UnlinkRegisteredPaths()
+				cancel()
 				if ss, ok := sig.(syscall.Signal); ok && ss > 0 {
 					if int(ss) < 64 && signalLogMask&(uint64(1)<<uint(ss)) != 0 && log != nil {
 						// Log ordinary termination below Error so children-shutup

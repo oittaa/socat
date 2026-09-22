@@ -15,8 +15,9 @@ import (
 )
 
 // FileStream wraps *os.File with proper half-close via shutdown(2) when possible.
-// Regular files: ShutdownWrite is a no-op (closing would break shared FILE,o-append
-// under fork,max-children). Pipes/FIFOs: Close to deliver EOF to the peer.
+// Regular files and terminals stay open: closing a shared append file would
+// break fork,max-children, and a terminal stays open until Close. Pipes and
+// FIFOs are closed so the peer sees EOF.
 func FileStream(f *os.File) relay.Stream {
 	return relay.FDStream{
 		R: f,
@@ -27,9 +28,12 @@ func FileStream(f *os.File) relay.Stream {
 			if err == nil {
 				return nil
 			}
-			// ENOTSOCK: do not close regular files (shared multi-child append).
-			if st, e := f.Stat(); e == nil && st.Mode().IsRegular() {
-				return nil
+			st, e := f.Stat()
+			if e == nil {
+				mode := st.Mode()
+				if mode.IsRegular() || mode&os.ModeCharDevice != 0 {
+					return nil
+				}
 			}
 			// Pipes/FIFOs: close the FD so the peer sees EOF.
 			return f.Close()
@@ -579,6 +583,7 @@ func (e endCloseStream) ShutdownWrite() error       { return nil }
 func (e endCloseStream) Close() error               { return nil }
 func (e endCloseStream) IsEndClose() bool           { return true }
 func (e endCloseStream) UnwrapStream() relay.Stream { return e.Stream }
+func (endCloseStream) closesOnHalfClose() bool      { return false }
 
 // StreamIsEndClose reports whether s (or a wrapper) is end-close.
 func StreamIsEndClose(s relay.Stream) bool {

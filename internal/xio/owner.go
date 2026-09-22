@@ -56,8 +56,13 @@ var (
 	unlinkMu     sync.Mutex
 	unlinkNextID uint64
 	unlinkPaths  = make(map[uint64]unlinkEntry)
-	exitHooks    = make(map[uint64]func())
+	exitHooks    []exitHook
 )
+
+type exitHook struct {
+	id uint64
+	fn func()
+}
 
 type unlinkEntry struct {
 	path string
@@ -107,7 +112,8 @@ func RegisterUnlinkPathIdentity(path string, info os.FileInfo) func() {
 }
 
 // RegisterExitHook runs f on process signal exit (same path as UnlinkRegisteredPaths).
-// Used for POSIX MQ unlink-close; mq names are not filesystem paths.
+// Hooks run in reverse registration order. POSIX MQ names are not filesystem
+// paths, so they use this instead of RegisterUnlinkPath.
 func RegisterExitHook(f func()) func() {
 	if f == nil {
 		return func() {}
@@ -115,19 +121,29 @@ func RegisterExitHook(f func()) func() {
 	unlinkMu.Lock()
 	unlinkNextID++
 	id := unlinkNextID
-	exitHooks[id] = f
+	exitHooks = append(exitHooks, exitHook{id: id, fn: f})
 	unlinkMu.Unlock()
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			unlinkMu.Lock()
-			delete(exitHooks, id)
+			exitHooks = removeExitHook(exitHooks, id)
 			unlinkMu.Unlock()
 		})
 	}
 }
 
-// UnlinkRegisteredPaths removes all paths registered with RegisterUnlinkPath.
+func removeExitHook(hooks []exitHook, id uint64) []exitHook {
+	for i, hook := range hooks {
+		if hook.id == id {
+			return append(hooks[:i], hooks[i+1:]...)
+		}
+	}
+	return hooks
+}
+
+// UnlinkRegisteredPaths removes all paths registered with RegisterUnlinkPath
+// and runs exit hooks in reverse registration order.
 // Safe to call multiple times; best-effort (ignore errors).
 func UnlinkRegisteredPaths() {
 	unlinkMu.Lock()
@@ -135,18 +151,15 @@ func UnlinkRegisteredPaths() {
 	for _, entry := range unlinkPaths {
 		paths = append(paths, entry)
 	}
-	hooks := make([]func(), 0, len(exitHooks))
-	for _, hook := range exitHooks {
-		hooks = append(hooks, hook)
-	}
+	hooks := append([]exitHook(nil), exitHooks...)
 	unlinkPaths = make(map[uint64]unlinkEntry)
-	exitHooks = make(map[uint64]func())
+	exitHooks = nil
 	unlinkMu.Unlock()
 	for _, entry := range paths {
 		UnlinkIfSameFile(entry.path, entry.info)
 	}
-	for _, h := range hooks {
-		h()
+	for i := len(hooks) - 1; i >= 0; i-- {
+		hooks[i].fn()
 	}
 }
 
