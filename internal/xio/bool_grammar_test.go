@@ -241,6 +241,25 @@ func TestIntegerFlagGrammar(t *testing.T) {
 		}
 	}
 	for _, spec := range []string{
+		"TCP:127.0.0.1:9,so-rcvlowat=no",
+		"TCP:127.0.0.1:9,so-sndlowat=no",
+		"TCP:127.0.0.1:9,so-priority=yes",
+		"TCP:127.0.0.1:9,tcp-syncnt=yes",
+		"TCP:127.0.0.1:9,tcp-linger2=no",
+		"TCP:127.0.0.1:9,tcp-maxseg=yes",
+		"TCP:127.0.0.1:9,tcp-maxseg-late=no",
+		"TCP:127.0.0.1:9,tcp-window-clamp=yes",
+		"TCP:127.0.0.1:9,tcp-defer-accept=no",
+		"UDP4:127.0.0.1:9,ip-multicast-ttl=yes",
+		"SCTP4:127.0.0.1:9,sctp-maxseg=yes",
+		"SCTP4:127.0.0.1:9,sctp-nodelay=no",
+	} {
+		err := prepareBool(t, spec)
+		if err == nil || !strings.Contains(err.Error(), "invalid value") {
+			t.Errorf("%s: %v", spec, err)
+		}
+	}
+	for _, spec := range []string{
 		"UDP4:127.0.0.1:9,ip-multicast-loop=00",
 		"UDP4:127.0.0.1:9,ip-multicast-loop=0x1",
 		"UDP6:[::1]:9,mcloop6=2",

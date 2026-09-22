@@ -276,11 +276,17 @@ address and option spellings are audited automatically. The
   `ip-transparent`, use the same forms. An empty `reuseaddr=` remains the
   documented form that skips the setsockopt call.
 - Where the man page shows no value and the value is an integer flag, a C
-  integer is accepted and any nonzero value means on. That includes
-  `keepalive`, `reuseport`, `nodelay`, `so-debug`, `so-dontroute`,
-  `so-oobinline`, `broadcast`, `tcp-cork`, and `ip-freebind`. Those options,
-  and numeric socket options such as `ip-ttl`, also accept `yes`, `no`,
+  integer is accepted and any nonzero value means on. `keepalive`,
+  `reuseport`, `nodelay`, `so-debug`, `so-dontroute`, `so-oobinline`,
+  `broadcast`, `tcp-cork`, and `ip-freebind` also accept `yes`, `no`,
   `true`, and `false`.
+- Those four words are also accepted by the ancillary integer options
+  `so-timestamp`, `ip-pktinfo`, `ip-recvttl`, `ip-recvtos`, `ip-recvopts`,
+  `ip-recverr`, `ip-retopts`, `ip-recvdstaddr`, `ip-recvif`, `ip-ttl`,
+  `ip-tos`, `ip-hdrincl`, `ipv6-recvpktinfo`, `ipv6-recvhoplimit`,
+  `ipv6-recvtclass`, `ipv6-recvdstopts`, `ipv6-recvhopopts`,
+  `ipv6-recvrthdr`, `ipv6-recvpathmtu`, `ipv6-unicast-hops`, `ipv6-tclass`,
+  and `ipv6-recverr`.
 - `end-close[=<bool>]`, the `close` alias, and `shut-none`, `shut-down`,
   `shut-close`, and `shut-null` accept those boolean forms. Classic C rejects
   explicit `=0` and `=1` despite the man page.

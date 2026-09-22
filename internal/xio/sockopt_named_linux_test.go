@@ -99,7 +99,7 @@ func TestApplySocketOptionsRejectsInvalidRcvlowatLinux(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	for _, specText := range []string{
-		"TCP:127.0.0.1:9,so-rcvlowat=bogus",
+		"TCP:127.0.0.1:9,so-rcvlowat=no",
 		"TCP:127.0.0.1:9,rcvlowat=",
 	} {
 		spec, err := parse.ParseSpec(specText)
@@ -195,7 +195,7 @@ func TestApplySocketOptionsRejectsInvalidPriorityLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
-	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=bogus")
+	spec, err := parse.ParseSpec("TCP:127.0.0.1:9,so-priority=no")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -204,7 +204,7 @@ func TestApplySocketOptionsRejectsInvalidPriorityLinux(t *testing.T) {
 		err = ApplySocketOptions(fd, config)
 	}
 	if err == nil {
-		t.Fatal("so-priority=bogus must fail")
+		t.Fatal("so-priority=no must fail")
 	}
 }
 
