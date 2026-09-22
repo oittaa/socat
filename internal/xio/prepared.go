@@ -68,12 +68,15 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 			Family: desc.Family,
 		}
 	}
-	// Unknown option, then a bad option value, then the parameter count.
-	// Option values are decoded once; positional parameters are applied after
-	// the count check and before any opener can create a file or socket.
+	// Unknown option, then a bad option value, then an option that does not
+	// apply, then the parameter count. Option values are decoded once.
+	// Positional parameters are applied after the count check.
 	decoded, err := addrconfig.DecodeOptions(spec, facts, options.definitions)
 	if err != nil {
 		return PreparedAddress{}, err
+	}
+	if options.scopeError != nil {
+		return PreparedAddress{}, options.scopeError
 	}
 	if registered {
 		if err := validateAddressParams(spec, desc); err != nil {
@@ -86,9 +89,6 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	}
 	if err := rejectPreparedStaticChecks(config); err != nil {
 		return PreparedAddress{}, err
-	}
-	if options.scopeError != nil {
-		return PreparedAddress{}, options.scopeError
 	}
 	if err := RejectUnsupportedRemainingIPv4(config); err != nil {
 		return PreparedAddress{}, err

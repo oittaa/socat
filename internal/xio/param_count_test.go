@@ -116,6 +116,15 @@ func TestParameterCountBeforeOptionValues(t *testing.T) {
 		t.Fatalf("err=%v want invalid retry before parameter count", err)
 	}
 
+	spec, err = parse.ParseSpec("TCP:127.0.0.1:1:x,tun-type=tap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.PrepareSpec(spec)
+	if err == nil || !strings.Contains(err.Error(), `option "tun-type" not supported with this address type`) || strings.Contains(err.Error(), "wrong number of parameters") {
+		t.Fatalf("err=%v want tun-type unsupported before parameter count", err)
+	}
+
 	spec, err = parse.ParseSpec("TCP:127.0.0.1:1:extra")
 	if err != nil {
 		t.Fatal(err)
