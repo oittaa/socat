@@ -99,18 +99,36 @@ func assertSignalRestoresTerminal(t *testing.T, sig syscall.Signal) {
 	}
 	// A marker that comes back has been copied by the transfer loop, so both
 	// stdio descriptors are open and their restore hooks are registered.
+	// PTY masters do not support SetReadDeadline, so bound the read with
+	// context cancellation instead.
 	if _, err := master.Write([]byte("m")); err != nil {
 		t.Fatal(err)
 	}
-	if err := master.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		t.Fatal(err)
+	type markerResult struct {
+		b   byte
+		err error
 	}
-	var marker [1]byte
-	if _, err := master.Read(marker[:]); err != nil {
-		t.Fatalf("marker: %v stderr=%s", err, readTestFile(t, stderr.Name()))
+	markerCh := make(chan markerResult, 1)
+	go func() {
+		var buf [1]byte
+		_, err := master.Read(buf[:])
+		markerCh <- markerResult{buf[0], err}
+	}()
+	markerCtx, markerCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer markerCancel()
+	var marker markerResult
+	select {
+	case marker = <-markerCh:
+	case <-done:
+		t.Fatalf("socat exited before marker: %v stderr=%s", waitErr, readTestFile(t, stderr.Name()))
+	case <-markerCtx.Done():
+		t.Fatalf("marker: %v stderr=%s", markerCtx.Err(), readTestFile(t, stderr.Name()))
 	}
-	if marker[0] != 'm' {
-		t.Fatalf("marker=%q stderr=%s", marker[0], readTestFile(t, stderr.Name()))
+	if marker.err != nil {
+		t.Fatalf("marker: %v stderr=%s", marker.err, readTestFile(t, stderr.Name()))
+	}
+	if marker.b != 'm' {
+		t.Fatalf("marker=%q stderr=%s", marker.b, readTestFile(t, stderr.Name()))
 	}
 	if err := cmd.Process.Signal(sig); err != nil {
 		t.Fatal(err)
