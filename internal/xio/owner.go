@@ -10,6 +10,59 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
+// resolvePreparedOwners looks up user and group names before any address is
+// opened. Numeric ids, including a leading-digit strtoul value, are kept.
+func resolvePreparedOwners(config *addrconfig.Address) error {
+	for i := range config.File.Actions {
+		action := &config.File.Actions[i]
+		var user bool
+		switch action.Kind {
+		case addrconfig.FileActionUser, addrconfig.FileActionUserEarly, addrconfig.FileActionUserLate:
+			user = true
+		case addrconfig.FileActionGroup, addrconfig.FileActionGroupEarly, addrconfig.FileActionGroupLate:
+			user = false
+		default:
+			continue
+		}
+		resolved, err := resolveOwnerName(action.Owner, user)
+		if err != nil {
+			return err
+		}
+		action.Owner = resolved
+	}
+	return nil
+}
+
+func resolveOwnerName(owner addrconfig.OwnerRef, isUser bool) (addrconfig.OwnerRef, error) {
+	if owner.Numeric || owner.Name == "" {
+		return owner, nil
+	}
+	if isUser {
+		account, err := user.Lookup(owner.Name)
+		if err != nil {
+			return addrconfig.OwnerRef{}, fmt.Errorf("user %q: no such user", owner.Name)
+		}
+		n, err := strconv.Atoi(account.Uid)
+		if err != nil {
+			return addrconfig.OwnerRef{}, fmt.Errorf("user %q: no such user", owner.Name)
+		}
+		owner.ID = n
+		owner.Numeric = true
+		return owner, nil
+	}
+	account, err := user.LookupGroup(owner.Name)
+	if err != nil {
+		return addrconfig.OwnerRef{}, fmt.Errorf("group %q: no such group", owner.Name)
+	}
+	n, err := strconv.Atoi(account.Gid)
+	if err != nil {
+		return addrconfig.OwnerRef{}, fmt.Errorf("group %q: no such group", owner.Name)
+	}
+	owner.ID = n
+	owner.Numeric = true
+	return owner, nil
+}
+
 // resolveUID uses a prepared user= / user-early= / user-late= reference.
 // Numeric IDs are used as-is; only names hit the account database.
 func resolveUID(owner addrconfig.OwnerRef) (int, bool, error) {

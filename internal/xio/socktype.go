@@ -20,7 +20,7 @@ func ConfiguredSocketType(config addrconfig.Address, addressType string, def int
 	}
 	n := config.Network.SocketType.Value
 	switch n {
-	case syscall.SOCK_STREAM, syscall.SOCK_DGRAM:
+	case syscall.SOCK_STREAM, syscall.SOCK_DGRAM, syscall.SOCK_RAW:
 		return n, true, nil
 	case syscall.SOCK_SEQPACKET:
 		if !FeatureUNIXSeqpacket {

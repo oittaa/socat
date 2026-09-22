@@ -179,6 +179,17 @@ func TestApplyTermiosCatalogAliases(t *testing.T) {
 	}
 }
 
+func TestApplyUnknownTermiosNameErrors(t *testing.T) {
+	var tio unix.Termios
+	err := applyConfiguredTermiosAction(&tio, addrconfig.TerminalAction{
+		Kind: addrconfig.TerminalActionFlag,
+		Name: "not-a-termios-flag",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestApplyTermiosUsesCommandLineOrder(t *testing.T) {
 	fd := openPTYSlave(t)
 	for _, tc := range []struct {

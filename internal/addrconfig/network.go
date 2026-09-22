@@ -72,7 +72,25 @@ type HostTarget struct {
 
 func HostFromText(text string) HostTarget { return targetFromText(text) }
 
-func PortFromText(text string) PortTarget { return portTarget(text) }
+// PortFromText decodes a port token. An invalid numeric token is returned as
+// a non-numeric service spelling so callers that only need a typed value can
+// still inspect it; address decoding uses ParsePort and reports the error.
+func PortFromText(text string) PortTarget {
+	p, err := ParsePort(text)
+	if err != nil {
+		return PortTarget{Service: text}
+	}
+	return p
+}
+
+// ParsePort decodes a port once. A leading digit is a C strtoul value and must
+// be an in-range uint16. Anything else is a service name, resolved later.
+func ParsePort(text string) (PortTarget, error) { return portTarget(text) }
+
+// PortNumber is a port already known as an integer. It does not parse text.
+func PortNumber(n uint16) PortTarget {
+	return PortTarget{Number: n, Numeric: true, Service: strconv.FormatUint(uint64(n), 10)}
+}
 
 func (t HostTarget) IsLiteral() bool { return t.Literal.IsValid() }
 
@@ -487,10 +505,14 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	default:
 		switch n.Role {
 		case AddressRoleConnect, AddressRoleSendTo, AddressRoleDatagram:
-			decodeHostPort(n, a.Params)
+			return decodeHostPort(n, a.Params)
 		case AddressRoleListen, AddressRoleReceive, AddressRoleReceiveFrom:
 			if len(a.Params) >= 1 && a.Params[0] != "" {
-				n.ListenPort = portTarget(a.Params[0])
+				port, err := portTarget(a.Params[0])
+				if err != nil {
+					return err
+				}
+				n.ListenPort = port
 				n.ListenSet = true
 			}
 		}
@@ -529,7 +551,11 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 			n.BindSet = true
 			return true, nil
 		}
-		n.Bind, n.BindPort, n.BindPortSet = parseBindValue(text, bindSplitsHostPort(n))
+		bind, bindPort, bindPortSet, err := parseBindValue(text, bindSplitsHostPort(n))
+		if err != nil {
+			return true, err
+		}
+		n.Bind, n.BindPort, n.BindPortSet = bind, bindPort, bindPortSet
 		n.BindSet = true
 		return true, nil
 	case "sourceport":
@@ -583,16 +609,11 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		if err != nil {
 			return true, err
 		}
-		pf, known, err := protocolFamily(text)
+		pf, family, err := protocolFamily(text)
 		if err != nil {
 			return true, err
 		}
-		if !known && (n.Kind == AddressKindSocket || n.Kind == AddressKindVSOCK) {
-			return true, fmt.Errorf("unknown protocol family %q", text)
-		}
-		if known {
-			n.ProtocolFamily, n.ProtocolSet, n.IPFamily = pf, true, ipFamilyOf(pf)
-		}
+		n.ProtocolFamily, n.ProtocolSet, n.IPFamily = pf, true, family
 		return true, nil
 	case "socktype", "so-protocol":
 		value, err := requiredSocketInt(o, name)
@@ -726,9 +747,13 @@ func decodeWebSocketPositional(d *decoder) error {
 		if len(a.Params) < 1 || a.Params[0] == "" {
 			return nil
 		}
-		port, path := splitPortPath(a.Params[0])
-		n.ListenPort = portTarget(port)
-		n.ListenSet = port != ""
+		portText, path := splitPortPath(a.Params[0])
+		port, err := portTarget(portText)
+		if err != nil {
+			return err
+		}
+		n.ListenPort = port
+		n.ListenSet = portText != ""
 		if path == "" && len(a.Params) > 1 {
 			path = "/" + strings.Join(a.Params[1:], "/")
 		}
@@ -737,8 +762,12 @@ func decodeWebSocketPositional(d *decoder) error {
 	}
 	if len(a.Params) >= 2 && a.Params[0] != "" && a.Params[1] != "" {
 		n.Target = targetFromText(a.Params[0])
-		port, path := splitPortPath(a.Params[1])
-		n.TargetPort = portTarget(port)
+		portText, path := splitPortPath(a.Params[1])
+		port, err := portTarget(portText)
+		if err != nil {
+			return err
+		}
+		n.TargetPort = port
 		n.TargetSet = true
 		if path == "" && len(a.Params) > 2 {
 			path = "/" + strings.Join(a.Params[2:], "/")
@@ -776,23 +805,32 @@ func normalizeWSPath(p string) string {
 	return p
 }
 
-func decodeHostPort(n *Network, params []string) {
+func decodeHostPort(n *Network, params []string) error {
 	if len(params) >= 2 && params[0] != "" && params[1] != "" {
+		port, err := portTarget(params[1])
+		if err != nil {
+			return err
+		}
 		n.Target = targetFromText(params[0])
-		n.TargetPort = portTarget(params[1])
+		n.TargetPort = port
 		n.TargetSet = true
-		return
+		return nil
 	}
 	if len(params) != 1 || params[0] == "" {
-		return
+		return nil
 	}
-	host, port, err := net.SplitHostPort(params[0])
-	if err != nil || host == "" || port == "" {
-		return
+	host, portText, err := net.SplitHostPort(params[0])
+	if err != nil || host == "" || portText == "" {
+		return nil
+	}
+	port, err := portTarget(portText)
+	if err != nil {
+		return err
 	}
 	n.Target = targetFromText(host)
-	n.TargetPort = portTarget(port)
+	n.TargetPort = port
 	n.TargetSet = true
+	return nil
 }
 
 func targetFromText(text string) HostTarget {
@@ -819,13 +857,17 @@ func bindSplitsHostPort(n *Network) bool {
 	}
 }
 
-func parseBindValue(text string, splitHostPort bool) (HostTarget, PortTarget, bool) {
+func parseBindValue(text string, splitHostPort bool) (HostTarget, PortTarget, bool, error) {
 	if splitHostPort {
 		if h, p, err := net.SplitHostPort(text); err == nil && !bindHostLooksLikePath(h) {
-			return targetFromText(h), portTarget(p), true
+			port, err := portTarget(p)
+			if err != nil {
+				return HostTarget{}, PortTarget{}, false, err
+			}
+			return targetFromText(h), port, true, nil
 		}
 	}
-	return targetFromText(text), PortTarget{}, false
+	return targetFromText(text), PortTarget{}, false, nil
 }
 
 func bindHostLooksLikePath(host string) bool {
@@ -837,15 +879,21 @@ func requiredPortTarget(o parse.Option) (PortTarget, error) {
 	if err != nil {
 		return PortTarget{}, err
 	}
-	return portTarget(text), nil
+	return portTarget(text)
 }
 
-func portTarget(text string) PortTarget {
-	p := PortTarget{Service: text}
-	if n, err := strconv.ParseUint(text, 10, 16); err == nil {
-		p.Number, p.Numeric = uint16(n), true
+func portTarget(text string) (PortTarget, error) {
+	if text == "" {
+		return PortTarget{}, nil
 	}
-	return p
+	n, numeric, err := parseDigitStrtoul(text, 16)
+	if err != nil {
+		return PortTarget{}, fmt.Errorf("invalid port %q", text)
+	}
+	if !numeric {
+		return PortTarget{Service: text}, nil
+	}
+	return PortTarget{Number: uint16(n), Service: text, Numeric: true}, nil // #nosec G115 -- parseDigitStrtoul bitSize 16 bounds the value
 }
 
 func stripBrackets(value string) string {
@@ -881,25 +929,26 @@ func requiredSocketInt(o parse.Option, name string) (int, error) {
 	return n, nil
 }
 
-func protocolFamily(value string) (int, bool, error) {
+func protocolFamily(value string) (int, IPFamily, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
-		return 0, false, nil
+		return 0, IPFamilyOther, fmt.Errorf("unknown protocol family %q", value)
 	}
 	if value[0] >= '0' && value[0] <= '9' {
-		n, err := socketIntText(value)
-		if err != nil {
-			return 0, false, fmt.Errorf("unknown protocol family %q", value)
+		n, _, err := parseDigitStrtoul(value, strconv.IntSize)
+		if err != nil || n > uint64(math.MaxInt) {
+			return 0, IPFamilyOther, fmt.Errorf("unknown protocol family %q", value)
 		}
-		return n, true, nil
+		pf := int(n)
+		return pf, ipFamilyOf(pf), nil
 	}
 	switch strings.ToLower(value) {
 	case "inet", "inet4", "ip4", "ipv4":
-		return socketFamilyIPv4, true, nil
+		return socketFamilyIPv4, IPFamilyIPv4, nil
 	case "inet6", "ip6", "ipv6":
-		return socketFamilyIPv6, true, nil
+		return socketFamilyIPv6, IPFamilyIPv6, nil
 	default:
-		return 0, false, nil
+		return 0, IPFamilyOther, fmt.Errorf("unknown protocol family %q", value)
 	}
 }
 
@@ -950,64 +999,15 @@ func decodeRawSocketCall(a *Address, spec parse.Spec) error {
 	return nil
 }
 
-func socketAddressData(a *Address, spec parse.Spec, paramIndex int) ([]byte, error) {
-	text := rawSocketAddress(a.Type, spec.Raw, paramIndex)
-	if text == "" && paramIndex < len(a.Params) {
-		text = strings.Join(a.Params[paramIndex:], ":")
+func socketAddressData(a *Address, _ parse.Spec, paramIndex int) ([]byte, error) {
+	if paramIndex >= len(a.Params) {
+		return nil, fmt.Errorf("%s requires address", a.Type)
 	}
+	text := strings.Join(a.Params[paramIndex:], ":")
 	if strings.Trim(text, ":") == "" {
 		return nil, fmt.Errorf("%s requires address", a.Type)
 	}
 	return ParseSocatData(text)
-}
-
-func rawSocketAddress(typ, raw string, paramIndex int) string {
-	up := strings.ToUpper(raw)
-	prefix := typ + ":"
-	if strings.HasPrefix(up, strings.ToUpper(prefix)) {
-		raw = raw[len(prefix):]
-	} else if i := strings.IndexByte(raw, ':'); i >= 0 {
-		raw = raw[i+1:]
-	}
-	raw = cutTopLevelComma(raw)
-	parts := splitColonNoUnquote(raw)
-	if paramIndex >= len(parts) {
-		return ""
-	}
-	return strings.Join(parts[paramIndex:], ":")
-}
-
-func cutTopLevelComma(value string) string {
-	scanner := parse.NewSpecScanner(value, false)
-	for {
-		c, class, ok := scanner.Step()
-		if !ok {
-			return value
-		}
-		if class == parse.ClassTop && c == ',' {
-			return value[:scanner.Pos()-1]
-		}
-	}
-}
-
-func splitColonNoUnquote(value string) []string {
-	if value == "" {
-		return nil
-	}
-	var values []string
-	start := 0
-	scanner := parse.NewSpecScanner(value, false)
-	for {
-		c, class, ok := scanner.Step()
-		if !ok {
-			break
-		}
-		if class == parse.ClassTop && c == ':' {
-			values = append(values, value[start:scanner.Pos()-1])
-			start = scanner.Pos()
-		}
-	}
-	return append(values, value[start:])
 }
 
 // ParseSocatData parses SOCKET address data.

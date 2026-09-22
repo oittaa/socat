@@ -94,7 +94,7 @@ func TestRecvTimeoutFromSpecRejectsJunk(t *testing.T) {
 }
 
 func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
-	s, err := parse.ParseSpec("TCP6-LISTEN:9,bind=[::1],sourceport=080,pf=ip6,ipv6-v6only=0")
+	s, err := parse.ParseSpec("TCP6-LISTEN:9,bind=[::1],sourceport=0x50,pf=ip6,ipv6-v6only=0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 	if got := BindHost(config); got.Original() != "[::1]" {
 		t.Fatalf("bind=%q", got.Original())
 	}
-	if got := SourcePortText(config); got != "080" {
+	if got := SourcePortText(config); got != "0x50" {
 		t.Fatalf("sourceport=%q", got)
 	}
 	if got := ProtocolFamilyText(config); got != "ip6" {

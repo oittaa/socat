@@ -99,7 +99,7 @@ func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind(%s:%d)", bind.Original(), port)
 		}
-		laddr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortFromText(fmt.Sprintf("%d", port)))
+		laddr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortNumber(uint16(port))) // #nosec G115 -- lowport range is 640..1023
 		if err != nil {
 			return err
 		}

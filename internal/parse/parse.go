@@ -67,7 +67,7 @@ func ParseSpec(s string) (Spec, error) {
 	}
 	// Path-like without type keyword before first : or ,
 	if looksLikePath(s) {
-		params, opts, err := splitParamsAndOptions(s, true)
+		params, opts, err := splitParamsAndOptions(s, true, -1)
 		if err != nil {
 			return Spec{}, err
 		}
@@ -88,7 +88,7 @@ func ParseSpec(s string) (Spec, error) {
 		return Spec{}, fmt.Errorf("missing address type in %q", s)
 	}
 
-	params, opts, err := splitParamsAndOptions(rest, pathParamType(typeName))
+	params, opts, err := splitParamsAndOptions(rest, pathParamType(typeName), socketDataIndex(typeName))
 	if err != nil {
 		return Spec{}, err
 	}
@@ -133,7 +133,7 @@ func splitType(s string) (typeName, rest string, hadColon bool) {
 
 // splitParamsAndOptions splits "p1:p2,opt,opt=val" into params and options.
 // If s starts with ',', there are no params.
-func splitParamsAndOptions(s string, pathParam bool) (params []string, opts []Option, err error) {
+func splitParamsAndOptions(s string, pathParam bool, dataIndex int) (params []string, opts []Option, err error) {
 	if s == "" {
 		return nil, nil, nil
 	}
@@ -151,7 +151,7 @@ func splitParamsAndOptions(s string, pathParam bool) (params []string, opts []Op
 	}
 
 	if paramPart != "" {
-		params, err = splitColonParams(paramPart, pathParam)
+		params, err = splitColonParams(paramPart, pathParam, dataIndex)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -173,7 +173,7 @@ func findOptionsStart(s string) int {
 	return indexTopLevel(s, ',')
 }
 
-func splitColonParams(s string, pathParam bool) ([]string, error) {
+func splitColonParams(s string, pathParam bool, dataIndex int) ([]string, error) {
 	if s == "" {
 		return nil, nil
 	}
@@ -187,9 +187,12 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 		}
 		return []string{part}, nil
 	}
+	// SOCKET address data keeps its quotes and escapes. Domain, type, and
+	// protocol are ordinary parameters.
 	var parts []string
 	start := 0
-	sc := NewSpecScanner(s, true)
+	index := 0
+	sc := NewSpecScanner(s, dataIndex < 0)
 	for {
 		c, cls, ok := sc.Step()
 		if !ok {
@@ -199,20 +202,28 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 			if isWindowsDriveColon(s, start, sc.Pos()-1) {
 				continue
 			}
-			part, err := unquote(s[start:sc.Pos()-1], false)
+			part, err := colonParam(s[start:sc.Pos()-1], index >= dataIndex && dataIndex >= 0)
 			if err != nil {
 				return nil, err
 			}
 			parts = append(parts, part)
 			start = sc.Pos()
+			index++
 		}
 	}
-	part, err := unquote(s[start:], false)
+	part, err := colonParam(s[start:], index >= dataIndex && dataIndex >= 0)
 	if err != nil {
 		return nil, err
 	}
 	parts = append(parts, part)
 	return parts, nil
+}
+
+func colonParam(value string, preserveRaw bool) (string, error) {
+	if preserveRaw {
+		return value, nil
+	}
+	return unquote(value, false)
 }
 
 func splitOptions(s string) ([]Option, error) {

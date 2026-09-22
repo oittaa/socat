@@ -12,15 +12,11 @@ import (
 )
 
 func TestUnixSeqpacketRejectedWhenUnsupported(t *testing.T) {
-	_, _, err := unixSocketNetwork(mustAddr(t, parse.Spec{
-		Type:   "UNIX-CONNECT",
-		Params: []string{"peer.sock"},
-		Options: []parse.Option{{
-			Name:  "socktype",
-			Value: strconv.Itoa(syscall.SOCK_SEQPACKET),
-			Has:   true,
-		}},
-	}))
+	spec, err := parse.ParseSpec("UNIX-CONNECT:/tmp/unused,so-type=" + strconv.Itoa(syscall.SOCK_SEQPACKET))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = tryAddr(spec)
 	if err == nil || !strings.Contains(err.Error(), "not supported on this platform") {
 		t.Fatalf("error=%v want unsupported SOCK_SEQPACKET error", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"strings"
 
@@ -369,9 +370,9 @@ func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (Mu
 		}
 		request.ThreeField = true
 		request.InterfaceAddr = targetFromText(parts[1])
-		request.InterfaceName, request.InterfaceID, request.InterfaceIsID = multicastInterface(parts[2])
+		setInterfaceToken(&request, parts[2])
 	} else {
-		request.InterfaceName, request.InterfaceID, request.InterfaceIsID = multicastInterface(parts[1])
+		setInterfaceToken(&request, parts[1])
 	}
 	if request.InterfaceName == "" && !request.InterfaceIsID && !request.InterfaceAddr.IsLiteral() && request.InterfaceAddr.Name == "" {
 		return request, fmt.Errorf("%s: expected mcast:iface, got %q", name, value)
@@ -392,13 +393,34 @@ func decodeSourceMulticastRequest(o parse.Option, name string) (MulticastRequest
 	if err != nil || len(parts) != 3 {
 		return MulticastRequest{}, fmt.Errorf("%s: expected group:iface:source, got %q", name, value)
 	}
-	return MulticastRequest{
-		Kind:          kind,
-		Name:          name,
-		Group:         targetFromText(parts[0]),
-		InterfaceAddr: targetFromText(parts[1]),
-		Source:        targetFromText(parts[2]),
-	}, nil
+	request := MulticastRequest{
+		Kind:   kind,
+		Name:   name,
+		Group:  targetFromText(parts[0]),
+		Source: targetFromText(parts[2]),
+	}
+	if kind == MulticastSourceIPv6 {
+		setInterfaceToken(&request, parts[1])
+	} else {
+		request.InterfaceAddr = targetFromText(parts[1])
+	}
+	return request, nil
+}
+
+// setInterfaceToken classifies an interface token once: a C integer is an
+// index, an IPv4 literal is an address, and anything else is a name.
+func setInterfaceToken(request *MulticastRequest, token string) {
+	name, id, isID := multicastInterface(token)
+	if isID {
+		request.InterfaceID = id
+		request.InterfaceIsID = true
+		return
+	}
+	if ip, err := netip.ParseAddr(stripBrackets(name)); err == nil && ip.Is4() {
+		request.InterfaceAddr = HostTarget{Literal: ip, Name: name}
+		return
+	}
+	request.InterfaceName = name
 }
 
 func splitMulticastFields(value string) ([]string, error) {

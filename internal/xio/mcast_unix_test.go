@@ -42,7 +42,7 @@ func TestDecodeMcastSpecBracketIPv6(t *testing.T) {
 
 func TestDecodeMcastSpecIPv4Address(t *testing.T) {
 	req := decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.1.2.3:127.0.0.1")
-	if req.Group.String() != "224.1.2.3" || req.InterfaceName != "127.0.0.1" || req.ThreeField {
+	if req.Group.String() != "224.1.2.3" || req.InterfaceAddr.String() != "127.0.0.1" || req.InterfaceName != "" || req.ThreeField {
 		t.Fatalf("parsed=%+v", req)
 	}
 }
@@ -67,7 +67,7 @@ func TestDecodeMcastSpecStoresClassicAddressNames(t *testing.T) {
 	if _, err := net.InterfaceByName("localhost"); err == nil {
 		t.Skip("host has an interface literally named localhost")
 	}
-	addr, err := resolveMcastIPv4Address(addrconfig.HostFromText(req.InterfaceName))
+	addr, _, _, err := resolveJoinInterface(req, "ip-add-membership")
 	if err != nil || !addr.Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("localhost=%v err=%v", addr, err)
 	}

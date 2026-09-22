@@ -3,7 +3,6 @@
 package fileopen
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -12,10 +11,11 @@ import (
 )
 
 func TestSocketpairRejectsInvalidSocktype(t *testing.T) {
-	_, err := openSocketpair(context.Background(), mustAddr(t, parse.Spec{
-		Type:    "SOCKETPAIR",
-		Options: []parse.Option{{Name: "socktype", Value: "99", Has: true}},
-	}), xio.ModeRDWR, nil)
+	spec, err := parse.ParseSpec("SOCKETPAIR,so-type=99")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.PrepareSpec(spec)
 	if err == nil || !strings.Contains(err.Error(), "unsupported") {
 		t.Fatalf("error=%v", err)
 	}

@@ -30,7 +30,7 @@ func TestPrepareSpecRetainsDecodedFDAndHostPort(t *testing.T) {
 		t.Fatalf("FD=%+v", fd.Config.File)
 	}
 
-	tcp, err := xio.PrepareSpec(mustParseSpec(t, "TCP4:127.0.0.1:080"))
+	tcp, err := xio.PrepareSpec(mustParseSpec(t, "TCP4:127.0.0.1:0x50"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestPrepareSpecDecodesRangeAndResNSAddr(t *testing.T) {
 }
 
 func TestPrepareSpecRetainsPROXYEndpoints(t *testing.T) {
-	prepared, err := xio.PrepareSpec(mustParseSpec(t, "PROXY:proxy.test:target.test:443,proxyport=080"))
+	prepared, err := xio.PrepareSpec(mustParseSpec(t, "PROXY:proxy.test:target.test:443,proxyport=0x50"))
 	if err != nil {
 		t.Fatal(err)
 	}

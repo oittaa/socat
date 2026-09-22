@@ -288,7 +288,7 @@ func ClientLocalPort(config addrconfig.Address) addrconfig.PortTarget {
 	if p, ok := config.Network.LocalPort(); ok {
 		return p
 	}
-	return addrconfig.PortFromText("0")
+	return addrconfig.PortNumber(0)
 }
 
 // ClientUsesLowport is true when outgoing bind should walk 640–1023.

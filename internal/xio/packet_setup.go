@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-	"strconv"
 
 	"github.com/oittaa/socat/internal/logx"
 )
@@ -49,7 +48,7 @@ func ListenClientPacket(ctx context.Context, network string, host addrconfig.Hos
 	}
 	if !ClientUsesLowport(s) || (!port.Empty() && !port.IsZero()) {
 		if port.Empty() {
-			port = addrconfig.PortFromText("0")
+			port = addrconfig.PortNumber(0)
 		}
 		return bind(port)
 	}
@@ -59,7 +58,7 @@ func ListenClientPacket(ctx context.Context, network string, host addrconfig.Hos
 			g.Log.Debugf("bind(%s:%d)", host.Original(), p)
 		}
 		var err error
-		pc, err = bind(addrconfig.PortFromText(strconv.Itoa(p)))
+		pc, err = bind(addrconfig.PortNumber(uint16(p))) // #nosec G115 -- lowport range is 640..1023
 		return err
 	})
 	if err != nil {

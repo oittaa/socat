@@ -482,11 +482,11 @@ func TestDecodeListenBindDoesNotSplitHostPort(t *testing.T) {
 }
 
 func TestDecodeBindPFAndSourcePort(t *testing.T) {
-	got := decodeSpec(t, "TCP:host:9,bind=[::1],sourceport=080,pf=ip4,ipv6-v6only=0")
+	got := decodeSpec(t, "TCP:host:9,bind=[::1],sourceport=0x50,pf=ip4,ipv6-v6only=0")
 	if !got.Network.BindSet || got.Network.Bind.Name != "[::1]" || got.Network.Bind.String() != "::1" {
 		t.Fatalf("bind=%+v", got.Network.Bind)
 	}
-	if !got.Network.SourcePortSet || got.Network.SourcePort.Text() != "080" ||
+	if !got.Network.SourcePortSet || got.Network.SourcePort.Text() != "0x50" ||
 		!got.Network.SourcePort.Numeric || got.Network.SourcePort.Number != 80 {
 		t.Fatalf("typed sourceport=%+v", got.Network.SourcePort)
 	}

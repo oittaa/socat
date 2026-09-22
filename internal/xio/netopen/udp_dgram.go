@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-	"strconv"
 	"syscall"
 
 	"github.com/oittaa/socat/internal/xio"
@@ -63,7 +62,7 @@ func openUDPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mod
 		if bindErr != nil {
 			return nil, bindErr
 		}
-		p := addrconfig.PortFromText("0")
+		p := addrconfig.PortNumber(0)
 		if s.Network.BindPortSet {
 			p = s.Network.BindPort
 		} else if exactPeer && s.Network.SourcePortSet {
@@ -282,7 +281,7 @@ func bindUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 		if g != nil && g.Log != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind.Original(), port)
 		}
-		addr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortFromText(strconv.Itoa(port)))
+		addr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortNumber(uint16(port))) // #nosec G115 -- lowport range is 640..1023
 		if err != nil {
 			return err
 		}

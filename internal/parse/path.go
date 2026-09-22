@@ -61,6 +61,19 @@ func isWindowsDriveColon(s string, start, i int) bool {
 	return n == '\\' || n == '/'
 }
 
+// socketDataIndex is the SOCKET address-data parameter. Earlier fields are
+// domain, type, and protocol, and are unquoted. -1 means there is no raw field.
+func socketDataIndex(typeName string) int {
+	switch strings.ToUpper(strings.TrimSpace(typeName)) {
+	case "SOCKET-CONNECT", "SOCKET-LISTEN":
+		return 2
+	case "SOCKET-SENDTO", "SOCKET-DATAGRAM", "SOCKET-RECV", "SOCKET-RECVFROM":
+		return 3
+	default:
+		return -1
+	}
+}
+
 // pathParamType reports address types whose positional argument is one path.
 func pathParamType(typeName string) bool {
 	n := strings.ToUpper(typeName)

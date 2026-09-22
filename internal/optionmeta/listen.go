@@ -46,7 +46,7 @@ var listenOptions = []Option{
 		Advertise: AdvertiseLinuxDarwin, Scope: AddressScope{Caps: capListen, AddressTypes: backlogListenAddressTypes},
 	},
 	{Canonical: "pf", Aliases: []string{"protocol-family"},
-		Desc:  "address family (4, 6, IP4, IP6, …)",
+		Desc:  "protocol family number, or ip4/ipv4/inet/inet4, ip6/ipv6/inet6",
 		Scope: AddressScope{Caps: capSocket},
 	},
 	{Canonical: "ai-addrconfig", Aliases: []string{"addrconfig"},

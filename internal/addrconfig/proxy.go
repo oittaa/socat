@@ -75,7 +75,11 @@ func decodeProxyOption(a *Address, o parse.Option, name string) (bool, error) {
 		if err != nil {
 			return true, err
 		}
-		a.Proxy.SOCKSPort = portTarget(text)
+		port, err := portTarget(text)
+		if err != nil {
+			return true, err
+		}
+		a.Proxy.SOCKSPort = port
 		a.Proxy.SOCKSPortSet = true
 		return true, nil
 	case "socksuser":
@@ -121,9 +125,13 @@ func decodePROXYPositional(a *Address) error {
 	if server == "" || host == "" || port == "" {
 		return fmt.Errorf("%s requires proxy, host, and port", a.Type)
 	}
+	targetPort, err := portTarget(port)
+	if err != nil {
+		return err
+	}
 	a.Proxy.Server = targetFromText(server)
 	a.Proxy.Target = targetFromText(host)
-	a.Proxy.TargetPort = portTarget(port)
+	a.Proxy.TargetPort = targetPort
 	a.Proxy.EndpointsSet = true
 	return nil
 }
@@ -146,12 +154,20 @@ func decodeSOCKSPositional(d *decoder) error {
 	if server == "" || host == "" || port == "" {
 		return fmt.Errorf("%s requires socks-server, host, and port", a.Type)
 	}
+	targetPort, err := portTarget(port)
+	if err != nil {
+		return err
+	}
 	a.Proxy.Server = targetFromText(server)
 	a.Proxy.Target = targetFromText(host)
-	a.Proxy.TargetPort = portTarget(port)
+	a.Proxy.TargetPort = targetPort
 	a.Proxy.EndpointsSet = true
 	if socksPort != "" {
-		d.socksPositionalPort = portTarget(socksPort)
+		parsed, err := portTarget(socksPort)
+		if err != nil {
+			return err
+		}
+		d.socksPositionalPort = parsed
 		d.socksPositionalPortSet = true
 		// An earlier socksport= option already won. An empty option value is
 		// filled from this positional port in finishDecode.

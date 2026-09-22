@@ -257,7 +257,7 @@ func socksPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
 	if p.SOCKSPortSet && !p.SOCKSPort.Empty() {
 		return p.SOCKSPort
 	}
-	return addrconfig.PortFromText("1080")
+	return addrconfig.PortNumber(1080)
 }
 
 // socks5Credentials: if socksuser or sockspass is set, offer username/password

@@ -5,7 +5,6 @@ package xio
 import (
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/addrconfig"
@@ -55,36 +54,32 @@ func resolveMcastIPv4Address(target addrconfig.HostTarget) (net.IP, error) {
 	return addr.IP.To4(), nil
 }
 
-func resolveMcastInterfaceToken(target addrconfig.HostTarget, optionName string) (uint32, bool, error) {
-	if target.Empty() {
-		return 0, false, nil
+func preparedInterfaceIndex(req addrconfig.MulticastRequest, optionName string) (uint32, bool, error) {
+	if req.InterfaceIsID {
+		return req.InterfaceID, true, nil
 	}
-	if target.IsLiteral() {
+	if req.InterfaceName == "" {
 		return 0, false, fmt.Errorf("%s: expected interface name or index", optionName)
 	}
-	token := strings.TrimSpace(target.Name)
-	if token == "" {
-		return 0, false, nil
-	}
-	if idx, ok := parseClassicInterfaceIndex(token); ok {
-		return idx, true, nil
-	}
-	ifi, err := net.InterfaceByName(token)
+	ifi, err := net.InterfaceByName(req.InterfaceName)
 	if err != nil {
-		return 0, false, fmt.Errorf("%s: interface %q: %w", optionName, token, err)
+		return 0, false, fmt.Errorf("%s: interface %q: %w", optionName, req.InterfaceName, err)
 	}
 	idx, ok := Uint32FromInt(ifi.Index)
 	if !ok {
-		return 0, false, fmt.Errorf("%s: interface %q index %d is out of range", optionName, token, ifi.Index)
+		return 0, false, fmt.Errorf("%s: interface %q index %d is out of range", optionName, req.InterfaceName, ifi.Index)
 	}
 	return idx, true, nil
 }
 
 func resolveJoinInterface(req addrconfig.MulticastRequest, name string) (ifaceAddr net.IP, idx uint32, idxSet bool, err error) {
-	if req.ThreeField {
+	if req.ThreeField || (!req.InterfaceAddr.Empty() && req.InterfaceName == "" && !req.InterfaceIsID) {
 		ifaceAddr, err = resolveMcastIPv4Address(req.InterfaceAddr)
 		if err != nil {
 			return nil, 0, false, fmt.Errorf("%s: bad interface address %q", name, req.InterfaceAddr.Original())
+		}
+		if !req.ThreeField {
+			return ifaceAddr, 0, false, nil
 		}
 	}
 	if req.InterfaceIsID {
@@ -102,7 +97,7 @@ func resolveJoinInterface(req addrconfig.MulticastRequest, name string) (ifaceAd
 		return ifaceAddr, idx, true, nil
 	}
 	if req.Kind == addrconfig.MulticastJoinIPv4 && !req.ThreeField {
-		if addr, addrErr := resolveMcastIPv4Address(addrconfig.HostFromText(req.InterfaceName)); addrErr == nil {
+		if addr, addrErr := resolveMcastIPv4Address(addrconfig.HostTarget{Name: req.InterfaceName}); addrErr == nil {
 			return addr, 0, false, nil
 		}
 	}
@@ -179,30 +174,6 @@ func applyMulticastNamedFD(fd int, name string, req addrconfig.MulticastRequest)
 	default:
 		return fmt.Errorf("%s: internal error", name)
 	}
-}
-
-func parseClassicInterfaceIndex(s string) (uint32, bool) {
-	if s == "" {
-		return 0, false
-	}
-	// Reject Go-only 0b/0o prefixes and underscores; the token is a C-style
-	// base-0 integer (decimal, octal, or hex).
-	unsigned := s
-	if unsigned[0] == '+' || unsigned[0] == '-' {
-		unsigned = unsigned[1:]
-	}
-	if unsigned == "" || strings.ContainsRune(unsigned, '_') ||
-		strings.HasPrefix(unsigned, "0b") || strings.HasPrefix(unsigned, "0B") ||
-		strings.HasPrefix(unsigned, "0o") || strings.HasPrefix(unsigned, "0O") {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(s, 0, strconv.IntSize)
-	if err != nil {
-		return 0, false
-	}
-	// Assign the signed value to unsigned int, including negative values and
-	// high-bit indices; the kernel accepts or rejects the result.
-	return uint32(n), true // #nosec G115 -- signed-to-unsigned index conversion
 }
 
 func setIPv6MembershipFD(fd int, group net.IP, ifindex uint32) error {
@@ -291,7 +262,7 @@ func applyPreparedSourceMulticast(fd int, req addrconfig.MulticastRequest) error
 	if source.To4() != nil {
 		return fmt.Errorf("%s: IPv6 source membership requires an IPv6 source, got %s", name, source)
 	}
-	idx, idxSet, err := resolveMcastInterfaceToken(req.InterfaceAddr, name)
+	idx, idxSet, err := preparedInterfaceIndex(req, name)
 	if err != nil {
 		return err
 	}
