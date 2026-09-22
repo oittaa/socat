@@ -90,6 +90,7 @@ Ordinary `make check` must remain independent of repo.or.cz.
 
 ## Testing guidelines
 
+- A unit test supplies inputs, calls production code, and checks the result. It does not reimplement production. It is usually 10 to 20 lines and covers one behavior. A long reconstruction of the runner is not a unit test. Small helpers that only create and clean up real resources are fine. Splitting the same machinery across more functions is not.
 - Assert observable behavior or documented contracts (`doc/socat.yo`), not incidental presentation.
 - Do not freeze undocumented whitespace, tab counts, timestamp formats, or internal log phrasing.
 - Build constraints over runtime skips: use `//go:build linux || darwin` or OS-specific filenames (`*_linux_test.go`, `*_darwin_test.go`, `*_windows_test.go`). Never use `if runtime.GOOS == "windows" { t.Skip() }` in cross-platform test files.
