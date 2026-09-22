@@ -240,10 +240,11 @@ address and option spellings are audited automatically. The
   the shared-socket peer dispatcher instead. Windows rejects
   `UDP-LISTEN,fork,shut-down` because fork sessions share the listen socket.
 - Address parameters and option values expand `\0`, `\a`, `\b`, `\e`, `\f`,
-  `\n`, `\r`, `\t`, `\v`, and `\\`. `\e` is ESC. Classic's address lexer
-  leaves `\e` as the letter `e`. `\xHH` (exactly two hexadecimal digits) is
-  also accepted. A `\x` sequence without two hex digits, and a trailing
-  backslash, is rejected.
+  `\n`, `\r`, `\t`, `\v`, and `\\`, except native Windows path values, which
+  keep their backslashes. `\e` is ESC. Classic's address lexer leaves `\e`
+  as the letter `e`. `\xHH` (exactly two hexadecimal digits) is also
+  accepted. A `\x` sequence without two hex digits, and a trailing
+  backslash, are rejected.
 - Unknown options, malformed values, and unsupported combinations fail
   explicitly instead of becoming no-ops. Hidden OpenSSL options stay
   recognized on PROXY, SOCKS, and WebSocket addresses so TLS HTTP/2,

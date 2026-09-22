@@ -40,6 +40,42 @@ func TestAddressSlashEscapes(t *testing.T) {
 	}
 }
 
+func TestEscapedTrailingSpace(t *testing.T) {
+	spec, err := ParseSpec("TEXT:a\\ ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spec.Params) != 1 || spec.Params[0] != "a " {
+		t.Fatalf("params %#v", spec.Params)
+	}
+	ch, err := ParseChannel("TEXT:a\\ ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.Single == nil || len(ch.Single.Params) != 1 || ch.Single.Params[0] != "a " {
+		t.Fatalf("channel params %#v", ch.Single)
+	}
+
+	spec, err = ParseSpec("TCP:h:1,bind=a\\ ,fork")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := optionValue(spec, "bind", ""); got != "a " {
+		t.Fatalf("bind %#q", got)
+	}
+	if !boolOption(spec, "fork") {
+		t.Fatal("missing fork")
+	}
+
+	spec, err = ParseSpec("TEXT:a ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(spec.Params) != 1 || spec.Params[0] != "a" {
+		t.Fatalf("unescaped trailing space params %#v", spec.Params)
+	}
+}
+
 func TestOptionValueSlashEscape(t *testing.T) {
 	spec, err := ParseSpec(`TCP:h:1,bind=a\nb`)
 	if err != nil {

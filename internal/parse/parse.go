@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // ParseChannel parses one command-line address argument into a Channel.
 func ParseChannel(s string) (Channel, error) {
-	s = strings.TrimSpace(s)
+	s = trimUnescapedSpace(s)
 	if s == "" {
 		return Channel{}, fmt.Errorf("empty address")
 	}
@@ -40,7 +42,7 @@ func ParseChannel(s string) (Channel, error) {
 
 // ParseSpec parses a single (non-dual) address specification.
 func ParseSpec(s string) (Spec, error) {
-	s = strings.TrimSpace(s)
+	s = trimUnescapedSpace(s)
 	if s == "" {
 		return Spec{}, fmt.Errorf("empty address")
 	}
@@ -222,7 +224,7 @@ func splitOptions(s string) ([]Option, error) {
 			break
 		}
 		if cls == ClassTop && c == ',' {
-			part := strings.TrimSpace(s[start : sc.Pos()-1])
+			part := trimUnescapedSpace(s[start : sc.Pos()-1])
 			if part != "" {
 				opt, err := parseOption(part)
 				if err != nil {
@@ -233,7 +235,7 @@ func splitOptions(s string) ([]Option, error) {
 			start = sc.Pos()
 		}
 	}
-	part := strings.TrimSpace(s[start:])
+	part := trimUnescapedSpace(s[start:])
 	if part != "" {
 		opt, err := parseOption(part)
 		if err != nil {
@@ -274,7 +276,7 @@ func indexTopLevel(s string, sep byte) int {
 }
 
 func unquote(s string, pathValue bool) (string, error) {
-	s = strings.TrimSpace(s)
+	s = trimUnescapedSpace(s)
 	if len(s) >= 2 {
 		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
 			s = s[1 : len(s)-1]
@@ -360,7 +362,7 @@ func expandSlashEscapes(s string) (string, error) {
 		case 't':
 			b.WriteByte('\t')
 		case 'v':
-			// Vertical tab. The documented string conversions do not name \v.
+			// Vertical tab.
 			b.WriteByte('\v')
 		case '\\':
 			b.WriteByte('\\')
@@ -381,6 +383,39 @@ func expandSlashEscapes(s string) (string, error) {
 		}
 	}
 	return b.String(), nil
+}
+
+// trimUnescapedSpace drops leading and trailing whitespace, keeping a
+// trailing space that is escaped by a backslash.
+func trimUnescapedSpace(s string) string {
+	start := 0
+	for start < len(s) {
+		r, size := utf8.DecodeRuneInString(s[start:])
+		if !unicode.IsSpace(r) {
+			break
+		}
+		start += size
+	}
+	end := len(s)
+	for end > start {
+		r, size := utf8.DecodeLastRuneInString(s[:end])
+		if !unicode.IsSpace(r) || escapedByte(s, end-size) {
+			break
+		}
+		end -= size
+	}
+	if start == 0 && end == len(s) {
+		return s
+	}
+	return s[start:end]
+}
+
+func escapedByte(s string, i int) bool {
+	n := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		n++
+	}
+	return n%2 == 1
 }
 
 func isAllDigits(s string) bool {
