@@ -2,9 +2,9 @@
 package parse
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
-	"unicode"
 )
 
 // ParseChannel parses one command-line address argument into a Channel.
@@ -175,7 +175,11 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 	// it intact supports drive-relative paths (C:foo), alternate data streams,
 	// and ordinary colons in Unix filenames.
 	if pathParam {
-		return []string{unquote(s, true)}, nil
+		part, err := unquote(s, true)
+		if err != nil {
+			return nil, err
+		}
+		return []string{part}, nil
 	}
 	var parts []string
 	start := 0
@@ -189,11 +193,19 @@ func splitColonParams(s string, pathParam bool) ([]string, error) {
 			if isWindowsDriveColon(s, start, sc.Pos()-1) {
 				continue
 			}
-			parts = append(parts, unquote(s[start:sc.Pos()-1], false))
+			part, err := unquote(s[start:sc.Pos()-1], false)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, part)
 			start = sc.Pos()
 		}
 	}
-	parts = append(parts, unquote(s[start:], false))
+	part, err := unquote(s[start:], false)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, part)
 	return parts, nil
 }
 
@@ -212,19 +224,27 @@ func splitOptions(s string) ([]Option, error) {
 		if cls == ClassTop && c == ',' {
 			part := strings.TrimSpace(s[start : sc.Pos()-1])
 			if part != "" {
-				opts = append(opts, parseOption(part))
+				opt, err := parseOption(part)
+				if err != nil {
+					return nil, err
+				}
+				opts = append(opts, opt)
 			}
 			start = sc.Pos()
 		}
 	}
 	part := strings.TrimSpace(s[start:])
 	if part != "" {
-		opts = append(opts, parseOption(part))
+		opt, err := parseOption(part)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, opt)
 	}
 	return opts, nil
 }
 
-func parseOption(s string) Option {
+func parseOption(s string) (Option, error) {
 	// name=value; first = at top level
 	eq := indexTopLevel(s, '=')
 	var rawName, rawValue string
@@ -240,22 +260,26 @@ func parseOption(s string) Option {
 	name := normalizeOptionName(spelling)
 	o := Option{Name: name, Spelling: spelling, Has: has}
 	if has {
-		o.Value = unquote(rawValue, pathOption(name))
+		value, err := unquote(rawValue, pathOption(name))
+		if err != nil {
+			return Option{}, err
+		}
+		o.Value = value
 	}
-	return o
+	return o, nil
 }
 
 func indexTopLevel(s string, sep byte) int {
 	return NewSpecScanner(s, true).FindTop(sep)
 }
 
-func unquote(s string, pathValue bool) string {
+func unquote(s string, pathValue bool) (string, error) {
 	s = strings.TrimSpace(s)
 	if len(s) >= 2 {
 		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
 			s = s[1 : len(s)-1]
 			if pathValue && looksLikeWindowsPath(s) {
-				return s
+				return s, nil
 			}
 			return expandSlashEscapes(s)
 		}
@@ -267,10 +291,10 @@ func unquote(s string, pathValue bool) string {
 	}
 	// Native Windows paths keep backslashes; \t \0 \xHH would corrupt Temp\ and \001.
 	if pathValue && looksLikeWindowsPath(s) {
-		return s
+		return s, nil
 	}
 	if !strings.Contains(s, `\`) {
-		return s
+		return s, nil
 	}
 	return expandSlashEscapes(s)
 }
@@ -305,50 +329,66 @@ func checkBalancedQuotes(s string) error {
 	return nil
 }
 
-// expandSlashEscapes handles \n \r \t \0 \\ and \xHH sequences.
-func expandSlashEscapes(s string) string {
+// expandSlashEscapes resolves \0 \a \b \e \f \n \r \t \v \\ and \xHH.
+// \xHH is exactly two hex digits. A short or non-hex \x sequence is an error.
+func expandSlashEscapes(s string) (string, error) {
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] != '\\' || i+1 >= len(s) {
+		if s[i] != '\\' {
 			b.WriteByte(s[i])
 			continue
 		}
+		if i+1 >= len(s) {
+			return "", fmt.Errorf("syntax error: trailing backslash")
+		}
 		i++
 		switch s[i] {
+		case '0':
+			b.WriteByte(0)
+		case 'a':
+			b.WriteByte('\a')
+		case 'b':
+			b.WriteByte('\b')
+		case 'e':
+			b.WriteByte(0x1b)
+		case 'f':
+			b.WriteByte('\f')
 		case 'n':
 			b.WriteByte('\n')
 		case 'r':
 			b.WriteByte('\r')
 		case 't':
 			b.WriteByte('\t')
-		case '0':
-			b.WriteByte(0)
+		case 'v':
+			// Vertical tab. The documented string conversions do not name \v.
+			b.WriteByte('\v')
 		case '\\':
 			b.WriteByte('\\')
 		case 'x':
-			if i+2 < len(s) {
-				var v byte
-				if _, err := fmt.Sscanf(s[i+1:i+3], "%02x", &v); err == nil {
-					b.WriteByte(v)
-					i += 2
-					continue
-				}
+			// \xHH is two hex digits, beyond the documented named escapes.
+			if i+2 >= len(s) {
+				return "", fmt.Errorf("syntax error: malformed \\x escape")
 			}
-			b.WriteByte('x')
+			raw, err := hex.DecodeString(s[i+1 : i+3])
+			if err != nil {
+				return "", fmt.Errorf("syntax error: malformed \\x escape")
+			}
+			b.WriteByte(raw[0])
+			i += 2
 		default:
-			// keep unknown escape as the escaped char
+			// Escape the next byte, including separators such as : and ,.
 			b.WriteByte(s[i])
 		}
 	}
-	return b.String()
+	return b.String(), nil
 }
 
 func isAllDigits(s string) bool {
 	if s == "" {
 		return false
 	}
-	for _, r := range s {
-		if !unicode.IsDigit(r) {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
 			return false
 		}
 	}
