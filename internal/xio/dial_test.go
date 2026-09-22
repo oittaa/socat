@@ -73,29 +73,6 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	}
 }
 
-func TestDialTCPLowportCarriesBindZone(t *testing.T) {
-	const wantZone = "eth0"
-	call := dialCall{
-		ctx:     context.Background(),
-		network: "tcp6",
-		dial: func(laddr, _ *net.TCPAddr) (net.Conn, error) {
-			if laddr == nil || laddr.Zone != wantZone {
-				t.Fatalf("bind addr %#v", laddr)
-			}
-			if !laddr.IP.Equal(net.ParseIP("fe80::1")) {
-				t.Fatalf("bind ip %v", laddr.IP)
-			}
-			return nil, errors.New("stop after bind")
-		},
-	}
-	laddr := &net.TCPAddr{IP: net.ParseIP("fe80::1"), Zone: wantZone}
-	raddr := &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 9, Zone: wantZone}
-	_, err := dialTCPLowport(call, raddr, laddr)
-	if err == nil || !strings.Contains(err.Error(), "stop after bind") {
-		t.Fatalf("err=%v", err)
-	}
-}
-
 func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	if lowportWildcardBindDenied() {
 		t.Skip("cannot bind lowport; fail-closed path is covered separately")

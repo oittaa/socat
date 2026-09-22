@@ -270,12 +270,20 @@ func udpAddrIsPeer(got, want *net.UDPAddr) bool {
 }
 
 // udpForkAddrIsPeer reports whether got and want belong to one fork session.
-// The IPv6 zone is part of that session.
-func udpForkAddrIsPeer(got, want *net.UDPAddr) bool {
-	if !udpAddrIsPeer(got, want) {
+// A kernel scope id is compared as an index. User-supplied zone text is
+// resolved separately.
+func udpForkAddrIsPeer(got, want *udpPeer) bool {
+	if !udpAddrIsPeer(peerNet(got), peerNet(want)) {
 		return false
 	}
-	return udpZoneMatch(got.Zone, want.Zone)
+	return udpScopeMatch(got, want)
+}
+
+func peerNet(p *udpPeer) *net.UDPAddr {
+	if p == nil {
+		return nil
+	}
+	return p.UDPAddr
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {

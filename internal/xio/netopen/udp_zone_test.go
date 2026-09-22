@@ -1,7 +1,6 @@
 package netopen
 
 import (
-	"errors"
 	"net"
 	"strconv"
 	"testing"
@@ -31,15 +30,15 @@ func TestUDPAddrIsPeerIgnoresZone(t *testing.T) {
 
 func TestUDPForkAddrIsPeerComparesIPv6Zone(t *testing.T) {
 	ip := net.ParseIP("fe80::1")
-	same := &net.UDPAddr{IP: ip, Port: 9, Zone: "eth0"}
-	other := &net.UDPAddr{IP: ip, Port: 9, Zone: "eth1"}
+	same := userPeer(ip, 9, "eth0")
+	other := userPeer(ip, 9, "eth1")
 	if udpForkAddrIsPeer(same, other) {
 		t.Fatal("scoped peers on eth0 and eth1 matched")
 	}
-	if !udpForkAddrIsPeer(same, &net.UDPAddr{IP: ip, Port: 9, Zone: "eth0"}) {
+	if !udpForkAddrIsPeer(same, userPeer(ip, 9, "eth0")) {
 		t.Fatal("identical scoped peers did not match")
 	}
-	if udpForkAddrIsPeer(same, &net.UDPAddr{IP: ip, Port: 9}) {
+	if udpForkAddrIsPeer(same, userPeer(ip, 9, "")) {
 		t.Fatal("scoped peer matched an unzoned address")
 	}
 }
@@ -47,56 +46,38 @@ func TestUDPForkAddrIsPeerComparesIPv6Zone(t *testing.T) {
 func TestUDPForkAddrIsPeerMatchesZoneNameAndIndex(t *testing.T) {
 	ifi := firstInterface(t)
 	ip := net.ParseIP("fe80::1")
-	byName := &net.UDPAddr{IP: ip, Port: 9, Zone: ifi.Name}
-	byIndex := &net.UDPAddr{IP: ip, Port: 9, Zone: strconv.Itoa(ifi.Index)}
+	byName := userPeer(ip, 9, ifi.Name)
+	byIndex := userPeer(ip, 9, strconv.Itoa(ifi.Index))
 	if !udpForkAddrIsPeer(byName, byIndex) {
 		t.Fatalf("%s and index %d did not match", ifi.Name, ifi.Index)
 	}
 }
 
-func TestZoneLookupTriesInterfaceNameBeforeNumeric(t *testing.T) {
-	prev := lookupInterface
-	t.Cleanup(func() { lookupInterface = prev })
-	lookupInterface = func(name string) (*net.Interface, error) {
-		if name == "2" {
-			return &net.Interface{Index: 5, Name: "2"}, nil
-		}
-		return nil, errors.New("no such interface")
+func TestKernelScopeIsNotZoneText(t *testing.T) {
+	ifi := firstInterface(t)
+	ip := net.ParseIP("fe80::1")
+	scope := uint32(ifi.Index) + 1
+	kernel := &udpPeer{UDPAddr: &net.UDPAddr{IP: ip, Port: 9, Zone: ifi.Name}, scope: scope}
+	named := userPeer(ip, 9, ifi.Name)
+	if udpForkAddrIsPeer(kernel, named) {
+		t.Fatal("kernel scope was ignored in favor of zone text")
 	}
-	if got, ok := udpZoneIndex("2"); !ok || got != 5 {
-		t.Fatalf("udpZoneIndex=%d ok=%v want name index 5", got, ok)
+	otherText := &udpPeer{UDPAddr: &net.UDPAddr{IP: ip, Port: 9, Zone: "eth9"}, scope: scope}
+	if !udpForkAddrIsPeer(kernel, otherText) {
+		t.Fatal("identical kernel scopes did not match")
 	}
-	id, err := ipv6ScopeID("2")
-	if err != nil || id != 5 {
-		t.Fatalf("ipv6ScopeID=%d err=%v want name index 5", id, err)
-	}
-	peer := &net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 9, Zone: "2"}
-	_, zone, err := udpPeerIPv6Addr(peer)
+	_, id, err := udpPeerIPv6Addr(&net.UDPAddr{IP: ip, Port: 9, Zone: ifi.Name}, scope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if zone != 5 {
-		t.Fatalf("connect zone id %d want name index 5", zone)
-	}
-
-	lookupInterface = func(string) (*net.Interface, error) {
-		return nil, errors.New("no such interface")
-	}
-	if got, ok := udpZoneIndex("7"); !ok || got != 7 {
-		t.Fatalf("numeric udpZoneIndex=%d ok=%v", got, ok)
-	}
-	_, zone, err = udpPeerIPv6Addr(&net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 9, Zone: "7"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if zone != 7 {
-		t.Fatalf("numeric connect zone id %d", zone)
+	if id != scope {
+		t.Fatalf("connect scope %d want kernel scope %d", id, scope)
 	}
 }
 
 func TestUDPPeerIPv6AddrAcceptsNumericZone(t *testing.T) {
 	peer := &net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 9, Zone: "7"}
-	_, zone, err := udpPeerIPv6Addr(peer)
+	_, zone, err := udpPeerIPv6Addr(peer, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,13 +89,17 @@ func TestUDPPeerIPv6AddrAcceptsNumericZone(t *testing.T) {
 func TestUDPPeerIPv6AddrResolvesInterfaceName(t *testing.T) {
 	ifi := firstInterface(t)
 	peer := &net.UDPAddr{IP: net.ParseIP("fe80::1"), Port: 9, Zone: ifi.Name}
-	_, zone, err := udpPeerIPv6Addr(peer)
+	_, zone, err := udpPeerIPv6Addr(peer, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if zone != uint32(ifi.Index) {
 		t.Fatalf("zone id %d want %d", zone, ifi.Index)
 	}
+}
+
+func userPeer(ip net.IP, port int, zone string) *udpPeer {
+	return &udpPeer{UDPAddr: &net.UDPAddr{IP: ip, Port: port, Zone: zone}}
 }
 
 func firstInterface(t *testing.T) *net.Interface {

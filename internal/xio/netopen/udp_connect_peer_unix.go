@@ -9,15 +9,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func connectUDPPeerFD(fd uintptr, peer *net.UDPAddr) error {
-	sa, err := udpPeerSockaddr(int(fd), peer)
+func connectUDPPeerFD(fd uintptr, peer *net.UDPAddr, scope uint32) error {
+	sa, err := udpPeerSockaddr(int(fd), peer, scope)
 	if err != nil {
 		return err
 	}
 	return unix.Connect(int(fd), sa)
 }
 
-func udpPeerSockaddr(fd int, peer *net.UDPAddr) (unix.Sockaddr, error) {
+func udpPeerSockaddr(fd int, peer *net.UDPAddr, scope uint32) (unix.Sockaddr, error) {
 	if peer == nil {
 		return nil, net.ErrClosed
 	}
@@ -27,7 +27,7 @@ func udpPeerSockaddr(fd int, peer *net.UDPAddr) (unix.Sockaddr, error) {
 	}
 	switch local.(type) {
 	case *unix.SockaddrInet6:
-		addr, zone, err := udpPeerIPv6Addr(peer)
+		addr, zone, err := udpPeerIPv6Addr(peer, scope)
 		if err != nil {
 			return nil, err
 		}

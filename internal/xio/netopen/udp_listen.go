@@ -170,7 +170,7 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)
 	}
-	if err := connectUDPPeer(pc, raddr); err != nil {
+	if err := connectUDPPeer(pc, raddr, 0); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func udpRouteLocalIP(network string, peer *net.UDPAddr) net.IP {
 type udpForkPacket struct {
 	data []byte
 	oob  []byte
-	peer *net.UDPAddr
+	peer *udpPeer
 }
 
 type udpForkListener struct {
@@ -343,7 +343,10 @@ func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, 
 	// the packet. A second exclusive bind would fail. Connect the fd to the
 	// peer so shut-down can call shutdown(SHUT_WR).
 	_ = l.pc.SetReadDeadline(time.Time{})
-	if err := connectUDPPeer(l.pc, child.peer); err != nil {
+	if child.peer == nil || child.peer.UDPAddr == nil {
+		return nil, net.ErrClosed
+	}
+	if err := connectUDPPeer(l.pc, child.peer.UDPAddr, child.peer.scope); err != nil {
 		return nil, err
 	}
 	l.mu.Lock()
@@ -367,12 +370,16 @@ func (l *udpForkListener) handoffListenSocket(child *udpSessionConn) (net.Conn, 
 }
 
 func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPacket, session *xio.Global) *oneshotForkConn {
-	peer := cloneUDPAddr(packet.peer)
+	peer := cloneUDPPeer(packet.peer)
 	local := pc.LocalAddr()
 	if local == nil && l.laddr != nil {
 		local = l.laddr
 	}
 	recvErr := xio.NeedRecvErr(l.config)
+	var peerAddr *net.UDPAddr
+	if peer != nil {
+		peerAddr = peer.UDPAddr
+	}
 	return newOneshotForkConn(
 		append([]byte(nil), packet.data...),
 		local,
@@ -380,7 +387,7 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 		session,
 		&l.writeMu,
 		pc.SetWriteDeadline,
-		func(p []byte) (int, error) { return writeToUDPWithFallback(pc, p, peer) },
+		func(p []byte) (int, error) { return writeToUDPWithFallback(pc, p, peerAddr) },
 		func(err error) { xio.DrainRecvErrOnError(err, recvErr, pc, session) },
 	)
 }
@@ -388,7 +395,7 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 func (l *udpForkListener) newUDPForkChild(packet udpForkPacket, session *xio.Global, wantCtrl, recvErr bool) *udpSessionConn {
 	return &udpSessionConn{
 		role:     udpRoleConnected,
-		peer:     cloneUDPAddr(packet.peer),
+		peer:     cloneUDPPeer(packet.peer),
 		first:    newFirstPacket(append([]byte(nil), packet.data...)),
 		writeMu:  &l.writeMu,
 		wantCtrl: wantCtrl,
@@ -408,7 +415,7 @@ func (l *udpForkListener) peerAllowed(addr *net.UDPAddr) error {
 	return l.filter.AllowAddr(addr, l.pc.LocalAddr())
 }
 
-func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPAddr, s addrconfig.Address) (*net.UDPConn, error) {
+func dialUDPSession(ctx context.Context, network string, local *net.UDPAddr, remote *udpPeer, s addrconfig.Address) (*net.UDPConn, error) {
 	// SO_REUSEADDR so we can bind the same local port as the parent listener.
 	// Skip when reuseaddr=0: the explicit zero stays exclusive and does not
 	// enable SO_REUSEPORT for parent/child sharing.
@@ -428,12 +435,18 @@ func dialUDPSession(ctx context.Context, network string, local, remote *net.UDPA
 	// The child is a new socket, not the parent listener fd. Apply every
 	// after-socket option again on this fd before bind/connect, then the
 	// fork-specific reuse flags.
+	var remoteAddr *net.UDPAddr
+	var scope uint32
+	if remote != nil {
+		remoteAddr = remote.UDPAddr
+		scope = remote.scope
+	}
 	c, err := dialUDPForSpec(dialRequest{
 		ctx:     ctx,
 		network: network,
 		config:  s,
 		control: reuseControl,
-	}, local, remote)
+	}, local, remoteAddr, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +511,7 @@ const (
 type udpSessionConn struct {
 	role      udpSessionRole
 	sock      *net.UDPConn
-	peer      *net.UDPAddr
+	peer      *udpPeer
 	first     firstPacket
 	closeOnce sync.Once
 	closeErr  error
@@ -579,7 +592,7 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 			u.drainRecvErr(err)
 			return n, err
 		}
-		if udpForkAddrIsPeer(addr, u.peer) {
+		if udpForkAddrIsPeer(udpPeerFromNet(addr), u.peer) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
@@ -601,7 +614,11 @@ func (u *udpSessionConn) Write(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	n, err := writeSharedPacket(u.writeMu, u.writeDL.get(), u.sock.SetWriteDeadline, func() (int, error) {
-		return writeToUDPWithFallback(u.sock, p, u.peer)
+		var addr *net.UDPAddr
+		if u.peer != nil {
+			addr = u.peer.UDPAddr
+		}
+		return writeToUDPWithFallback(u.sock, p, addr)
 	})
 	u.drainRecvErr(err)
 	return n, err
@@ -686,7 +703,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 			xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
 			return n, err
 		}
-		if udpForkAddrIsPeer(addr, u.peer) {
+		if udpForkAddrIsPeer(udpPeerFromNet(addr), udpPeerFromNet(u.peer)) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}

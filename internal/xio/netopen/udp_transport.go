@@ -15,7 +15,7 @@ func listenPacketForSpec(ctx context.Context, network string, laddr *net.UDPAddr
 	return lc.ListenPacket(ctx, network, laddrString(network, laddr))
 }
 
-func dialUDPForSpec(req dialRequest, laddr net.Addr, remote *net.UDPAddr) (net.Conn, error) {
+func dialUDPForSpec(req dialRequest, laddr net.Addr, remote *net.UDPAddr, scope uint32) (net.Conn, error) {
 	if remote == nil {
 		return nil, net.ErrClosed
 	}
@@ -42,7 +42,7 @@ func dialUDPForSpec(req dialRequest, laddr net.Addr, remote *net.UDPAddr) (net.C
 		_ = pc.Close()
 		return nil, fmt.Errorf("UDP: unexpected conn type %T", pc)
 	}
-	if err := connectUDPPeer(uc, remote); err != nil {
+	if err := connectUDPPeer(uc, remote, scope); err != nil {
 		_ = uc.Close()
 		return nil, err
 	}

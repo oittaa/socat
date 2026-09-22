@@ -116,6 +116,27 @@ func TestDialTCP6LinkLocalLowportRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	accepted := make(chan error, 1)
+	go func() {
+		srv, err := ln.Accept()
+		if err != nil {
+			accepted <- err
+			return
+		}
+		defer func() { _ = srv.Close() }()
+		buf := make([]byte, 4)
+		if _, err := io.ReadFull(srv, buf); err != nil {
+			accepted <- err
+			return
+		}
+		if string(buf) != "ping" {
+			accepted <- errors.New("payload " + string(buf))
+			return
+		}
+		_, err = srv.Write([]byte("pong"))
+		accepted <- err
+	}()
+
 	c, err := DialTCPAll(t.Context(), DialTargetFromText("tcp6", "["+host+"]", port), mustDecodeAddress(t, spec), nil, 0, nil)
 	if err != nil {
 		if errors.Is(err, syscall.EINVAL) {
@@ -124,6 +145,23 @@ func TestDialTCP6LinkLocalLowportRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
+	local, ok := c.LocalAddr().(*net.TCPAddr)
+	if !ok || local.Port < LowportMin || local.Port > LowportMax {
+		t.Fatalf("local addr %v want a port in %d-%d", c.LocalAddr(), LowportMin, LowportMax)
+	}
+	if _, err := c.Write([]byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 4)
+	if _, err := io.ReadFull(c, buf); err != nil {
+		t.Fatal(err)
+	}
+	if string(buf) != "pong" {
+		t.Fatalf("reply %q", buf)
+	}
+	if err := <-accepted; err != nil {
+		t.Fatal(err)
+	}
 }
 
 func linkLocalHost(t *testing.T) string {

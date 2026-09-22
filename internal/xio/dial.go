@@ -34,8 +34,6 @@ type dialCall struct {
 	timeout time.Duration
 	g       *Global
 	control func(network, address string, c syscall.RawConn) error
-	// dial, when set, replaces the TCP dial. Tests use it.
-	dial func(laddr, raddr *net.TCPAddr) (net.Conn, error)
 }
 
 func (c dialCall) withTimeout() (context.Context, context.CancelFunc) {
@@ -46,9 +44,6 @@ func (c dialCall) withTimeout() (context.Context, context.CancelFunc) {
 }
 
 func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
-	if c.dial != nil {
-		return c.dial(laddr, raddr)
-	}
 	d := &net.Dialer{
 		Timeout:   c.timeout,
 		LocalAddr: laddr,

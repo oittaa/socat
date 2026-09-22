@@ -7,7 +7,7 @@ import (
 
 // connectUDPPeer associates an already-bound UDP socket with peer, matching
 // UDP-LISTEN connecting back to the sender so shutdown(SHUT_WR) is valid.
-func connectUDPPeer(c *net.UDPConn, peer *net.UDPAddr) error {
+func connectUDPPeer(c *net.UDPConn, peer *net.UDPAddr, scope uint32) error {
 	if c == nil || peer == nil {
 		return net.ErrClosed
 	}
@@ -17,7 +17,7 @@ func connectUDPPeer(c *net.UDPConn, peer *net.UDPAddr) error {
 	}
 	var cerr error
 	if err := raw.Control(func(fd uintptr) {
-		cerr = connectUDPPeerFD(fd, peer)
+		cerr = connectUDPPeerFD(fd, peer, scope)
 	}); err != nil {
 		return err
 	}
@@ -37,7 +37,7 @@ func udpPeerIPv4Addr(peer *net.UDPAddr) ([4]byte, error) {
 	return addr, nil
 }
 
-func udpPeerIPv6Addr(peer *net.UDPAddr) ([16]byte, uint32, error) {
+func udpPeerIPv6Addr(peer *net.UDPAddr, scope uint32) ([16]byte, uint32, error) {
 	var addr [16]byte
 	if peer == nil {
 		return addr, 0, net.ErrClosed
@@ -47,6 +47,9 @@ func udpPeerIPv6Addr(peer *net.UDPAddr) ([16]byte, uint32, error) {
 		return addr, 0, fmt.Errorf("UDP connect: invalid address %q", peer)
 	}
 	copy(addr[:], ip6)
+	if scope != 0 {
+		return addr, scope, nil
+	}
 	if peer.Zone == "" || peer.IP.To4() != nil {
 		return addr, 0, nil
 	}
