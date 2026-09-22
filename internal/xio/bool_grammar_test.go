@@ -230,7 +230,7 @@ func TestIntegerFlagGrammar(t *testing.T) {
 		"UDP6:[::1]:9,mcloop6=no",
 		"TCP:127.0.0.1:9,transparent=yes",
 	} {
-		if err := prepareBool(t, spec); err != nil {
+		if err := prepareBool(t, spec); err != nil && !platformUnsupported(err) {
 			t.Errorf("%s: %v", spec, err)
 		}
 	}
@@ -297,5 +297,9 @@ func boolValueAccepted(err error) bool {
 	if strings.Contains(msg, "want 0, 1, yes, no, true, or false") {
 		return false
 	}
-	return strings.Contains(msg, "not supported on this platform")
+	return platformUnsupported(err)
+}
+
+func platformUnsupported(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not supported on this platform")
 }

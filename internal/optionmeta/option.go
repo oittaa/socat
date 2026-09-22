@@ -42,7 +42,13 @@ const (
 
 // Visible reports whether this build advertises the option in help.
 func (d Option) Visible() bool {
-	return !d.Hidden && (d.Advertise == AdvertiseAll || d.Advertise&currentPlatform != 0)
+	return !d.Hidden && d.Supported()
+}
+
+// Supported reports whether this build implements the option.
+// AdvertiseAll means every supported platform.
+func (d Option) Supported() bool {
+	return d.Advertise == AdvertiseAll || d.Advertise&currentPlatform != 0
 }
 
 func cloneOption(d Option) Option {

@@ -11,8 +11,9 @@ import (
 )
 
 type resolvedAddressOptions struct {
-	definitions []optionmeta.Option
-	scopeError  error
+	definitions   []optionmeta.Option
+	scopeError    error
+	platformError error
 }
 
 func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (resolvedAddressOptions, error) {
@@ -24,6 +25,9 @@ func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (
 			return resolvedAddressOptions{}, fmt.Errorf("%s: unknown option %q", spec.Type, option.Name)
 		}
 		resolved.definitions[i] = optionSpec
+		if resolved.platformError == nil && !optionSpec.Supported() {
+			resolved.platformError = fmt.Errorf("%s: option %q is not supported on this platform", spec.Type, option.Name)
+		}
 		if !registered {
 			continue
 		}
@@ -56,7 +60,36 @@ func rejectPreparedStaticChecks(config addrconfig.Address) error {
 	if err := RejectUnsupportedListenBacklog(config); err != nil {
 		return err
 	}
-	return RejectUnsupportedUnixTightSocklen(config)
+	if err := RejectUnsupportedUnixTightSocklen(config); err != nil {
+		return err
+	}
+	if err := rejectUnusableProtocolFamily(config); err != nil {
+		return err
+	}
+	return rejectPreparedSocketType(config)
+}
+
+// rejectUnusableProtocolFamily fails when pf= names a family this address
+// cannot pass to socket() or getaddrinfo. SOCKET and VSOCK keep the number
+// and apply it themselves. IP addresses only use the IPv4 and IPv6 families.
+func rejectUnusableProtocolFamily(config addrconfig.Address) error {
+	n := config.Network
+	if !n.ProtocolSet || n.IPFamily == addrconfig.IPFamilyIPv4 || n.IPFamily == addrconfig.IPFamilyIPv6 {
+		return nil
+	}
+	switch n.Kind {
+	case addrconfig.AddressKindSocket, addrconfig.AddressKindVSOCK:
+		return nil
+	}
+	return fmt.Errorf("%s: protocol family %d is not usable", config.Type, n.ProtocolFamily)
+}
+
+func rejectPreparedSocketType(config addrconfig.Address) error {
+	if !config.Network.SocketType.Set {
+		return nil
+	}
+	_, _, err := ConfiguredSocketType(config, config.Type, 0)
+	return err
 }
 
 func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {

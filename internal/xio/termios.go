@@ -428,7 +428,7 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 	case addrconfig.TerminalActionFlag:
 		flag, ok := lookupTermiosFlag(action.Name)
 		if !ok {
-			return nil
+			return fmt.Errorf("option %q is not supported on this platform", action.Name)
 		}
 		if flag.clr != 0 {
 			setPattern(t, flag.word, flag.clr, flag.mask)
@@ -438,7 +438,7 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 	case addrconfig.TerminalActionChar:
 		idx, ok := lookupTermiosChar(action.Name)
 		if !ok {
-			return nil
+			return fmt.Errorf("option %q is not supported on this platform", action.Name)
 		}
 		if action.Value > math.MaxUint8 {
 			return fmt.Errorf("%s: invalid byte value %d", action.Name, action.Value)
@@ -456,7 +456,7 @@ func applyConfiguredTermiosAction(t *unix.Termios, action addrconfig.TerminalAct
 	case addrconfig.TerminalActionField:
 		field, ok := lookupTermiosValue(action.Name)
 		if !ok {
-			return nil
+			return fmt.Errorf("option %q is not supported on this platform", action.Name)
 		}
 		setPattern(t, field.word, field.mask, termiosBits(action.Value)<<field.shift)
 	case addrconfig.TerminalActionSetFlags:

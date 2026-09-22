@@ -30,7 +30,7 @@ func TestResolvePortNumSCTPFallsBackToTCP(t *testing.T) {
 	if err != nil || n != 443 {
 		t.Fatalf("numeric: %d %v", n, err)
 	}
-	n, err = ResolvePort("tcp", addrconfig.PortFromText("080"))
+	n, err = ResolvePort("tcp", addrconfig.PortFromText("0x50"))
 	if err != nil || n != 80 {
 		t.Fatalf("prepared numeric: %d %v", n, err)
 	}

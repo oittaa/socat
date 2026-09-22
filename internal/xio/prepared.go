@@ -90,6 +90,12 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	if err := rejectPreparedStaticChecks(config); err != nil {
 		return PreparedAddress{}, err
 	}
+	if err := resolvePreparedOwners(&config); err != nil {
+		return PreparedAddress{}, err
+	}
+	if options.platformError != nil {
+		return PreparedAddress{}, options.platformError
+	}
 	if err := RejectUnsupportedRemainingIPv4(config); err != nil {
 		return PreparedAddress{}, err
 	}

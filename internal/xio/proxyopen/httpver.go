@@ -39,7 +39,7 @@ func proxyPortTarget(p addrconfig.Proxy) addrconfig.PortTarget {
 	if p.PortSet && !p.Port.Empty() {
 		return p.Port
 	}
-	return addrconfig.PortFromText("8080")
+	return addrconfig.PortNumber(8080)
 }
 
 func proxyResolveTarget(p addrconfig.Proxy) bool {

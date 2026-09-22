@@ -61,6 +61,13 @@ func isWindowsDriveColon(s string, start, i int) bool {
 	return n == '\\' || n == '/'
 }
 
+// socketDataType reports SOCKET addresses whose parameters keep dalan quotes.
+// The data field is decoded once from these parameters during preparation.
+func socketDataType(typeName string) bool {
+	n := strings.ToUpper(strings.TrimSpace(typeName))
+	return n == "SOCKET" || strings.HasPrefix(n, "SOCKET-")
+}
+
 // pathParamType reports address types whose positional argument is one path.
 func pathParamType(typeName string) bool {
 	n := strings.ToUpper(typeName)

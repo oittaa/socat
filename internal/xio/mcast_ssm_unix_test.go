@@ -56,8 +56,12 @@ func TestDecodeSourceMcastGroupIfaceSource(t *testing.T) {
 		t.Fatalf("parsed=%+v", req)
 	}
 	req = decodeSourceMulticast(t, "UDP6:[::1]:9,ipv6-join-source-group=[ff3e::1]:lo:[::1]")
-	if req.Group.String() != "ff3e::1" || req.InterfaceAddr.String() != "lo" || req.Source.String() != "::1" {
+	if req.Group.String() != "ff3e::1" || req.InterfaceName != "lo" || req.InterfaceIsID || req.Source.String() != "::1" {
 		t.Fatalf("ipv6 parsed=%+v", req)
+	}
+	req = decodeSourceMulticast(t, "UDP6:[::1]:9,ipv6-join-source-group=[ff3e::1]:2:[::1]")
+	if !req.InterfaceIsID || req.InterfaceID != 2 || req.InterfaceName != "" || !req.InterfaceAddr.Empty() {
+		t.Fatalf("ipv6 interface index parsed=%+v", req)
 	}
 	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,ip-add-source-membership=232.1.1.1:127.0.0.1")
 	if err != nil {

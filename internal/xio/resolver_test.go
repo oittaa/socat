@@ -531,7 +531,7 @@ func TestMatchLocalPacketAddrUnspecified(t *testing.T) {
 }
 
 func TestResolveUDPTargetLiteralKeepsTypedHostPort(t *testing.T) {
-	addr, err := ResolveUDPTarget(t.Context(), addrconfig.Address{}, "udp4", addrconfig.HostFromText("127.0.0.1"), addrconfig.PortFromText("080"))
+	addr, err := ResolveUDPTarget(t.Context(), addrconfig.Address{}, "udp4", addrconfig.HostFromText("127.0.0.1"), addrconfig.PortFromText("0x50"))
 	if err != nil {
 		t.Fatal(err)
 	}

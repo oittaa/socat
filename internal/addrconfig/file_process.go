@@ -137,18 +137,28 @@ type FileAction struct {
 	Owner   OwnerRef
 }
 
-// OwnerRef is a numeric uid/gid or an account name resolved at apply time.
+// OwnerRef is a numeric uid/gid or an account name. Names are resolved during
+// preparation; apply uses the numeric id.
 type OwnerRef struct {
 	ID      int
 	Numeric bool
 	Name    string
 }
 
-func parseOwnerRef(value string) OwnerRef {
-	if n, err := strconv.Atoi(value); err == nil {
-		return OwnerRef{ID: n, Numeric: true, Name: value}
+// parseOwnerRef applies the user/group rule: a leading digit is strtoul, and
+// any other spelling is an account name resolved before the address is opened.
+func parseOwnerRef(value string) (OwnerRef, error) {
+	n, numeric, err := parseDigitStrtoul(value, strconv.IntSize)
+	if err != nil {
+		return OwnerRef{}, err
 	}
-	return OwnerRef{Name: value}
+	if numeric {
+		if n > uint64(math.MaxInt) {
+			return OwnerRef{}, fmt.Errorf("invalid integer %q", value)
+		}
+		return OwnerRef{ID: int(n), Numeric: true, Name: value}, nil
+	}
+	return OwnerRef{Name: value}, nil
 }
 
 // Process holds EXEC/SYSTEM/SHELL choices. Commands stay positional.
@@ -280,7 +290,11 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		case "group-early":
 			kind = FileActionGroupEarly
 		}
-		appendAction(FileAction{Kind: kind, Owner: parseOwnerRef(value)})
+		owner, err := parseOwnerRef(value)
+		if err != nil {
+			return true, fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
+		}
+		appendAction(FileAction{Kind: kind, Owner: owner})
 		return true, nil
 	case "ftruncate":
 		n, err := nonnegativeInt64(o)
