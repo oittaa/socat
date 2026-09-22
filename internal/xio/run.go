@@ -73,7 +73,7 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	}
 	if lo.nofork() != nil {
 		_ = lo.Close()
-		return fmt.Errorf("option nofork is not allowed here")
+		return errNoForkOnFirstAddress
 	}
 	_, rMode := channelModes(g.Options())
 	defer func() { _ = lo.Close() }()
@@ -93,9 +93,11 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	return runOpenedPair(ctx, lo, ro, g, rMode)
 }
 
+var errNoForkOnFirstAddress = errors.New("option nofork is not allowed here")
+
 func rejectNoForkOnFirstAddress(left PreparedChannel) error {
 	if preparedNoFork(left) {
-		return fmt.Errorf("option nofork is not allowed here")
+		return errNoForkOnFirstAddress
 	}
 	return nil
 }
@@ -142,12 +144,12 @@ func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMod
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		left, err := streamFromDial(lo, c)
 		if err != nil {
-			logForkOpen(cg, err)
+			logForkErr(cg, err)
 			return
 		}
 		ro, err := OpenPreparedChannel(cctx, right, rMode, cg)
 		if err != nil {
-			logForkOpen(cg, err)
+			logForkErr(cg, err)
 			return
 		}
 		defer func() { _ = ro.Close() }()
@@ -178,7 +180,7 @@ func runConnectForkWithLeft(ctx context.Context, lo, ro *Opened, g *Global) erro
 	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		right, err := streamFromDial(ro, c)
 		if err != nil {
-			logForkOpen(cg, err)
+			logForkErr(cg, err)
 			return
 		}
 		leftMu.Lock()
@@ -381,13 +383,11 @@ func runForkSession(s forkSession) {
 		s.g.beginLogicalSession(left, right)
 	}
 	if s.connIsLeft && s.parent != nil && s.parent.ForkSocketpair() && !relay.ConfigureStreamPair(left, right) {
-		parent, rightOpened := s.parent, s.other
+		rightOpened := s.other
 		runForkBridge(s.ctx, left, s.g, nil, func(sp1 *os.File) {
 			defer func() { _ = rightOpened.Close() }()
 			_ = transferStreams(s.ctx, FileStream(sp1), rightOpened.EffectiveStream(), s.g)
-			if parent != nil {
-				waitForkChild(s.ctx, parent.MaxChildren(), rightOpened)
-			}
+			waitForkChild(s.ctx, s.parent.MaxChildren(), rightOpened)
 		})
 		return
 	}
@@ -400,7 +400,7 @@ func runForkSession(s forkSession) {
 			waitForkChild(s.ctx, s.parent.MaxChildren(), s.other)
 		}
 	}
-	logForkTransfer(s.g, err)
+	logForkErr(s.g, err)
 }
 
 func runForkNoFork(s forkSession, p *deferredNoFork) {
@@ -410,11 +410,11 @@ func runForkNoFork(s forkSession, p *deferredNoFork) {
 				s.g.beginLogicalSession(s.conn, FileStream(sp0))
 			}
 		}, func(sp1 *os.File) {
-			logForkOpen(s.g, runExecNoFork(s.ctx, FileStream(sp1), p.config, s.g, s.mode))
+			logForkErr(s.g, runExecNoFork(s.ctx, FileStream(sp1), p.config, s.g, s.mode))
 		})
 		return
 	}
-	logForkOpen(s.g, runExecNoFork(s.ctx, s.conn, p.config, s.g, s.mode))
+	logForkErr(s.g, runExecNoFork(s.ctx, s.conn, p.config, s.g, s.mode))
 }
 
 // runForkBridge copies left to one end of a socketpair. right owns the other
@@ -438,19 +438,12 @@ func runForkBridge(ctx context.Context, left relay.Stream, g *Global, prep func(
 	}()
 	defer func() { _ = sp0.Close() }()
 	if err := transferStreams(ctx, left, FileStream(sp0), g); err != nil {
-		logForkTransfer(g, err)
+		logForkErr(g, err)
 	}
 	<-done
 }
 
-func logForkOpen(g *Global, err error) {
-	if err == nil || g == nil {
-		return
-	}
-	g.Log.Errorf("%s", err)
-}
-
-func logForkTransfer(g *Global, err error) {
+func logForkErr(g *Global, err error) {
 	if err == nil || g == nil {
 		return
 	}
@@ -478,7 +471,7 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 		ro, err := OpenPreparedChannel(ctx, right, rMode, cg)
 		if err != nil {
 			// No "right address:" prefix on the open error.
-			logForkOpen(cg, err)
+			logForkErr(cg, err)
 			return
 		}
 		defer func() { _ = ro.Close() }()
