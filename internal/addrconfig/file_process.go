@@ -187,7 +187,11 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 	}
 	switch name {
 	case "rdonly", "wronly", "rdwr":
-		if activeBool(o).Value {
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		if enabled.Value {
 			switch name {
 			case "rdonly":
 				a.File.Access = FileAccessRead
@@ -201,26 +205,48 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 	case "creat":
 		return true, setActive(&a.File.Create, o)
 	case "excl":
-		a.File.Exclusive = activeBool(o).Value
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		a.File.Exclusive = enabled.Value
 		return true, nil
 	case "append":
-		enabled := activeBool(o).Value
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
 		a.File.AppendSet = true
-		a.File.Append = enabled
-		appendAction(FileAction{Kind: FileActionAppend, Enabled: enabled})
+		a.File.Append = enabled.Value
+		appendAction(FileAction{Kind: FileActionAppend, Enabled: enabled.Value})
 		return true, nil
 	case "trunc":
-		a.File.Truncate = activeBool(o).Value
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		a.File.Truncate = enabled.Value
 		return true, nil
 	case "nonblock":
-		a.File.Nonblock = activeBool(o).Value
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		a.File.Nonblock = enabled.Value
 		return true, nil
 	case "o-direct", "o-sync", "o-dsync", "o-rsync", "o-noctty", "o-nofollow", "o-directory", "o-largefile":
-		appendAction(FileAction{Kind: FileActionOpenFlag, Flag: openFlagID(name), Name: name, Enabled: activeBool(o).Value})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionOpenFlag, Flag: openFlagID(name), Name: name, Enabled: enabled.Value})
 		return true, nil
 	case "async":
-		enabled := activeBool(o).Value
-		appendAction(FileAction{Kind: FileActionAsync, Flag: OpenFlagAsync, Name: name, Enabled: enabled})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionAsync, Flag: OpenFlagAsync, Name: name, Enabled: enabled.Value})
 		return true, nil
 	case "perm", "perm-late", "perm-early":
 		mode, err := fileMode(o, 0o7777)
@@ -297,20 +323,32 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		case "setlkw-rd":
 			kind, value = FileActionLock, 4
 		}
-		appendAction(FileAction{Kind: kind, Enabled: activeBool(o).Value, Value: value})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: kind, Enabled: enabled.Value, Value: value})
 		return true, nil
 	case "cloexec":
-		enabled, err := optionalBool(o)
+		enabled, err := parseBool(o)
 		if err != nil {
 			return true, err
 		}
 		appendAction(FileAction{Kind: FileActionCloexec, Enabled: enabled.Value})
 		return true, nil
 	case "noinherit":
-		appendAction(FileAction{Kind: FileActionNoInherit, Enabled: activeBool(o).Value})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionNoInherit, Enabled: enabled.Value})
 		return true, nil
 	case "o-noatime":
-		appendAction(FileAction{Kind: FileActionNoAtime, Enabled: activeBool(o).Value})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionNoAtime, Enabled: enabled.Value})
 		return true, nil
 	case "f-setpipe-sz":
 		n, err := requiredInt(o, 1)
@@ -320,7 +358,7 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		appendAction(FileAction{Kind: FileActionPipeSize, Value: n})
 		return true, nil
 	case "fs-secrm", "fs-unrm", "fs-compr", "fs-sync", "fs-immutable", "fs-append", "fs-nodump", "fs-noatime", "fs-journal-data", "fs-notail", "fs-dirsync", "fs-topdir":
-		enabled, err := optionalBool(o)
+		enabled, err := parseBool(o)
 		if err != nil {
 			return true, err
 		}
@@ -341,10 +379,17 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		a.File.Umask = OptionalUint32{Set: true, Value: mode}
 		return true, nil
 	case "unlink":
-		appendAction(FileAction{Kind: FileActionUnlink, Enabled: activeBool(o).Value})
+		enabled, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
+		appendAction(FileAction{Kind: FileActionUnlink, Enabled: enabled.Value})
 		return true, nil
 	case "unlink-early", "unlink-late", "unlink-close":
-		v := activeBool(o)
+		v, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
 		switch name {
 		case "unlink-early":
 			a.File.UnlinkEarly = v
@@ -355,7 +400,10 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		}
 		return true, nil
 	case "pipes", "pty", "ptmx", "openpty", "stderr", "setsid", "dash":
-		v := activeBool(o)
+		v, err := parseBool(o)
+		if err != nil {
+			return true, err
+		}
 		switch name {
 		case "pipes":
 			a.Process.Pipes = v

@@ -281,14 +281,13 @@ func ancillaryOptionInt(o parse.Option) (int, error) {
 	if !o.Has {
 		return 1, nil
 	}
-	switch strings.ToLower(strings.TrimSpace(o.Value)) {
-	case "", "0", "false", "no", "off":
+	if value, ok := boolWord(o.Value); ok {
+		if value {
+			return 1, nil
+		}
 		return 0, nil
-	case "1", "true", "yes", "on":
-		return 1, nil
-	default:
-		return socketIntText(o.Value)
 	}
+	return socketIntText(o.Value)
 }
 
 func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (MulticastRequest, error) {

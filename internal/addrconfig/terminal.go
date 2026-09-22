@@ -79,9 +79,9 @@ func decodeTerminal(a *Address, o parse.Option, name string) (bool, error) {
 		a.Terminal.SitoutEIO = OptionalDuration{Set: true, Value: d}
 		return true, nil
 	case "ctty":
-		value, err := optionalBool(o)
+		value, err := parseBool(o)
 		if err != nil {
-			return true, fmt.Errorf("%s: boolean value must be 0 or 1", o.Name)
+			return true, err
 		}
 		a.Terminal.CTTY = value
 		a.Process.CTTY = value
@@ -151,9 +151,9 @@ func decodeTerminal(a *Address, o parse.Option, name string) (bool, error) {
 			appendAction(TerminalAction{Kind: TerminalActionFlag, Enabled: true})
 			return true, nil
 		}
-		value, err := optionalBool(o)
+		value, err := parseBool(o)
 		if err != nil {
-			return true, fmt.Errorf("%s: boolean value must be 0 or 1", o.Name)
+			return true, err
 		}
 		appendAction(TerminalAction{Kind: TerminalActionFlag, Enabled: value.Value})
 		return true, nil

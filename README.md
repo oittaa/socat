@@ -268,8 +268,16 @@ address and option spellings are audited automatically. The
   leave the parent process partially remapped.
 - Omitted `setpgid`, `setpgid=0`, and `setpgid=1` all create a new process
   group as documented.
-- `end-close[=<bool>]` and the `close` alias accept omission, `0`, and `1` as
-  documented. Classic C rejects explicit `=0` and `=1` despite the man page.
+- Boolean options accept `0`, `1`, or an omitted value (meaning `1`). They
+  also accept `yes`, `no`, `true`, and `false` in any case. Any other value
+  is rejected, including `on`, `off`, `2`, `00`, and an empty `opt=`. Options
+  documented without a value, such as `fork`, `forever`, `ignoreeof`, and
+  `pty`, use the same forms. An empty `reuseaddr=` remains the documented
+  form that skips the setsockopt call. Integer socket options that take a
+  number, such as `ip-ttl`, also accept those four words.
+- `end-close[=<bool>]`, the `close` alias, and `shut-none`, `shut-down`,
+  `shut-close`, and `shut-null` accept those boolean forms. Classic C rejects
+  explicit `=0` and `=1` despite the man page.
 - Lock files and unlink-on-close paths are removed only if they still refer to
   the object created by this process.
 - Boolean unlink options honor `=0`; they do not delete merely because the

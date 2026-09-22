@@ -305,7 +305,10 @@ func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) erro
 		a.Transfer.Escape = OptionalByte{Set: true, Value: b}
 		return nil
 	case "ignoreeof", "null-eof":
-		v := activeBool(o)
+		v, err := parseBool(o)
+		if err != nil {
+			return err
+		}
 		if name == "ignoreeof" {
 			a.Transfer.IgnoreEOF = v
 		} else {
@@ -313,7 +316,7 @@ func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) erro
 		}
 		return nil
 	case "end-close":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		a.Transfer.EndClose = v
 		return err
 	case "cr":
@@ -329,7 +332,10 @@ func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) erro
 		d.crnl = lineConversion{set: true, active: true, index: d.optionIndex, ending: LineEndingCRNL}
 		return nil
 	case "crorlf":
-		v := activeBool(o)
+		v, err := parseBool(o)
+		if err != nil {
+			return err
+		}
 		d.crorlf = lineConversion{set: true, active: v.Value, index: d.optionIndex, ending: LineEndingCROrLF}
 		return nil
 	case "shut-none":
@@ -343,7 +349,7 @@ func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) erro
 	case "shut":
 		return decodeShutdown(&a.Transfer.Shutdown, o)
 	case "binary", "text":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		if name == "binary" {
 			a.Common.Binary = v
 		} else {
@@ -368,7 +374,7 @@ func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) erro
 		a.Common.NameServer = ns
 		return nil
 	case "res-usevc", "ai-addrconfig", "ai-passive", "ai-v4mapped", "ai-all":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		switch name {
 		case "res-usevc":
 			a.Common.UseVC = v
@@ -440,7 +446,7 @@ func setRequiredInt(dst *OptionalInt, o parse.Option, min int) error {
 }
 
 func decodeNamedShutdown(dst *ShutdownMode, o parse.Option, mode ShutdownMode) error {
-	v, err := optionalBool(o)
+	v, err := parseBool(o)
 	if err == nil && v.Value {
 		*dst = mode
 	}
@@ -460,38 +466,44 @@ func decodeShutdown(dst *ShutdownMode, o parse.Option) error {
 		*dst = ShutdownClose
 	case "null":
 		*dst = ShutdownNull
-	case "0", "false", "no", "off", "":
 	default:
+		if value, ok := boolWord(o.Value); ok && !value {
+			return nil
+		}
 		return fmt.Errorf("shut: invalid value %q (want none, down, close, or null)", o.Value)
 	}
 	return nil
 }
 
-func optionalBool(o parse.Option) (OptionalBool, error) {
+// parseBool accepts 0, 1, an omitted value (meaning 1), and yes/no/true/false in any case.
+func parseBool(o parse.Option) (OptionalBool, error) {
 	if !o.Has {
 		return OptionalBool{Set: true, Value: true}, nil
 	}
-	v := strings.TrimSpace(o.Value)
-	switch v {
-	case "0":
-		return OptionalBool{Set: true}, nil
-	case "1":
-		return OptionalBool{Set: true, Value: true}, nil
-	default:
+	value, ok := boolWord(o.Value)
+	if !ok {
 		return OptionalBool{}, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
 	}
+	return OptionalBool{Set: true, Value: value}, nil
 }
 
-func activeBool(o parse.Option) OptionalBool {
-	if !o.Has {
-		return OptionalBool{Set: true, Value: true}
+func boolWord(value string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "yes", "true":
+		return true, true
+	case "0", "no", "false":
+		return false, true
+	default:
+		return false, false
 	}
-	v := strings.ToLower(strings.TrimSpace(o.Value))
-	return OptionalBool{Set: true, Value: v != "" && v != "0" && v != "false" && v != "no" && v != "off"}
 }
 
 func setActive(dst *OptionalBool, o parse.Option) error {
-	*dst = activeBool(o)
+	v, err := parseBool(o)
+	if err != nil {
+		return err
+	}
+	*dst = v
 	return nil
 }
 

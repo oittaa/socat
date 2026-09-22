@@ -30,7 +30,7 @@ func decodeSpec(t *testing.T, text string) Address {
 }
 
 func TestDecodeCommonSettings(t *testing.T) {
-	got := decodeSpec(t, "TCP:host:9,fork,maxchildren=3,retry=2,forever,interval=250ms,connect-timeout=0,handshake-timeout=2,readbytes=-1,escape=0x1b,ignoreof=off,crlf,shut-close=1")
+	got := decodeSpec(t, "TCP:host:9,fork,maxchildren=3,retry=2,forever,interval=250ms,connect-timeout=0,handshake-timeout=2,readbytes=-1,escape=0x1b,ignoreof=false,crlf,shut-close=1")
 
 	if got.Common.MaxChildren != (OptionalInt{Set: true, Value: 3}) {
 		t.Fatalf("max children=%+v", got.Common.MaxChildren)
@@ -49,18 +49,146 @@ func TestDecodeCommonSettings(t *testing.T) {
 	}
 }
 
-func TestDecodePreservesFlagGrammar(t *testing.T) {
-	got := decodeSpec(t, "TCP:host:9,fork=no,forever=maybe,crorlf=,null-eof=false,end-close=0")
+func TestBoolOptionGrammar(t *testing.T) {
+	execFacts := Facts{Type: "EXEC", Kind: AddressKindEXEC}
+	openFacts := Facts{Type: "OPEN", Kind: AddressKindFile}
+	ptyFacts := Facts{Type: "PTY"}
 
-	if got.Common.Fork.Value {
-		t.Fatal("fork=no must disable fork")
+	accepts := []struct {
+		text  string
+		facts Facts
+		want  func(Address) bool
+	}{
+		{"TCP:host:9,fork", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && a.Common.Fork.Value }},
+		{"TCP:host:9,fork=0", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && !a.Common.Fork.Value }},
+		{"TCP:host:9,fork=1", tcpConnect, func(a Address) bool { return a.Common.Fork.Value }},
+		{"TCP:host:9,fork=YES", tcpConnect, func(a Address) bool { return a.Common.Fork.Value }},
+		{"TCP:host:9,fork=no", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && !a.Common.Fork.Value }},
+		{"TCP:host:9,forever=True", tcpConnect, func(a Address) bool { return a.Common.Retry.Forever.Value }},
+		{"TCP:host:9,forever=false", tcpConnect, func(a Address) bool { return a.Common.Retry.Forever.Set && !a.Common.Retry.Forever.Value }},
+		{"TCP:host:9,ignoreeof=No", tcpConnect, func(a Address) bool { return a.Transfer.IgnoreEOF.Set && !a.Transfer.IgnoreEOF.Value }},
+		{"TCP:host:9,null-eof=false", tcpConnect, func(a Address) bool { return a.Transfer.NullEOF.Set && !a.Transfer.NullEOF.Value }},
+		{"TCP:host:9,end-close=yes", tcpConnect, func(a Address) bool { return a.Transfer.EndClose.Value }},
+		{"TCP:host:9,end-close=0", tcpConnect, func(a Address) bool { return a.Transfer.EndClose.Set && !a.Transfer.EndClose.Value }},
+		{"TCP:host:9,shut-close=YES", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+		{"TCP:host:9,shut-close=1,shut=0", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+		{"TCP:host:9,shut-close=1,shut=no", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+		{"TCP:host:9,shut-close=1,shut=FALSE", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+		{"TCP:host:9,crorlf=false", tcpConnect, func(a Address) bool { return a.Transfer.LineEnding == LineEndingRaw }},
+		{"TCP:host:9,crorlf=1", tcpConnect, func(a Address) bool { return a.Transfer.LineEnding == LineEndingCROrLF }},
+		{"TCP:host:9,ipv6-v6only=false", tcpConnect, func(a Address) bool { return a.Common.IPv6V6Only.Set && !a.Common.IPv6V6Only.Value }},
+		{"TCP:host:9,binary=TRUE", tcpConnect, func(a Address) bool { return a.Common.Binary.Value }},
+		{"TCP:host:9,reuseaddr=0", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Set && !a.Network.ReuseAddr.Value }},
+		{"TCP:host:9,reuseaddr=", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Set && !a.Network.ReuseAddr.Value }},
+		{"TCP:host:9,reuseaddr=yes", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Value }},
+		{"TCP:host:9,ip-ttl", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 1 }},
+		{"TCP:host:9,ip-ttl=yes", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 1 }},
+		{"TCP:host:9,ip-ttl=NO", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 0 }},
+		{"TCP:host:9,ip-ttl=2", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 2 }},
+		{"TCP:host:9,tcpwrap=2", tcpConnect, func(a Address) bool {
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "2"
+		}},
+		{"EXEC:true,pty", execFacts, func(a Address) bool { return a.Process.PTY.Set && a.Process.PTY.Value }},
+		{"EXEC:true,pty=no", execFacts, func(a Address) bool { return a.Process.PTY.Set && !a.Process.PTY.Value }},
+		{"EXEC:true,forever", execFacts, func(a Address) bool { return a.Common.Retry.Forever.Value }},
+		{"PTY,echo=yes", ptyFacts, func(a Address) bool { return terminalFlag(a, "echo") }},
+		{"PTY,echo=0", ptyFacts, func(a Address) bool { return !terminalFlag(a, "echo") && len(a.Terminal.Actions) == 1 }},
+		{"OPEN:f,append=no", openFacts, func(a Address) bool { return a.File.AppendSet && !a.File.Append }},
+		{"OPEN:f,cloexec=TRUE", openFacts, func(a Address) bool { return fileFlag(a, FileActionCloexec) }},
+		{"OPEN:f,o-sync=false", openFacts, func(a Address) bool {
+			return len(a.File.Actions) == 1 && !a.File.Actions[0].Enabled
+		}},
 	}
-	if !got.Common.Retry.Forever.Value {
-		t.Fatal("forever=maybe must retain legacy truthiness")
+	for _, tc := range accepts {
+		got, err := Decode(mustParseSpec(t, tc.text), tc.facts)
+		if err != nil {
+			t.Errorf("%s: %v", tc.text, err)
+			continue
+		}
+		if !tc.want(got) {
+			t.Errorf("%s: decoded value mismatch", tc.text)
+		}
 	}
-	if got.Transfer.LineEnding != LineEndingRaw || got.Transfer.NullEOF.Value || got.Transfer.EndClose.Value {
-		t.Fatalf("flags=%+v", got.Transfer)
+
+	rejects := []struct {
+		text  string
+		facts Facts
+	}{
+		{"TCP:host:9,fork=2", tcpConnect},
+		{"TCP:host:9,fork=on", tcpConnect},
+		{"TCP:host:9,fork=off", tcpConnect},
+		{"TCP:host:9,fork=00", tcpConnect},
+		{"TCP:host:9,fork=", tcpConnect},
+		{"TCP:host:9,fork=maybe", tcpConnect},
+		{"TCP:host:9,forever=maybe", tcpConnect},
+		{"TCP:host:9,ignoreeof=off", tcpConnect},
+		{"TCP:host:9,ignoreeof=", tcpConnect},
+		{"TCP:host:9,end-close=2", tcpConnect},
+		{"TCP:host:9,end-close=on", tcpConnect},
+		{"TCP:host:9,end-close=", tcpConnect},
+		{"TCP:host:9,shut-close=on", tcpConnect},
+		{"TCP:host:9,shut=off", tcpConnect},
+		{"TCP:host:9,shut=", tcpConnect},
+		{"TCP:host:9,shut=true", tcpConnect},
+		{"TCP:host:9,crorlf=", tcpConnect},
+		{"TCP:host:9,crorlf=on", tcpConnect},
+		{"TCP:host:9,null-eof=00", tcpConnect},
+		{"TCP:host:9,ipv6-v6only=2", tcpConnect},
+		{"TCP:host:9,ipv6-v6only=on", tcpConnect},
+		{"TCP:host:9,binary=", tcpConnect},
+		{"TCP:host:9,binary=maybe", tcpConnect},
+		{"TCP:host:9,reuseaddr=garbage", tcpConnect},
+		{"TCP:host:9,reuseaddr=2", tcpConnect},
+		{"TCP:host:9,reuseaddr=on", tcpConnect},
+		{"TCP:host:9,reuseaddr=00", tcpConnect},
+		{"TCP:host:9,ip-ttl=on", tcpConnect},
+		{"TCP:host:9,ip-ttl=off", tcpConnect},
+		{"TCP:host:9,ip-ttl=", tcpConnect},
+		{"TCP:host:9,ip-recverr=off", tcpConnect},
+		{"EXEC:true,pty=2", execFacts},
+		{"EXEC:true,pty=", execFacts},
+		{"EXEC:true,pty=on", execFacts},
+		{"PTY,echo=off", ptyFacts},
+		{"PTY,echo=2", ptyFacts},
+		{"PTY,echo=", ptyFacts},
+		{"OPEN:f,append=00", openFacts},
+		{"OPEN:f,append=on", openFacts},
+		{"OPEN:f,cloexec=maybe", openFacts},
+		{"OPEN:f,cloexec=", openFacts},
 	}
+	for _, tc := range rejects {
+		_, err := Decode(mustParseSpec(t, tc.text), tc.facts)
+		if err == nil {
+			t.Errorf("%s: accepted", tc.text)
+		}
+	}
+}
+
+func ancillaryNumber(a Address, name string) int {
+	for _, action := range a.Network.Actions {
+		if action.Text == name {
+			return action.Number
+		}
+	}
+	return -1
+}
+
+func terminalFlag(a Address, name string) bool {
+	for _, action := range a.Terminal.Actions {
+		if action.Name == name {
+			return action.Enabled
+		}
+	}
+	return false
+}
+
+func fileFlag(a Address, kind FileActionKind) bool {
+	for _, action := range a.File.Actions {
+		if action.Kind == kind {
+			return action.Enabled
+		}
+	}
+	return false
 }
 
 func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
@@ -424,8 +552,12 @@ func TestDecodeIPv6V6Only(t *testing.T) {
 		t.Fatalf("bare ipv6-v6only=%+v", got.Common.IPv6V6Only)
 	}
 
-	if _, err := Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false"), facts); err == nil || !strings.Contains(err.Error(), "ipv6-v6only") {
-		t.Fatalf("ipv6-v6only=false error=%v", err)
+	got, err = Decode(mustParseSpec(t, "TCP6-LISTEN:9,ipv6-v6only=false"), facts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Common.IPv6V6Only.Set || got.Common.IPv6V6Only.Value {
+		t.Fatalf("ipv6-v6only=false=%+v", got.Common.IPv6V6Only)
 	}
 }
 

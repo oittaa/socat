@@ -120,7 +120,7 @@ func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Opti
 		a.TLS.DTLSMTU = OptionalInt{Set: true, Value: value}
 		return true, nil
 	case "dtls-migration", "dtls-unfragmented-probes":
-		value, err := optionalBool(o)
+		value, err := parseBool(o)
 		if name == "dtls-migration" {
 			a.TLS.DTLSMigration = value
 		} else {
@@ -163,7 +163,7 @@ func recordTLSPlaintextName(a *Address, o parse.Option, definition optionmeta.Op
 func compatibleDisabledTLSOption(name string, o parse.Option) bool {
 	switch name {
 	case "openssl-fips", "openssl-pseudo":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		return err == nil && !v.Value
 	case "openssl-compress":
 		return o.Has && strings.EqualFold(strings.TrimSpace(o.Value), "none")
@@ -178,7 +178,7 @@ func decodeUnsupportedTLSValue(name string, o parse.Option) error {
 		_, err := requiredString(o)
 		return err
 	case "openssl-fips", "openssl-pseudo":
-		_, err := optionalBool(o)
+		_, err := parseBool(o)
 		return err
 	case "openssl-maxfraglen", "openssl-maxsendfrag":
 		if !o.Has {

@@ -60,7 +60,7 @@ func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
 			return true, fmt.Errorf("unknown tun-type %q", value)
 		}
 	case "iff-no-pi":
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		if err != nil {
 			return true, err
 		}
@@ -85,7 +85,7 @@ func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
 		if !ok {
 			return false, nil
 		}
-		v, err := optionalBool(o)
+		v, err := parseBool(o)
 		if err != nil {
 			return true, err
 		}
