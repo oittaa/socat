@@ -145,9 +145,12 @@ const (
 )
 
 // Optional preserves absence separately from a zero value.
+// Omitted is true when the option was present without "=value".
+// Value is not a user-supplied value in that case.
 type Optional[T any] struct {
-	Set   bool
-	Value T
+	Set     bool
+	Omitted bool
+	Value   T
 }
 
 type (
@@ -570,18 +573,32 @@ func setFlagInt(dst *OptionalBool, o parse.Option) error {
 	return nil
 }
 
-func optionText(o parse.Option) string {
-	if !o.Has {
-		return "1"
-	}
-	return o.Value
-}
-
 func requiredString(o parse.Option) (string, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
 		return "", fmt.Errorf("option %q requires a value", o.OriginalSpelling())
 	}
 	return o.Value, nil
+}
+
+// presentString requires "=value". An empty value is preserved.
+func presentString(o parse.Option) (string, error) {
+	if !o.Has {
+		return "", fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+	}
+	return o.Value, nil
+}
+
+func setRequiredString(dst *OptionalString, o parse.Option) error {
+	value, err := requiredString(o)
+	if err != nil {
+		return err
+	}
+	*dst = OptionalString{Set: true, Value: value}
+	return nil
+}
+
+func omittedString() OptionalString {
+	return OptionalString{Set: true, Omitted: true}
 }
 
 func requiredInt(o parse.Option, min int) (int, error) {

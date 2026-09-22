@@ -334,7 +334,10 @@ func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (Mu
 		return request, nil
 	}
 	if kind == MulticastTTLIPv4 {
-		n, err := optionalSocketInt(o, 1)
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return request, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+		}
+		n, err := socketIntText(o.Value)
 		if err != nil || n < 0 || n > 255 {
 			return request, fmt.Errorf("%s: invalid value %q", name, o.Value)
 		}

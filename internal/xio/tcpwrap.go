@@ -14,12 +14,13 @@ import (
 
 // tcpwrapConfig holds libwrap / tcpwrappers options for peer checks.
 type tcpwrapConfig struct {
-	enabled       bool
-	daemon        string // service name in hosts.* (default: progname / "socat")
-	allow         string // path to hosts.allow
-	deny          string // path to hosts.deny
-	allowRequired bool   // explicitly selected tables must be readable
-	denyRequired  bool
+	enabled        bool
+	daemon         string // service name in hosts.* (default: progname / "socat")
+	daemonExplicit bool   // user supplied tcpwrap=<name>, including an empty name
+	allow          string // path to hosts.allow
+	deny           string // path to hosts.deny
+	allowRequired  bool   // explicitly selected tables must be readable
+	denyRequired   bool
 }
 
 // parseTCPWrap extracts hosts-allow / hosts-deny / tcpwrap-etc / tcpwrap options.
@@ -49,14 +50,15 @@ func parseTCPWrap(policy addrconfig.Network, opts Options) tcpwrapConfig {
 	}
 	if policy.TCPWrap.Set {
 		cfg.enabled = true
-		if policy.TCPWrapDaemon != "" {
-			cfg.daemon = policy.TCPWrapDaemon
+		if policy.TCPWrapDaemon.Set && !policy.TCPWrapDaemon.Omitted {
+			cfg.daemon = policy.TCPWrapDaemon.Value
+			cfg.daemonExplicit = true
 		}
 	}
 	if !cfg.enabled {
 		return cfg
 	}
-	if cfg.daemon == "" {
+	if cfg.daemon == "" && !cfg.daemonExplicit {
 		if opts.Progname != "" {
 			cfg.daemon = opts.Progname
 		} else {

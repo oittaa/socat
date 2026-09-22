@@ -82,10 +82,12 @@ func TestIntegerFlagsKeepCIntegersAndWords(t *testing.T) {
 		{"TCP:host:9,ip-transparent=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 1 }},
 		{"TCP:host:9,ip-transparent=0", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 0 }},
 		{"TCP:host:9,tcpwrap=0", tcpConnect, func(a Address) bool {
-			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "0"
+			d := a.Network.TCPWrapDaemon
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && d.Set && !d.Omitted && d.Value == "0"
 		}},
 		{"TCP:host:9,tcpwrap=no", tcpConnect, func(a Address) bool {
-			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "no"
+			d := a.Network.TCPWrapDaemon
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && d.Set && !d.Omitted && d.Value == "no"
 		}},
 		{"TCP:host:9,shut-close=1,shut=no", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
 	}
@@ -203,7 +205,6 @@ func TestDecodeConstructedProcessInput(t *testing.T) {
 		Options: []parse.Option{
 			{Name: "o-wronly"},
 			{Name: "fdin", Value: "0", Has: true},
-			{Name: "fdout", Value: "", Has: true},
 			{Name: "setpgid", Value: "0", Has: true},
 			{Name: "pty", Value: "0", Has: true},
 			{Name: "openpty"},
@@ -225,7 +226,7 @@ func TestDecodeConstructedProcessInput(t *testing.T) {
 }
 
 func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
-	spec := mustParseSpec(t, "PTY,pty-wait-slave,pty-interval,sitout-eio=0")
+	spec := mustParseSpec(t, "PTY,pty-wait-slave,pty-interval=1,sitout-eio=0")
 	config, err := Decode(spec, Facts{Type: "PTY"})
 	if err != nil {
 		t.Fatal(err)
@@ -349,23 +350,23 @@ func TestDecodeProtocolSettingsKeepsTypedAndTextualValuesDistinct(t *testing.T) 
 
 func TestDecodeTCPWrapDaemonPreservesCaseAndLastWins(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon")
-	if !got.Network.TCPWrap.Set || !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "MyDaemon" {
-		t.Fatalf("tcpwrap=MyDaemon: %+v", got.Network)
+	if !got.Network.TCPWrap.Set || !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon.Omitted || got.Network.TCPWrapDaemon.Value != "MyDaemon" {
+		t.Fatalf("tcpwrap=MyDaemon: %+v", got.Network.TCPWrapDaemon)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,wrap=MyDaemon")
-	if got.Network.TCPWrapDaemon != "MyDaemon" {
-		t.Fatalf("wrap alias daemon=%q", got.Network.TCPWrapDaemon)
+	if got.Network.TCPWrapDaemon.Omitted || got.Network.TCPWrapDaemon.Value != "MyDaemon" {
+		t.Fatalf("wrap alias daemon=%+v", got.Network.TCPWrapDaemon)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,tcpwrap=MyDaemon,tcpwrap")
-	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "" {
-		t.Fatalf("bare tcpwrap must clear daemon: %+v", got.Network)
+	if !got.Network.TCPWrap.Value || !got.Network.TCPWrapDaemon.Omitted || got.Network.TCPWrapDaemon.Value != "" {
+		t.Fatalf("bare tcpwrap must omit the daemon name: %+v", got.Network.TCPWrapDaemon)
 	}
 
 	got = decodeSpec(t, "TCP:host:9,tcpwrap=1")
-	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon != "" {
-		t.Fatalf("tcpwrap=1: %+v", got.Network)
+	if !got.Network.TCPWrap.Value || got.Network.TCPWrapDaemon.Omitted || got.Network.TCPWrapDaemon.Value != "1" {
+		t.Fatalf("tcpwrap=1 must keep daemon name 1: %+v", got.Network.TCPWrapDaemon)
 	}
 }
 

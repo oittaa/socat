@@ -380,7 +380,8 @@ type Network struct {
 	SourcePortSet bool
 	LowPort       OptionalBool
 	TCPWrap       OptionalBool
-	TCPWrapDaemon string
+	// TCPWrapDaemon is tcpwrap[=<name>]. Omitted uses the program name.
+	TCPWrapDaemon OptionalString
 	TCPWrapEtc    OptionalString
 	HostsAllow    OptionalString
 	HostsDeny     OptionalString
@@ -501,7 +502,10 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 	n := &a.Network
 	switch name {
 	case "bind":
-		text := optionText(o)
+		text, err := requiredString(o)
+		if err != nil {
+			return true, err
+		}
 		if n.Kind == AddressKindSocket {
 			data, err := ParseSocatData(text)
 			if err != nil {
@@ -511,7 +515,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 			return true, nil
 		}
 		if n.Kind == AddressKindVSOCK {
-			ep, hasPort, err := decodeVSOCKBind(o.Value)
+			ep, hasPort, err := decodeVSOCKBind(text)
 			if err != nil {
 				return true, err
 			}
@@ -528,8 +532,11 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.BindSet = true
 		return true, nil
 	case "sourceport":
-		text := optionText(o)
-		n.SourcePort = portTarget(text)
+		port, err := requiredPortTarget(o)
+		if err != nil {
+			return true, err
+		}
+		n.SourcePort = port
 		n.SourcePortSet = true
 		return true, nil
 	case "lowport":
@@ -547,11 +554,13 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		return true, nil
 	case "tcpwrap":
 		// Daemon name, not a boolean. Presence enables the filter.
+		// tcpwrap[=<name>]: omission uses the program name. "1" is a name.
 		n.TCPWrap = OptionalBool{Set: true, Value: true}
-		n.TCPWrapDaemon = ""
-		if o.Has && o.Value != "" && o.Value != "1" {
-			n.TCPWrapDaemon = o.Value
+		if !o.Has {
+			n.TCPWrapDaemon = omittedString()
+			return true, nil
 		}
+		n.TCPWrapDaemon = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "tcpwrap-etc", "hosts-allow", "hosts-deny":
 		value, err := requiredString(o)
@@ -569,7 +578,10 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		}
 		return true, nil
 	case "pf":
-		text := optionText(o)
+		text, err := requiredString(o)
+		if err != nil {
+			return true, err
+		}
 		pf, known, err := protocolFamily(text)
 		if err != nil {
 			return true, err
@@ -617,7 +629,12 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		a.Common.IPv6V6Only = v
 		return true, err
 	case "unix-bind-tempname":
-		n.UnixBindTempname = OptionalString{Set: true, Value: optionText(o)}
+		// unix-bind-tempname[=/tmp/pre-XXXXXX]: omission uses the built-in template.
+		if !o.Has {
+			n.UnixBindTempname = omittedString()
+			return true, nil
+		}
+		n.UnixBindTempname = OptionalString{Set: true, Value: o.Value}
 		return true, nil
 	case "unix-tightsocklen":
 		v, err := parseBool(o)
@@ -812,6 +829,14 @@ func parseBindValue(text string, splitHostPort bool) (HostTarget, PortTarget, bo
 
 func bindHostLooksLikePath(host string) bool {
 	return strings.ContainsAny(host, `/\`) || strings.HasPrefix(host, "@")
+}
+
+func requiredPortTarget(o parse.Option) (PortTarget, error) {
+	text, err := requiredString(o)
+	if err != nil {
+		return PortTarget{}, err
+	}
+	return portTarget(text), nil
 }
 
 func portTarget(text string) PortTarget {
