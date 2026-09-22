@@ -178,8 +178,7 @@ func TestStreamCloseRestoresPTYTermios(t *testing.T) {
 }
 
 // TestShutdownWriteRestoresPTYTermios is the path where the other side ends
-// first. The relay half-closes this stream, and a terminal's ShutdownWrite
-// closes the descriptor, so restore has to run before that close.
+// first. Half-close leaves a terminal open and raw; Close restores it.
 func TestShutdownWriteRestoresPTYTermios(t *testing.T) {
 	master, slave, err := OpenPTYPair()
 	if err != nil {
@@ -215,14 +214,131 @@ func TestShutdownWriteRestoresPTYTermios(t *testing.T) {
 		t.Fatalf("raw,echo=0 did not clear echo/canonical: %s", formatTermios(raw))
 	}
 	stream := o.Stream()
-	shutErr := stream.ShutdownWrite()
-	closeErr := stream.Close()
+	if err := stream.ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	mid, err := getTermios(fd)
+	if err != nil {
+		t.Fatalf("half-close closed the terminal: %v", err)
+	}
+	if mid.Lflag&unix.ECHO != 0 || mid.Lflag&unix.ICANON != 0 {
+		t.Fatalf("half-close restored the terminal: %s", formatTermios(mid))
+	}
+	if err := stream.Close(); err != nil {
+		t.Fatal(err)
+	}
 	got, err := getTermios(dupFD)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !termiosEqual(orig, got) {
-		t.Fatalf("half-close left the terminal changed\n orig %s\n got  %s\n shutdown=%v close=%v", formatTermios(orig), formatTermios(got), shutErr, closeErr)
+		t.Fatalf("close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
+	}
+}
+
+// TestWrappedHalfCloseRestoresPTYTermios covers escape= and readbytes=, which
+// nest an FDStream around the file. ShutdownWrite must not panic, and Close
+// restores the terminal.
+func TestWrappedHalfCloseRestoresPTYTermios(t *testing.T) {
+	for _, spec := range []string{
+		"OPEN:/dev/null,raw,echo=0,escape=0x1d",
+		"OPEN:/dev/null,raw,echo=0,readbytes=100",
+	} {
+		t.Run(spec, func(t *testing.T) {
+			master, slave, err := OpenPTYPair()
+			if err != nil {
+				t.Skipf("pty: %v", err)
+			}
+			t.Cleanup(func() { _ = master.Close() })
+			fd := int(slave.Fd())
+			dupFD, err := unix.Dup(fd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = unix.Close(dupFD) })
+			orig, err := getTermios(fd)
+			if err != nil {
+				t.Fatal(err)
+			}
+			config := mustDecodeAddress(t, mustSpec(t, spec))
+			st, err := WrapAfterFD(config, FileStream(slave))
+			if err != nil {
+				t.Fatal(err)
+			}
+			o, err := NewReady("OPEN", st)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = o.Close() })
+			if err := AttachConfiguredTermios(o, fd, config.Terminal); err != nil {
+				t.Fatal(err)
+			}
+			if err := o.Stream().ShutdownWrite(); err != nil {
+				t.Fatal(err)
+			}
+			mid, err := getTermios(fd)
+			if err != nil {
+				t.Fatalf("half-close closed the terminal: %v", err)
+			}
+			if mid.Lflag&unix.ECHO != 0 || mid.Lflag&unix.ICANON != 0 {
+				t.Fatalf("half-close restored the terminal: %s", formatTermios(mid))
+			}
+			if err := o.Stream().Close(); err != nil {
+				t.Fatal(err)
+			}
+			got, err := getTermios(dupFD)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !termiosEqual(orig, got) {
+				t.Fatalf("close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
+			}
+		})
+	}
+}
+
+// TestSTDIOShutdownWriteKeepsRaw matches bidirectional STDIO: CloseW is a
+// no-op and the write side is an *os.File. Half-close must leave the
+// terminal raw.
+func TestSTDIOShutdownWriteKeepsRaw(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close() })
+	fd := int(slave.Fd())
+	orig, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream := relay.FDStream{
+		R: slave,
+		W: slave,
+		C: NopCloser{},
+		CloseW: func() error {
+			return nil
+		},
+	}
+	o, err := NewReady("STDIO", stream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	if err := AttachConfiguredTermios(o, fd, terminalConfig(t, "STDIO,raw,echo=0")); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Stream().ShutdownWrite(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Lflag&unix.ECHO != 0 || got.Lflag&unix.ICANON != 0 {
+		t.Fatalf("half-close restored STDIO\n orig %s\n raw  %s\n got  %s", formatTermios(orig), "echo/icanon clear", formatTermios(got))
+	}
+	if termiosEqual(orig, got) {
+		t.Fatal("raw,echo=0 did not change the terminal")
 	}
 }
 
