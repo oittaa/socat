@@ -26,12 +26,14 @@ func TestEXECPtyCttyDoesNotImplySetsid(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildSidCttyHelper(t)
-	sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,ctty,rawer,echo=0"))
+	sid, ptySid := parseSidPty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,ctty,rawer,echo=0"))
 	if sid != parent {
-		t.Fatalf("ctty without setsid changed sid %d → %d", parent, sid)
+		t.Fatalf("ctty without setsid changed session %d to %d", parent, sid)
 	}
-	if ctty {
-		t.Fatal("ctty without setsid must not take the controlling terminal")
+	// fd 0 is the PTY slave. Its session matches this process only when that
+	// slave is the controlling terminal; an inherited terminal does not.
+	if ptySid == sid {
+		t.Fatalf("ctty without setsid made the pty the controlling terminal of session %d", sid)
 	}
 }
 
@@ -44,12 +46,12 @@ func TestEXECPtySetsidCttyTakesControllingTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	bin := buildSidCttyHelper(t)
-	sid, ctty := parseSidCtty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,setsid,ctty,rawer,echo=0"))
+	sid, ptySid := parseSidPty(t, readExecPtySessionProbe(t, bin, "EXEC:"+bin+",pty,setsid,ctty,rawer,echo=0"))
 	if sid == parent {
 		t.Fatal("setsid,ctty kept the parent session")
 	}
-	if !ctty {
-		t.Fatal("setsid,ctty must take the controlling terminal")
+	if ptySid != sid {
+		t.Fatalf("setsid,ctty pty session %d, process session %d", ptySid, sid)
 	}
 }
 
@@ -156,32 +158,50 @@ func readExecPtySessionProbe(t *testing.T, bin, spec string) string {
 	}
 }
 
-func parseSidCtty(t *testing.T, got string) (sid int, ctty bool) {
+func parseSidPty(t *testing.T, got string) (sid, ptySid int) {
 	t.Helper()
 	fields := strings.Fields(got)
-	if len(fields) != 2 || !strings.HasPrefix(fields[0], "sid=") || !strings.HasPrefix(fields[1], "ctty=") {
-		t.Fatalf("child output %q want sid=N ctty=0|1", got)
+	if len(fields) != 2 || !strings.HasPrefix(fields[0], "sid=") || !strings.HasPrefix(fields[1], "pty_sid=") {
+		t.Fatalf("child output %q want sid=N pty_sid=N", got)
 	}
 	var err error
 	sid, err = strconv.Atoi(strings.TrimPrefix(fields[0], "sid="))
 	if err != nil {
 		t.Fatal(err)
 	}
-	switch strings.TrimPrefix(fields[1], "ctty=") {
-	case "1":
-		ctty = true
-	case "0":
-	default:
-		t.Fatalf("ctty field %q", fields[1])
+	ptySid, err = strconv.Atoi(strings.TrimPrefix(fields[1], "pty_sid="))
+	if err != nil {
+		t.Fatal(err)
 	}
-	return sid, ctty
+	return sid, ptySid
 }
 
 func buildSidCttyHelper(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	src := filepath.Join(dir, "sidtty.c")
-	body := "#include <fcntl.h>\n#include <stdio.h>\n#include <unistd.h>\nint main(int argc,char **argv){ char path[4096]; int tty=open(\"/dev/tty\",O_RDWR|O_NONBLOCK); char ch; if(snprintf(path,sizeof(path),\"%s.result\",argv[0])<0) return 2; FILE *out=fopen(path,\"w\"); if(!out) return 3; fprintf(out,\"sid=%d ctty=%d\\n\",(int)getsid(0),tty>=0); if(fclose(out)!=0) return 4; (void)argc; (void)read(STDIN_FILENO,&ch,1); if(tty>=0) close(tty); return 0; }\n"
+	// pty_sid is the session for which fd 0 (the PTY slave) is the controlling
+	// terminal, or -1 when it is not. open("/dev/tty") is a different question:
+	// it also succeeds for a terminal the child inherited.
+	body := `#define _XOPEN_SOURCE 700
+#include <stdio.h>
+#include <termios.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+	char path[4096];
+	char ch;
+	int sid = (int)getsid(0);
+	int pty_sid = (int)tcgetsid(0);
+	if (snprintf(path, sizeof(path), "%s.result", argv[0]) < 0) return 2;
+	FILE *out = fopen(path, "w");
+	if (!out) return 3;
+	fprintf(out, "sid=%d pty_sid=%d\n", sid, pty_sid);
+	if (fclose(out) != 0) return 4;
+	(void)argc;
+	(void)read(STDIN_FILENO, &ch, 1);
+	return 0;
+}
+`
 	if err := os.WriteFile(src, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
