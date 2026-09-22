@@ -35,9 +35,11 @@ focused tests, README exceptions, and parity reports.
 
 Follow the man page (`doc/socat.yo` from the pinned classic release) over
 classic socat's implementation. Do not reproduce classic bugs or
-backwards-compatibility quirks. Deviate from the man page only when that
-deviation is explicitly documented in a call-site comment, the README, or
-AGENTS.md.
+backwards-compatibility quirks. Where `doc/socat.yo` does not specify
+behavior, match classic's implementation. Deviate from the man page only
+when that deviation is explicitly documented in a call-site comment, the
+README, or AGENTS.md. Ask before introducing a new deviation from the man
+page.
 
 Official repository:
 
@@ -80,15 +82,9 @@ the pinned release and reviewed master in `scripts/classic-baseline.json`.
 Review master drift before updating that file.
 
 Do not commit official source extracts, binaries, generated catalogs, or
-`-hhh`/`-V` dumps. Classify intentional man-page-over-implementation
-differences in `scripts/classic-policy.json` so `make classic-parity` treats
-them as intentional. Map each differing address, option, or flag name to a
-reason in the set that matches the difference: `unsupported_options`,
-`unsupported_addresses`, `unsupported_flags`, or `foreign_options` when this
-port omits a classic name; `parser_only_options` when classic only parses it;
-`go_only_options`, `go_only_addresses`, or `go_only_flags` when this port
-advertises an extra name; or the matching `platform_*` set when it is per OS.
-Those names are omitted from missing and unexpected failures.
+`-hhh`/`-V` dumps. Classify name-level differences (omitted, extra,
+parser-only, or per-OS) in `scripts/classic-policy.json` with a reason.
+Document behavior differences per the man-page rule above.
 
 Ordinary `make check` must remain independent of repo.or.cz.
 
