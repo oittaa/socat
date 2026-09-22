@@ -3,11 +3,11 @@ package cli
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
 )
 
@@ -48,6 +48,22 @@ func TestLogVerbosityFollowsManPage(t *testing.T) {
 	}
 }
 
+func TestMalformedLogVerbosityRejected(t *testing.T) {
+	cases := [][]string{
+		{"-d", "-d", "-d", "-dx"},
+		{"-dddx"},
+		{"-d2x"},
+		{"-d0x2"},
+	}
+	for _, args := range cases {
+		_, err := ParseArgs(args)
+		bad := args[len(args)-1]
+		if err == nil || !strings.Contains(err.Error(), "unknown option") || !strings.Contains(err.Error(), bad) {
+			t.Errorf("ParseArgs(%q) err=%v want unknown option %q", args, err, bad)
+		}
+	}
+}
+
 func TestEnvironmentIPAliases(t *testing.T) {
 	t.Setenv("SOCAT_MAIN_WAIT", "")
 	t.Setenv("SOCAT_FORK_WAIT", "")
@@ -71,8 +87,8 @@ func TestEnvironmentIPAliases(t *testing.T) {
 		{"10", "bogus", xio.IPv4Default, xio.IPv4Default, 2},
 	}
 	for _, tc := range cases {
-		setIPEnv(t, "SOCAT_DEFAULT_LISTEN_IP", tc.listen)
-		setIPEnv(t, "SOCAT_PREFERRED_RESOLVE_IP", tc.resolve)
+		t.Setenv("SOCAT_DEFAULT_LISTEN_IP", tc.listen)
+		t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", tc.resolve)
 		opts, _, warnings := environmentOptions()
 		if opts.DefaultListenIPVersion != tc.listenVer || opts.PreferredResolveIPVersion != tc.resolveVer {
 			t.Errorf("listen=%q resolve=%q got %v/%v want %v/%v",
@@ -100,7 +116,8 @@ func TestEnvironmentWarningUsesConfiguredLogger(t *testing.T) {
 	t.Setenv("SOCAT_MAIN_WAIT", "")
 	t.Setenv("SOCAT_FORK_WAIT", "")
 	t.Setenv("SOCAT_TRANSFER_WAIT", "")
-	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", "not-an-ip")
+	const rawListen = "  Not-An-IP  "
+	t.Setenv("SOCAT_DEFAULT_LISTEN_IP", rawListen)
 	t.Setenv("SOCAT_PREFERRED_RESOLVE_IP", "4")
 
 	dir := t.TempDir()
@@ -113,7 +130,7 @@ func TestEnvironmentWarningUsesConfiguredLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !warningMentions(string(text), "SOCAT_DEFAULT_LISTEN_IP", "not-an-ip") {
+	if !warningMentions(string(text), "SOCAT_DEFAULT_LISTEN_IP", rawListen) {
 		t.Fatalf("log missing warning for unrecognized listen IP:\n%s", text)
 	}
 
@@ -126,7 +143,7 @@ func TestEnvironmentWarningUsesConfiguredLogger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if levels := levelsMentioning(string(text), "SOCAT_DEFAULT_LISTEN_IP"); len(levels) != 0 {
+	if levels := testutil.DiagnosticLevels(string(text), "SOCAT_DEFAULT_LISTEN_IP"); len(levels) != 0 {
 		t.Fatalf("-d0 still logged environment warning at %v:\n%s", levels, text)
 	}
 }
@@ -138,43 +155,14 @@ func unsetEnv(t *testing.T, name string) {
 	}
 }
 
-func setIPEnv(t *testing.T, name, value string) {
-	t.Helper()
-	if value == "" {
-		t.Setenv(name, "")
-		return
-	}
-	t.Setenv(name, value)
-}
-
 func warningMentions(text, name, value string) bool {
 	for _, line := range strings.Split(text, "\n") {
 		if !strings.Contains(line, name) || !strings.Contains(line, value) {
 			continue
 		}
-		if levelsMentioning(line, name)["W"] {
+		if testutil.DiagnosticLevels(line, name)["W"] {
 			return true
 		}
 	}
 	return false
-}
-
-var diagLevel = regexp.MustCompile(`\[[0-9]+\] ([FEDWNI]) `)
-
-func levelsMentioning(text, needle string) map[string]bool {
-	out := map[string]bool{}
-	if needle == "" {
-		return out
-	}
-	for _, line := range strings.Split(text, "\n") {
-		if !strings.Contains(line, needle) {
-			continue
-		}
-		m := diagLevel.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		out[m[1]] = true
-	}
-	return out
 }

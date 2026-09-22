@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"regexp"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,7 +14,7 @@ import (
 )
 
 func TestTCPConnectSuccessLoggedAtNotice(t *testing.T) {
-	assertTCPConnectEndpoint(t, logx.Notice, true)
+	assertTCPConnectEndpoint(t, logx.Debug, true)
 }
 
 func TestTCPConnectSuccessHiddenBelowNotice(t *testing.T) {
@@ -24,7 +22,7 @@ func TestTCPConnectSuccessHiddenBelowNotice(t *testing.T) {
 }
 
 func TestTCPAcceptLoggedAtNotice(t *testing.T) {
-	assertTCPAcceptEndpoint(t, logx.Notice, true)
+	assertTCPAcceptEndpoint(t, logx.Debug, true)
 }
 
 func TestTCPAcceptHiddenBelowNotice(t *testing.T) {
@@ -34,7 +32,7 @@ func TestTCPAcceptHiddenBelowNotice(t *testing.T) {
 func TestForkAcceptLoggedAtNotice(t *testing.T) {
 	ctx := testCtx(t)
 	side := listenLoopback(t)
-	g, buf := loggedSession(logx.Notice)
+	g, buf := loggedSession(logx.Debug)
 	lo := openListen(t, ctx, g, "TCP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1")
 	peer := dialForkListen(t, ctx, lo, side, g)
 	requireNoticeEndpoint(t, buf.String(), peer)
@@ -44,7 +42,7 @@ func TestConnectForkSuccessLoggedAtNotice(t *testing.T) {
 	ctx := testCtx(t)
 	target := listenLoopback(t)
 	side := listenLoopback(t)
-	g, buf := loggedSession(logx.Notice)
+	g, buf := loggedSession(logx.Debug)
 
 	left := fmt.Sprintf("TCP4:%s,fork,interval=30,connect-timeout=2", target.Addr())
 	lo, err := xio.OpenChannel(ctx, mustParse(t, left), xio.ModeRDWR, g)
@@ -252,7 +250,7 @@ func loggedSession(level logx.Level) (*xio.Global, *lockedBuf) {
 
 func requireNoticeEndpoint(t *testing.T, text, endpoint string) {
 	t.Helper()
-	levels := endpointLevels(text, endpoint)
+	levels := testutil.DiagnosticLevels(text, endpoint)
 	if !levels["N"] || levels["I"] {
 		t.Fatalf("endpoint %s levels=%v\n%s", endpoint, levels, text)
 	}
@@ -260,24 +258,7 @@ func requireNoticeEndpoint(t *testing.T, text, endpoint string) {
 
 func requireEndpointAbsent(t *testing.T, text, endpoint string) {
 	t.Helper()
-	if levels := endpointLevels(text, endpoint); len(levels) != 0 {
+	if levels := testutil.DiagnosticLevels(text, endpoint); len(levels) != 0 {
 		t.Fatalf("endpoint %s visible at %v\n%s", endpoint, levels, text)
 	}
-}
-
-var endpointLevel = regexp.MustCompile(`\[[0-9]+\] ([FEDWNI]) `)
-
-func endpointLevels(text, endpoint string) map[string]bool {
-	out := map[string]bool{}
-	for _, line := range strings.Split(text, "\n") {
-		if !strings.Contains(line, endpoint) {
-			continue
-		}
-		m := endpointLevel.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		out[m[1]] = true
-	}
-	return out
 }

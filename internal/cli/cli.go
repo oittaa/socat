@@ -69,10 +69,9 @@ type Config struct {
 	SignalLogMask uint64 // -S: signals whose termination is logged
 	Addresses     []string
 
-	// logVerbosity is the accumulated -d count. It is set only after a -d
-	// flag; the default (unset) level is warning.
-	logVerbositySet bool
-	logVerbosity    int
+	// logVerbosity is the accumulated -d count. The level stays warning
+	// until a -d flag is seen.
+	logVerbosity int
 }
 
 // ParseArgs parses os.Args-style arguments (without program name).
@@ -195,6 +194,7 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 			setLogVerbosity(cfg, n)
 			return nil
 		}
+		return fmt.Errorf("unknown option %q", a)
 	}
 	if set, ok := cliBoolFlags[a]; ok {
 		set(cfg)
@@ -225,11 +225,6 @@ func parseOption(a string, args []string, i *int, cfg *Config) error {
 			}
 			return f.set(cfg, v)
 		}
-	}
-	// Unrecognized -d forms act as one -d.
-	if strings.HasPrefix(a, "-d") {
-		setLogVerbosity(cfg, 1)
-		return nil
 	}
 	return fmt.Errorf("unknown option %q", a)
 }
@@ -353,16 +348,11 @@ func setIdleFlag(cfg *Config, v string) error {
 
 // bumpLogVerbosity adds steps to the accumulated -d count.
 func bumpLogVerbosity(cfg *Config, steps int) {
-	n := 0
-	if cfg.logVerbositySet {
-		n = cfg.logVerbosity
-	}
-	setLogVerbosity(cfg, n+steps)
+	setLogVerbosity(cfg, cfg.logVerbosity+steps)
 }
 
 // setLogVerbosity stores an absolute -d count and the level it selects.
 func setLogVerbosity(cfg *Config, n int) {
-	cfg.logVerbositySet = true
 	cfg.logVerbosity = n
 	cfg.LogLevel = levelFromN(n)
 }
@@ -648,7 +638,7 @@ func environmentIPVersion(name string, allowAny bool) (xio.IPVersion, *envWarnin
 	if ver, ok := ipVersionAliases[value]; ok {
 		return ver, nil
 	}
-	return xio.IPv4Default, &envWarning{name: name, value: value}
+	return xio.IPv4Default, &envWarning{name: name, value: raw}
 }
 
 func emitEnvironmentWarnings(log *logx.Logger, warnings []envWarning) {
