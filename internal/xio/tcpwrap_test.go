@@ -982,6 +982,21 @@ func TestTCPWrapDroppedReverseLookupDenies(t *testing.T) {
 	}
 }
 
+func TestTCPWrapRejectedDNSPacketIsNotAnIdentity(t *testing.T) {
+	const ip = "192.0.2.55"
+	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.ParseIP(ip), "", false, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.rejectThenNXDOMAIN("evil.example")
+	resolver := LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr)))
+	cfg := writeWrapTables(t, "socat: evil.example\n", "ALL: ALL\n")
+	err = tcpwrapAllowedWithResolver(t.Context(), resolver, cfg, tcpPeer(t, ip, ""), nil, nil)
+	if err == nil {
+		t.Fatal("rejected DNS packet permitted the peer")
+	}
+}
+
 func TestTCPWrapNumericPTRIsParanoid(t *testing.T) {
 	const ip = "192.0.2.55"
 	server, err := startFakeDNSWithAnswer(t, "127.0.0.1", net.ParseIP(ip), ip, false, false)

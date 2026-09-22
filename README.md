@@ -381,7 +381,8 @@ Supported patterns:
 - `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`. `PARANOID` matches a
   reverse name that does not forward-resolve to the peer, a numeric
   reverse name, or a name whose canonical name differs. Only the first
-  reverse name is used. A reverse lookup that exceeds its deadline
+  name returned by the resolver is used. A DNS response the resolver
+  rejects is not a hostname. A reverse lookup that exceeds its deadline
   denies that peer; that refusal is a lookup failure, not a syntax
   error
 - `daemon@host` server endpoint patterns, with the same host patterns

@@ -13,12 +13,10 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"golang.org/x/net/dns/dnsmessage"
 )
 
 // tcpwrapLookupTimeout bounds one peer's reverse lookup so a silent
@@ -314,14 +312,23 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	parent := ctx
 	lookupCtx, cancel := context.WithTimeout(parent, tcpwrapLookupTimeout)
 	defer cancel()
-	name, err := lookupPTRName(lookupCtx, resolver, ipStr)
+	// LookupAddr drops a packet with the wrong id and a name it will not
+	// return. Those bytes are not a hostname.
+	names, err := resolver.LookupAddr(lookupCtx, ipStr)
 	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
 		return "", nameUnknown, deadlineErr
 	}
-	name = strings.TrimSuffix(name, ".")
-	if name == "" {
+	if len(names) == 0 {
+		if err == nil || dnsNotFound(err) {
+			return "", nameUnknown, nil
+		}
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && !dnsErr.IsTemporary {
+			return "", nameParanoid, nil
+		}
 		return "", nameUnknown, nil
 	}
+	name := strings.TrimSuffix(names[0], ".")
 	if numericDNSName(name) {
 		return "", nameParanoid, nil
 	}
@@ -387,127 +394,6 @@ func rootedDNSName(name string) string {
 func numericDNSName(name string) bool {
 	addr, err := netip.ParseAddr(strings.TrimSuffix(name, "."))
 	return err == nil && addr.IsValid()
-}
-
-// lookupPTRName returns the first PTR. LookupAddr drops names that are not
-// domain names, including a numeric address, so the name is read from the
-// DNS answer and then checked with netip.ParseAddr.
-func lookupPTRName(ctx context.Context, resolver *net.Resolver, ipStr string) (string, error) {
-	if resolver == nil {
-		resolver = net.DefaultResolver
-	}
-	var mu sync.Mutex
-	var pkts [][]byte
-	save := func(b []byte) {
-		if len(b) == 0 {
-			return
-		}
-		mu.Lock()
-		pkts = append(pkts, append([]byte(nil), b...))
-		mu.Unlock()
-	}
-	wrapped := &net.Resolver{
-		PreferGo:     true,
-		StrictErrors: resolver.StrictErrors,
-		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-			c, err := dialDNS(ctx, resolver, network, address)
-			if err != nil {
-				return nil, err
-			}
-			if pc, ok := c.(net.PacketConn); ok {
-				return &ptrTap{Conn: c, pc: pc, save: save}, nil
-			}
-			return &ptrTapStream{Conn: c, save: save}, nil
-		},
-	}
-	names, err := wrapped.LookupAddr(ctx, ipStr)
-	mu.Lock()
-	defer mu.Unlock()
-	for _, pkt := range pkts {
-		if name := firstPTRName(pkt); name != "" {
-			return name, nil
-		}
-	}
-	if len(names) > 0 {
-		return names[0], nil
-	}
-	return "", err
-}
-
-func dialDNS(ctx context.Context, resolver *net.Resolver, network, address string) (net.Conn, error) {
-	if resolver != nil && resolver.Dial != nil {
-		return resolver.Dial(ctx, network, address)
-	}
-	var d net.Dialer
-	return d.DialContext(ctx, network, address)
-}
-
-type ptrTap struct {
-	net.Conn
-	pc   net.PacketConn
-	save func([]byte)
-}
-
-func (t *ptrTap) Read(b []byte) (int, error) {
-	n, err := t.Conn.Read(b)
-	if n > 0 && t.save != nil {
-		t.save(b[:n])
-	}
-	return n, err
-}
-
-func (t *ptrTap) ReadFrom(p []byte) (int, net.Addr, error) { return t.pc.ReadFrom(p) }
-
-func (t *ptrTap) WriteTo(p []byte, addr net.Addr) (int, error) { return t.pc.WriteTo(p, addr) }
-
-type ptrTapStream struct {
-	net.Conn
-	save func([]byte)
-}
-
-func (t *ptrTapStream) Read(b []byte) (int, error) {
-	n, err := t.Conn.Read(b)
-	if n > 0 && t.save != nil {
-		t.save(b[:n])
-	}
-	return n, err
-}
-
-func firstPTRName(msg []byte) string {
-	if name := ptrFromMessage(msg); name != "" {
-		return name
-	}
-	if len(msg) > 2 {
-		return ptrFromMessage(msg[2:])
-	}
-	return ""
-}
-
-func ptrFromMessage(msg []byte) string {
-	var parser dnsmessage.Parser
-	if _, err := parser.Start(msg); err != nil {
-		return ""
-	}
-	if err := parser.SkipAllQuestions(); err != nil {
-		return ""
-	}
-	for {
-		hdr, err := parser.AnswerHeader()
-		if err != nil {
-			return ""
-		}
-		if hdr.Type != dnsmessage.TypePTR {
-			if err := parser.SkipAnswer(); err != nil {
-				return ""
-			}
-			continue
-		}
-		rec, err := parser.PTRResource()
-		if err != nil {
-			return ""
-		}
-		return rec.PTR.String()
-	}
 }
 
 func dnsNotFound(err error) bool {

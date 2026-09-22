@@ -26,10 +26,12 @@ type fakeDNSServer struct {
 	queried     chan struct{}
 	wg          sync.WaitGroup
 
-	mu      sync.Mutex
-	answer  net.IP
-	answers []net.IP
-	cname   string
+	mu       sync.Mutex
+	answer   net.IP
+	answers  []net.IP
+	cname    string
+	spoofPTR string
+	nxdomain bool
 }
 
 func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServer, error) {
@@ -87,6 +89,22 @@ func (s *fakeDNSServer) serveUDP() {
 		if s.dropping() {
 			continue
 		}
+		if spoof, nx := s.rejectedAnswer(); spoof != "" {
+			forged, err := makeDNSResponse(buf[:n], nil, spoof, "", false)
+			if err == nil && len(forged) >= 2 {
+				forged[0] ^= 0xff
+				forged[1] ^= 0xff
+				_, _ = s.udp.WriteTo(forged, peer)
+			}
+			if nx {
+				response, err := makeDNSResponse(buf[:n], nil, "", "", false)
+				if err == nil && len(response) > 3 {
+					response[3] = (response[3] & 0xf0) | 3
+					_, _ = s.udp.WriteTo(response, peer)
+				}
+				continue
+			}
+		}
 		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.cnameTarget(), s.truncateUDP)
 		if err == nil {
 			_, _ = s.udp.WriteTo(response, peer)
@@ -138,6 +156,19 @@ func (s *fakeDNSServer) setAnswers(ips []net.IP) {
 	s.mu.Lock()
 	s.answers = cloned
 	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) rejectThenNXDOMAIN(name string) {
+	s.mu.Lock()
+	s.spoofPTR = name
+	s.nxdomain = true
+	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) rejectedAnswer() (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.spoofPTR, s.nxdomain
 }
 
 func (s *fakeDNSServer) setCNAME(name string) {
