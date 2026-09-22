@@ -61,7 +61,7 @@ type AddressDesc struct {
 	Family      addrconfig.IPFamily
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
-	// Params is filled by RegisterAddress from Syntax. Max < 0 means no maximum.
+	// Params is the accepted positional count. Syntax is help text only.
 	Params ParamCount
 }
 
@@ -125,6 +125,9 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	if strings.TrimSpace(desc.Syntax) == "" {
 		panic("xio: address registration requires syntax: " + name)
 	}
+	if !desc.Params.explicit {
+		panic("xio: address registration requires parameter count: " + name)
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -157,7 +160,6 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	}
 	sort.Strings(aliases)
 	desc.Aliases = aliases
-	desc.Params = paramCountFor(name, desc.Syntax)
 
 	r.descsByName[name] = desc
 	if desc.Opener != nil {

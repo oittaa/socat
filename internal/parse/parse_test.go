@@ -142,6 +142,50 @@ func TestParseOptionValue(t *testing.T) {
 	}
 }
 
+func TestParseTrailingColonIsEmptyParameter(t *testing.T) {
+	cases := []struct {
+		addr   string
+		params []string
+		option string
+	}{
+		{addr: "STDIO"},
+		{addr: "STDIO:", params: []string{""}},
+		{addr: "STDIO:,crlf", params: []string{""}, option: "crlf"},
+		{addr: "STDIO,crlf", option: "crlf"},
+		{addr: "SYSTEM:", params: []string{""}},
+		{addr: "PTY:", params: []string{""}},
+		{addr: "TCP:", params: []string{""}},
+		{addr: "TCP::80", params: []string{"", "80"}},
+		{addr: "PIPE:", params: []string{""}},
+		{addr: "ECHO:a:b", params: []string{"a:b"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.addr, func(t *testing.T) {
+			spec, err := ParseSpec(tc.addr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(spec.Params) != len(tc.params) {
+				t.Fatalf("params=%q want %q", spec.Params, tc.params)
+			}
+			for i := range tc.params {
+				if spec.Params[i] != tc.params[i] {
+					t.Fatalf("params=%q want %q", spec.Params, tc.params)
+				}
+			}
+			if tc.option == "" {
+				if len(spec.Options) != 0 {
+					t.Fatalf("options=%v", spec.Options)
+				}
+				return
+			}
+			if len(spec.Options) != 1 || spec.Options[0].Spelling != tc.option {
+				t.Fatalf("options=%v", spec.Options)
+			}
+		})
+	}
+}
+
 func TestParsePIPE(t *testing.T) {
 	ch, err := ParseChannel("PIPE")
 	if err != nil {

@@ -10,8 +10,14 @@ import (
 // ParamCount is how many positional parameters an address accepts.
 // Max < 0 means there is no upper bound.
 type ParamCount struct {
-	Min int
-	Max int
+	Min, Max int
+	explicit bool
+}
+
+// Params records an address's accepted positional parameter count.
+// Max < 0 means there is no upper bound. Help syntax is not consulted.
+func Params(min, max int) ParamCount {
+	return ParamCount{Min: min, Max: max, explicit: true}
 }
 
 func (p ParamCount) allows(n int) bool {
@@ -19,45 +25,6 @@ func (p ParamCount) allows(n int) bool {
 		return false
 	}
 	return p.Max < 0 || n <= p.Max
-}
-
-// paramCountFor derives the accepted parameter count from the address
-// syntax. Brackets mark an optional parameter (PIPE[:<filename>]).
-func paramCountFor(name, syntax string) ParamCount {
-	switch name {
-	case "WS", "WS-CONNECT", "WSS", "WSS-CONNECT":
-		// Parameters after host and port are URL path segments.
-		return ParamCount{Min: 2, Max: -1}
-	case "WS-LISTEN", "WS-L", "WSS-LISTEN", "WSS-L":
-		return ParamCount{Min: 1, Max: -1}
-	default:
-		min, max := boundsFromSyntax(syntax)
-		return ParamCount{Min: min, Max: max}
-	}
-}
-
-func boundsFromSyntax(syntax string) (min, max int) {
-	i := strings.IndexAny(syntax, ":[")
-	if i < 0 {
-		return 0, 0
-	}
-	depth := 0
-	for ; i < len(syntax); i++ {
-		switch syntax[i] {
-		case '[':
-			depth++
-		case ']':
-			if depth > 0 {
-				depth--
-			}
-		case ':':
-			max++
-			if depth == 0 {
-				min++
-			}
-		}
-	}
-	return min, max
 }
 
 func validateAddressParams(spec parse.Spec, desc AddressDesc) error {
