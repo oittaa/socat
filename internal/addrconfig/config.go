@@ -170,7 +170,7 @@ func Decode(spec parse.Spec, facts Facts) (Address, error) {
 }
 
 func newDecoder(spec parse.Spec, facts Facts) decoder {
-	return decoder{
+	d := decoder{
 		Address: Address{
 			Type:   facts.Type,
 			Params: append([]string(nil), spec.Params...),
@@ -187,46 +187,55 @@ func newDecoder(spec parse.Spec, facts Facts) decoder {
 			},
 		},
 	}
+	// Kind and role select option grammars such as SOCKET bind= and pf=.
+	// Set them before option values are decoded.
+	d.Network.Kind = facts.Kind
+	d.Network.Role = facts.Role
+	d.Network.IPFamily = facts.Family
+	return d
 }
 
-// RejectBadOptionValues reports an invalid option value. It does not
-// interpret positional parameters, so a bad value can be reported before
-// a parameter-count error.
-func RejectBadOptionValues(spec parse.Spec, facts Facts, definitions []optionmeta.Option) error {
+// PreparedDecode is an address after its option values have been decoded once.
+// Positional parameters are applied by Finish.
+type PreparedDecode struct {
+	d decoder
+}
+
+// DecodeOptions decodes option values and leaves positional parameters for Finish.
+func DecodeOptions(spec parse.Spec, facts Facts, definitions []optionmeta.Option) (PreparedDecode, error) {
 	if len(definitions) != len(spec.Options) {
-		return fmt.Errorf("%s: invalid resolved option count", facts.Type)
+		return PreparedDecode{}, fmt.Errorf("%s: invalid resolved option count", facts.Type)
 	}
 	d := newDecoder(spec, facts)
 	for i, option := range spec.Options {
 		if err := decodeOption(&d, option, definitions[i]); err != nil {
-			return fmt.Errorf("%s: %w", facts.Type, err)
+			return PreparedDecode{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
-	return nil
+	return PreparedDecode{d: d}, nil
+}
+
+// Finish applies positional parameters to the decoded options.
+func (p PreparedDecode) Finish(spec parse.Spec) (Address, error) {
+	if err := decodeNetwork(&p.d, spec); err != nil {
+		return Address{}, fmt.Errorf("%s: %w", p.d.Type, err)
+	}
+	if err := finishDecode(&p.d); err != nil {
+		return Address{}, fmt.Errorf("%s: %w", p.d.Type, err)
+	}
+	if p.d.Common.MaxChildren.Set && (!p.d.Common.Fork.Set || !p.d.Common.Fork.Value) {
+		return Address{}, fmt.Errorf("%s: option max-children not allowed without option fork", p.d.Type)
+	}
+	return p.d.Address, nil
 }
 
 // DecodeResolved decodes options whose catalog metadata preparation resolved.
 func DecodeResolved(spec parse.Spec, facts Facts, definitions []optionmeta.Option) (Address, error) {
-	if len(definitions) != len(spec.Options) {
-		return Address{}, fmt.Errorf("%s: invalid resolved option count", facts.Type)
+	prepared, err := DecodeOptions(spec, facts, definitions)
+	if err != nil {
+		return Address{}, err
 	}
-	d := newDecoder(spec, facts)
-
-	if err := decodeNetwork(&d, spec); err != nil {
-		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
-	}
-	for i, option := range spec.Options {
-		if err := decodeOption(&d, option, definitions[i]); err != nil {
-			return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
-		}
-	}
-	if err := finishDecode(&d); err != nil {
-		return Address{}, fmt.Errorf("%s: %w", facts.Type, err)
-	}
-	if d.Common.MaxChildren.Set && (!d.Common.Fork.Set || !d.Common.Fork.Value) {
-		return Address{}, fmt.Errorf("%s: option max-children not allowed without option fork", facts.Type)
-	}
-	return d.Address, nil
+	return prepared.Finish(spec)
 }
 
 func finishDecode(d *decoder) error {

@@ -150,8 +150,12 @@ func decodeSOCKSPositional(d *decoder) error {
 	if socksPort != "" {
 		d.socksPositionalPort = portTarget(socksPort)
 		d.socksPositionalPortSet = true
-		a.Proxy.SOCKSPort = d.socksPositionalPort
-		a.Proxy.SOCKSPortSet = true
+		// An earlier socksport= option already won. An empty option value is
+		// filled from this positional port in finishDecode.
+		if !a.Proxy.SOCKSPortSet {
+			a.Proxy.SOCKSPort = d.socksPositionalPort
+			a.Proxy.SOCKSPortSet = true
+		}
 	}
 	return nil
 }

@@ -69,8 +69,10 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 		}
 	}
 	// Unknown option, then a bad option value, then the parameter count.
-	// All of these run before an opener can create a file or socket.
-	if err := addrconfig.RejectBadOptionValues(spec, facts, options.definitions); err != nil {
+	// Option values are decoded once; positional parameters are applied after
+	// the count check and before any opener can create a file or socket.
+	decoded, err := addrconfig.DecodeOptions(spec, facts, options.definitions)
+	if err != nil {
 		return PreparedAddress{}, err
 	}
 	if registered {
@@ -78,7 +80,7 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 			return PreparedAddress{}, err
 		}
 	}
-	config, err := addrconfig.DecodeResolved(spec, facts, options.definitions)
+	config, err := decoded.Finish(spec)
 	if err != nil {
 		return PreparedAddress{}, err
 	}

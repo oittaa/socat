@@ -108,12 +108,12 @@ func init() {
 
 	// Generic socket
 	socketEnabled := func() bool { return xio.FeatureGENERICSOCKET }
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-CONNECT", Syntax: "SOCKET-CONNECT:<dom>:<proto>:<addr>", Desc: "generic socket connect", Enabled: socketEnabled, Opener: openSocketConnect, OptionCaps: xio.CapsSocketConnect, Kind: kindSock, Role: connect})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-LISTEN", Syntax: "SOCKET-LISTEN:<dom>:<proto>:<addr>", Desc: "generic socket listen", Enabled: socketEnabled, Opener: openSocketListen, OptionCaps: xio.CapsSocketListen, Kind: kindSock, Role: listen})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-SENDTO", Syntax: "SOCKET-SENDTO:<dom>:<type>:<proto>:<addr>", Desc: "generic sendto", Enabled: socketEnabled, Opener: openSocketSendto, OptionCaps: xio.CapsSocketSendto, Aliases: []string{"SENDTO"}, Kind: kindSock, Role: sendTo})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-DATAGRAM", Syntax: "SOCKET-DATAGRAM:<dom>:<type>:<proto>:<addr>", Desc: "generic datagram", Enabled: socketEnabled, Opener: openSocketDatagram, OptionCaps: xio.CapsSocketDatagram, Aliases: []string{"DATAGRAM", "DGRAM"}, Kind: kindSock, Role: dgram})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-RECV", Syntax: "SOCKET-RECV:<dom>:<type>:<proto>:<addr>", Desc: "generic receive", Enabled: socketEnabled, Opener: openSocketRecv, OptionCaps: xio.CapsSocketDatagram, Kind: kindSock, Role: recv})
-	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-RECVFROM", Syntax: "SOCKET-RECVFROM:<dom>:<type>:<proto>:<addr>", Desc: "generic recvfrom", Enabled: socketEnabled, Opener: openSocketRecvfrom, OptionCaps: xio.CapsSocketRecvfrom, Kind: kindSock, Role: recvFrom})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-CONNECT", Syntax: "SOCKET-CONNECT:<domain>:<protocol>:<remote-address>", Desc: "generic socket connect", Enabled: socketEnabled, Opener: openSocketConnect, OptionCaps: xio.CapsSocketConnect, Kind: kindSock, Role: connect})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-LISTEN", Syntax: "SOCKET-LISTEN:<domain>:<protocol>:<local-address>", Desc: "generic socket listen", Enabled: socketEnabled, Opener: openSocketListen, OptionCaps: xio.CapsSocketListen, Kind: kindSock, Role: listen})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-SENDTO", Syntax: "SOCKET-SENDTO:<domain>:<type>:<protocol>:<remote-address>", Desc: "generic sendto", Enabled: socketEnabled, Opener: openSocketSendto, OptionCaps: xio.CapsSocketSendto, Aliases: []string{"SENDTO"}, Kind: kindSock, Role: sendTo})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-DATAGRAM", Syntax: "SOCKET-DATAGRAM:<domain>:<type>:<protocol>:<remote-address>", Desc: "generic datagram", Enabled: socketEnabled, Opener: openSocketDatagram, OptionCaps: xio.CapsSocketDatagram, Aliases: []string{"DATAGRAM", "DGRAM"}, Kind: kindSock, Role: dgram})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-RECV", Syntax: "SOCKET-RECV:<domain>:<type>:<protocol>:<local-address>", Desc: "generic receive", Enabled: socketEnabled, Opener: openSocketRecv, OptionCaps: xio.CapsSocketDatagram, Kind: kindSock, Role: recv})
+	xio.RegisterAddress(xio.AddressDesc{Group: xio.GroupSocket, Name: "SOCKET-RECVFROM", Syntax: "SOCKET-RECVFROM:<domain>:<type>:<protocol>:<local-address>", Desc: "generic recvfrom", Enabled: socketEnabled, Opener: openSocketRecvfrom, OptionCaps: xio.CapsSocketRecvfrom, Kind: kindSock, Role: recvFrom})
 
 	// SCTP
 	sctpEnabled := func() bool { return xio.FeatureSCTP }

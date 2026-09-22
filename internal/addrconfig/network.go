@@ -426,8 +426,13 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 	n := &a.Network
 	n.Kind = a.Facts.Kind
 	n.Role = a.Facts.Role
-	n.IPFamily = a.Facts.Family
-	n.TUNType = TUNTypeTUN
+	// pf= may already have selected a family during option decoding.
+	if !n.ProtocolSet {
+		n.IPFamily = a.Facts.Family
+	}
+	if n.TUNType == 0 {
+		n.TUNType = TUNTypeTUN
+	}
 
 	switch n.Kind {
 	case AddressKindFD:
@@ -439,7 +444,9 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 				if err != nil || proto < 0 || proto > 255 {
 					return fmt.Errorf("%s: bad protocol %q", a.Type, a.Params[0])
 				}
-				n.SocketProtocol = OptionalInt{Set: true, Value: proto}
+				if !n.SocketProtocol.Set {
+					n.SocketProtocol = OptionalInt{Set: true, Value: proto}
+				}
 			}
 		} else if len(a.Params) >= 2 && a.Params[0] != "" && a.Params[1] != "" {
 			proto, err := socketIntText(a.Params[1])
@@ -448,7 +455,9 @@ func decodeNetwork(d *decoder, spec parse.Spec) error {
 			}
 			n.Target = targetFromText(a.Params[0])
 			n.TargetSet = true
-			n.SocketProtocol = OptionalInt{Set: true, Value: proto}
+			if !n.SocketProtocol.Set {
+				n.SocketProtocol = OptionalInt{Set: true, Value: proto}
+			}
 		}
 	case AddressKindVSOCK:
 		return decodeVSOCKPositional(n, a.Type, a.Params)
