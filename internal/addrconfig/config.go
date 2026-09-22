@@ -475,6 +475,11 @@ func decodeShutdown(dst *ShutdownMode, o parse.Option) error {
 	return nil
 }
 
+const (
+	boolValueForms = "0, 1, yes, no, true, or false"
+	intValueForms  = "an integer, or 0, 1, yes, no, true, or false"
+)
+
 // parseBool accepts 0, 1, an omitted value (meaning 1), and yes/no/true/false in any case.
 func parseBool(o parse.Option) (OptionalBool, error) {
 	if !o.Has {
@@ -482,13 +487,13 @@ func parseBool(o parse.Option) (OptionalBool, error) {
 	}
 	value, ok := boolWord(o.Value)
 	if !ok {
-		return OptionalBool{}, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return OptionalBool{}, fmt.Errorf("invalid %s %q (want %s)", o.OriginalSpelling(), o.Value, boolValueForms)
 	}
 	return OptionalBool{Set: true, Value: value}, nil
 }
 
 func boolWord(value string) (bool, bool) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
+	switch strings.ToLower(value) {
 	case "1", "yes", "true":
 		return true, true
 	case "0", "no", "false":
@@ -498,12 +503,41 @@ func boolWord(value string) (bool, bool) {
 	}
 }
 
+// parseIntOrBoolWord accepts an omitted value, a C integer, or yes/no/true/false.
+func parseIntOrBoolWord(o parse.Option, fallback int) (int, error) {
+	if !o.Has {
+		return fallback, nil
+	}
+	if value, ok := boolWord(o.Value); ok {
+		if value {
+			return 1, nil
+		}
+		return 0, nil
+	}
+	n, err := socketIntText(o.Value)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q (want %s)", o.OriginalSpelling(), o.Value, intValueForms)
+	}
+	return n, nil
+}
+
 func setActive(dst *OptionalBool, o parse.Option) error {
 	v, err := parseBool(o)
 	if err != nil {
 		return err
 	}
 	*dst = v
+	return nil
+}
+
+// setFlagInt stores an omitted value as on, a C integer as on when nonzero,
+// and yes/no/true/false as 1 or 0.
+func setFlagInt(dst *OptionalBool, o parse.Option) error {
+	n, err := parseIntOrBoolWord(o, 1)
+	if err != nil {
+		return err
+	}
+	*dst = OptionalBool{Set: true, Value: n != 0}
 	return nil
 }
 

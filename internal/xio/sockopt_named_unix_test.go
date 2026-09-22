@@ -37,7 +37,7 @@ func TestApplySocketOptionsRejectsInvalidNamedIntUnix(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	for _, specText := range []string{
-		"TCP:127.0.0.1:9,dontroute=no",
+		"TCP:127.0.0.1:9,dontroute=bogus",
 	} {
 		spec, err := parse.ParseSpec(specText)
 		if err != nil {

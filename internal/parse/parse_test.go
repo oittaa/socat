@@ -35,7 +35,7 @@ func TestParseTCP4(t *testing.T) {
 	if len(s.Params) != 1 || s.Params[0] != "8080" {
 		t.Fatalf("params %v", s.Params)
 	}
-	if !boolOption(*s, "reuseaddr") || !boolOption(*s, "fork") {
+	if !hasOption(*s, "reuseaddr") || !hasOption(*s, "fork") {
 		t.Fatalf("options %v", s.Options)
 	}
 }
@@ -105,7 +105,7 @@ func TestParseQuotedParam(t *testing.T) {
 	if ch.Single.Params[0] != "echo hello" {
 		t.Fatalf("param %q", ch.Single.Params[0])
 	}
-	if !boolOption(*ch.Single, "pty") {
+	if !hasOption(*ch.Single, "pty") {
 		t.Fatal("missing pty")
 	}
 }
@@ -161,7 +161,7 @@ func TestParseUNIX(t *testing.T) {
 	if s.Type != "UNIX-LISTEN" || s.Params[0] != "/tmp/sock" {
 		t.Fatalf("got %+v", s)
 	}
-	if !boolOption(*s, "unlink-early") {
+	if !hasOption(*s, "unlink-early") {
 		t.Fatal("unlink-early")
 	}
 	if optionValue(*s, "mode", "") != "777" {
@@ -188,11 +188,9 @@ func TestBoolOptionEmptyDisables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasOption(s, "reuseaddr") {
-		t.Fatal("expected HasOption reuseaddr")
-	}
-	if boolOption(s, "reuseaddr") {
-		t.Fatal("so-reuseaddr= must be false")
+	o, ok := optionNamed(s, "reuseaddr")
+	if !ok || !o.Has || o.Value != "" {
+		t.Fatalf("so-reuseaddr= option=%+v ok=%v", o, ok)
 	}
 }
 
@@ -202,7 +200,7 @@ func TestUnlinkDeleteRemoveAliases(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !boolOption(s, "unlink") {
+		if !hasOption(s, "unlink") {
 			t.Fatalf("%s: unlink not set (options=%v)", spec, s.Options)
 		}
 	}
@@ -219,7 +217,7 @@ func TestClassicCompatibilityOptionAliases(t *testing.T) {
 	if got := optionValue(s, "setsockopt-listen", ""); got != "1:2:1" {
 		t.Fatalf("setsockopt-listen=%q", got)
 	}
-	if !boolOption(s, "setlk") {
+	if !hasOption(s, "setlk") {
 		t.Fatal("f-setlk-wr alias did not normalize to setlk")
 	}
 }
@@ -273,7 +271,7 @@ func TestPOSIXMQOptionAliases(t *testing.T) {
 	if optionValue(s, "mq-prio", "") != "3" {
 		t.Fatalf("mq-prio %q", optionValue(s, "mq-prio", ""))
 	}
-	if !boolOption(s, "mq-flush") {
+	if !hasOption(s, "mq-flush") {
 		t.Fatal("mq-flush")
 	}
 	if optionValue(s, "mq-maxmsg", "") != "8" || optionValue(s, "mq-msgsize", "") != "128" {

@@ -271,10 +271,16 @@ address and option spellings are audited automatically. The
 - Boolean options accept `0`, `1`, or an omitted value (meaning `1`). They
   also accept `yes`, `no`, `true`, and `false` in any case. Any other value
   is rejected, including `on`, `off`, `2`, `00`, and an empty `opt=`. Options
-  documented without a value, such as `fork`, `forever`, `ignoreeof`, and
-  `pty`, use the same forms. An empty `reuseaddr=` remains the documented
-  form that skips the setsockopt call. Integer socket options that take a
-  number, such as `ip-ttl`, also accept those four words.
+  documented as `[=<bool>]`, and options documented without a value that are
+  booleans, such as `fork`, `forever`, `ignoreeof`, `pty`, and
+  `ip-transparent`, use the same forms. An empty `reuseaddr=` remains the
+  documented form that skips the setsockopt call.
+- Where the man page shows no value and the value is an integer flag, a C
+  integer is accepted and any nonzero value means on. That includes
+  `keepalive`, `reuseport`, `nodelay`, `so-debug`, `so-dontroute`,
+  `so-oobinline`, `broadcast`, `tcp-cork`, and `ip-freebind`. Those options,
+  and numeric socket options such as `ip-ttl`, also accept `yes`, `no`,
+  `true`, and `false`.
 - `end-close[=<bool>]`, the `close` alias, and `shut-none`, `shut-down`,
   `shut-close`, and `shut-null` accept those boolean forms. Classic C rejects
   explicit `=0` and `=1` despite the man page.

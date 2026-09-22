@@ -49,57 +49,47 @@ func TestDecodeCommonSettings(t *testing.T) {
 	}
 }
 
-func TestBoolOptionGrammar(t *testing.T) {
-	execFacts := Facts{Type: "EXEC", Kind: AddressKindEXEC}
-	openFacts := Facts{Type: "OPEN", Kind: AddressKindFile}
-	ptyFacts := Facts{Type: "PTY"}
-
-	accepts := []struct {
+func TestIntegerFlagsKeepCIntegersAndWords(t *testing.T) {
+	udp := Facts{Type: "UDP4", Kind: AddressKindUDP, Role: AddressRoleConnect, Family: IPFamilyIPv4}
+	checks := []struct {
 		text  string
 		facts Facts
 		want  func(Address) bool
 	}{
-		{"TCP:host:9,fork", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && a.Common.Fork.Value }},
-		{"TCP:host:9,fork=0", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && !a.Common.Fork.Value }},
-		{"TCP:host:9,fork=1", tcpConnect, func(a Address) bool { return a.Common.Fork.Value }},
-		{"TCP:host:9,fork=YES", tcpConnect, func(a Address) bool { return a.Common.Fork.Value }},
-		{"TCP:host:9,fork=no", tcpConnect, func(a Address) bool { return a.Common.Fork.Set && !a.Common.Fork.Value }},
-		{"TCP:host:9,forever=True", tcpConnect, func(a Address) bool { return a.Common.Retry.Forever.Value }},
-		{"TCP:host:9,forever=false", tcpConnect, func(a Address) bool { return a.Common.Retry.Forever.Set && !a.Common.Retry.Forever.Value }},
-		{"TCP:host:9,ignoreeof=No", tcpConnect, func(a Address) bool { return a.Transfer.IgnoreEOF.Set && !a.Transfer.IgnoreEOF.Value }},
-		{"TCP:host:9,null-eof=false", tcpConnect, func(a Address) bool { return a.Transfer.NullEOF.Set && !a.Transfer.NullEOF.Value }},
-		{"TCP:host:9,end-close=yes", tcpConnect, func(a Address) bool { return a.Transfer.EndClose.Value }},
-		{"TCP:host:9,end-close=0", tcpConnect, func(a Address) bool { return a.Transfer.EndClose.Set && !a.Transfer.EndClose.Value }},
-		{"TCP:host:9,shut-close=YES", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
-		{"TCP:host:9,shut-close=1,shut=0", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
+		{"TCP:host:9,keepalive=2", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=00", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && !a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=0x2", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Value }},
+		{"TCP:host:9,keepalive=no", tcpConnect, func(a Address) bool { return a.Network.KeepAlive.Set && !a.Network.KeepAlive.Value }},
+		{"TCP:host:9,reuseport=7", tcpConnect, func(a Address) bool { return a.Network.ReusePort.Value }},
+		{"TCP:host:9,nodelay=false", tcpConnect, func(a Address) bool { return a.Network.NoDelay.Set && !a.Network.NoDelay.Value }},
+		{"TCP:host:9,so-debug=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "so-debug") == 1 }},
+		{"TCP:host:9,so-debug=2", tcpConnect, func(a Address) bool { return actionNumber(a, "so-debug") == 2 }},
+		{"TCP:host:9,dontroute=no", tcpConnect, func(a Address) bool { return actionNumber(a, "so-dontroute") == 0 }},
+		{"TCP:host:9,oobinline=true", tcpConnect, func(a Address) bool { return actionNumber(a, "so-oobinline") == 1 }},
+		{"TCP:host:9,broadcast=7", tcpConnect, func(a Address) bool { return actionNumber(a, "broadcast") == 7 }},
+		{"TCP:host:9,tcp-cork=false", tcpConnect, func(a Address) bool { return actionNumber(a, "tcp-cork") == 0 }},
+		{"TCP:host:9,ip-freebind=no", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-freebind") == 0 }},
+		{"TCP:host:9,ip-ttl=2", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-ttl") == 2 }},
+		{"TCP:host:9,ip-ttl=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-ttl") == 1 }},
+		{"TCP:host:9,so-rcvlowat=no", tcpConnect, func(a Address) bool { return actionNumber(a, "so-rcvlowat") == 0 }},
+		{"TCP:host:9,so-priority=no", tcpConnect, func(a Address) bool { return actionNumber(a, "so-priority") == 0 }},
+		{"TCP:host:9,sctp-nodelay=no", tcpConnect, func(a Address) bool { return actionNumber(a, "sctp-nodelay") == 0 }},
+		{"UDP4:127.0.0.1:9,mcloop=yes", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv4) == 1 }},
+		{"UDP4:127.0.0.1:9,mcloop=no", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv4) == 0 }},
+		{"UDP4:127.0.0.1:9,mcloop6=YES", udp, func(a Address) bool { return multicastValue(a, MulticastLoopIPv6) == 1 }},
+		{"UDP4:127.0.0.1:9,ip-multicast-ttl=0x1", udp, func(a Address) bool { return multicastValue(a, MulticastTTLIPv4) == 1 }},
+		{"UDP4:127.0.0.1:9,ip-multicast-ttl=2", udp, func(a Address) bool { return multicastValue(a, MulticastTTLIPv4) == 2 }},
+		{"TCP:host:9,ip-transparent=yes", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 1 }},
+		{"TCP:host:9,ip-transparent=0", tcpConnect, func(a Address) bool { return actionNumber(a, "ip-transparent") == 0 }},
+		{"TCP:host:9,tcpwrap=0", tcpConnect, func(a Address) bool {
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "0"
+		}},
+		{"TCP:host:9,tcpwrap=no", tcpConnect, func(a Address) bool {
+			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "no"
+		}},
 		{"TCP:host:9,shut-close=1,shut=no", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
-		{"TCP:host:9,shut-close=1,shut=FALSE", tcpConnect, func(a Address) bool { return a.Transfer.Shutdown == ShutdownClose }},
-		{"TCP:host:9,crorlf=false", tcpConnect, func(a Address) bool { return a.Transfer.LineEnding == LineEndingRaw }},
-		{"TCP:host:9,crorlf=1", tcpConnect, func(a Address) bool { return a.Transfer.LineEnding == LineEndingCROrLF }},
-		{"TCP:host:9,ipv6-v6only=false", tcpConnect, func(a Address) bool { return a.Common.IPv6V6Only.Set && !a.Common.IPv6V6Only.Value }},
-		{"TCP:host:9,binary=TRUE", tcpConnect, func(a Address) bool { return a.Common.Binary.Value }},
-		{"TCP:host:9,reuseaddr=0", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Set && !a.Network.ReuseAddr.Value }},
-		{"TCP:host:9,reuseaddr=", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Set && !a.Network.ReuseAddr.Value }},
-		{"TCP:host:9,reuseaddr=yes", tcpConnect, func(a Address) bool { return a.Network.ReuseAddr.Value }},
-		{"TCP:host:9,ip-ttl", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 1 }},
-		{"TCP:host:9,ip-ttl=yes", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 1 }},
-		{"TCP:host:9,ip-ttl=NO", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 0 }},
-		{"TCP:host:9,ip-ttl=2", tcpConnect, func(a Address) bool { return ancillaryNumber(a, "ip-ttl") == 2 }},
-		{"TCP:host:9,tcpwrap=2", tcpConnect, func(a Address) bool {
-			return a.Network.TCPWrap.Set && a.Network.TCPWrap.Value && a.Network.TCPWrapDaemon == "2"
-		}},
-		{"EXEC:true,pty", execFacts, func(a Address) bool { return a.Process.PTY.Set && a.Process.PTY.Value }},
-		{"EXEC:true,pty=no", execFacts, func(a Address) bool { return a.Process.PTY.Set && !a.Process.PTY.Value }},
-		{"EXEC:true,forever", execFacts, func(a Address) bool { return a.Common.Retry.Forever.Value }},
-		{"PTY,echo=yes", ptyFacts, func(a Address) bool { return terminalFlag(a, "echo") }},
-		{"PTY,echo=0", ptyFacts, func(a Address) bool { return !terminalFlag(a, "echo") && len(a.Terminal.Actions) == 1 }},
-		{"OPEN:f,append=no", openFacts, func(a Address) bool { return a.File.AppendSet && !a.File.Append }},
-		{"OPEN:f,cloexec=TRUE", openFacts, func(a Address) bool { return fileFlag(a, FileActionCloexec) }},
-		{"OPEN:f,o-sync=false", openFacts, func(a Address) bool {
-			return len(a.File.Actions) == 1 && !a.File.Actions[0].Enabled
-		}},
 	}
-	for _, tc := range accepts {
+	for _, tc := range checks {
 		got, err := Decode(mustParseSpec(t, tc.text), tc.facts)
 		if err != nil {
 			t.Errorf("%s: %v", tc.text, err)
@@ -111,60 +101,34 @@ func TestBoolOptionGrammar(t *testing.T) {
 	}
 
 	rejects := []struct {
-		text  string
-		facts Facts
+		text string
+		want string
 	}{
-		{"TCP:host:9,fork=2", tcpConnect},
-		{"TCP:host:9,fork=on", tcpConnect},
-		{"TCP:host:9,fork=off", tcpConnect},
-		{"TCP:host:9,fork=00", tcpConnect},
-		{"TCP:host:9,fork=", tcpConnect},
-		{"TCP:host:9,fork=maybe", tcpConnect},
-		{"TCP:host:9,forever=maybe", tcpConnect},
-		{"TCP:host:9,ignoreeof=off", tcpConnect},
-		{"TCP:host:9,ignoreeof=", tcpConnect},
-		{"TCP:host:9,end-close=2", tcpConnect},
-		{"TCP:host:9,end-close=on", tcpConnect},
-		{"TCP:host:9,end-close=", tcpConnect},
-		{"TCP:host:9,shut-close=on", tcpConnect},
-		{"TCP:host:9,shut=off", tcpConnect},
-		{"TCP:host:9,shut=", tcpConnect},
-		{"TCP:host:9,shut=true", tcpConnect},
-		{"TCP:host:9,crorlf=", tcpConnect},
-		{"TCP:host:9,crorlf=on", tcpConnect},
-		{"TCP:host:9,null-eof=00", tcpConnect},
-		{"TCP:host:9,ipv6-v6only=2", tcpConnect},
-		{"TCP:host:9,ipv6-v6only=on", tcpConnect},
-		{"TCP:host:9,binary=", tcpConnect},
-		{"TCP:host:9,binary=maybe", tcpConnect},
-		{"TCP:host:9,reuseaddr=garbage", tcpConnect},
-		{"TCP:host:9,reuseaddr=2", tcpConnect},
-		{"TCP:host:9,reuseaddr=on", tcpConnect},
-		{"TCP:host:9,reuseaddr=00", tcpConnect},
-		{"TCP:host:9,ip-ttl=on", tcpConnect},
-		{"TCP:host:9,ip-ttl=off", tcpConnect},
-		{"TCP:host:9,ip-ttl=", tcpConnect},
-		{"TCP:host:9,ip-recverr=off", tcpConnect},
-		{"EXEC:true,pty=2", execFacts},
-		{"EXEC:true,pty=", execFacts},
-		{"EXEC:true,pty=on", execFacts},
-		{"PTY,echo=off", ptyFacts},
-		{"PTY,echo=2", ptyFacts},
-		{"PTY,echo=", ptyFacts},
-		{"OPEN:f,append=00", openFacts},
-		{"OPEN:f,append=on", openFacts},
-		{"OPEN:f,cloexec=maybe", openFacts},
-		{"OPEN:f,cloexec=", openFacts},
+		{"TCP:host:9,keepalive=on", intValueForms},
+		{"TCP:host:9,so-debug=on", intValueForms},
+		{"TCP:host:9,ip-ttl=on", intValueForms},
+		{"TCP:host:9,ip-ttl=", intValueForms},
+		{"UDP4:127.0.0.1:9,ip-multicast-loop=00", boolValueForms},
+		{"UDP4:127.0.0.1:9,ip-multicast-loop=0x1", boolValueForms},
+		{"UDP4:127.0.0.1:9,mcloop6=2", boolValueForms},
+		{"TCP:host:9,ip-transparent=2", boolValueForms},
+		{"TCP:host:9,ip-transparent=7", boolValueForms},
+		{"TCP:host:9,fork=2", boolValueForms},
+		{"TCP:host:9,shut=off", "want none, down, close, or null"},
 	}
 	for _, tc := range rejects {
-		_, err := Decode(mustParseSpec(t, tc.text), tc.facts)
-		if err == nil {
-			t.Errorf("%s: accepted", tc.text)
+		facts := tcpConnect
+		if strings.HasPrefix(tc.text, "UDP") {
+			facts = udp
+		}
+		_, err := Decode(mustParseSpec(t, tc.text), facts)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: %v", tc.text, err)
 		}
 	}
 }
 
-func ancillaryNumber(a Address, name string) int {
+func actionNumber(a Address, name string) int {
 	for _, action := range a.Network.Actions {
 		if action.Text == name {
 			return action.Number
@@ -173,22 +137,13 @@ func ancillaryNumber(a Address, name string) int {
 	return -1
 }
 
-func terminalFlag(a Address, name string) bool {
-	for _, action := range a.Terminal.Actions {
-		if action.Name == name {
-			return action.Enabled
+func multicastValue(a Address, kind MulticastKind) int {
+	for _, action := range a.Network.Actions {
+		if action.Kind == SocketActionMulticast && action.Multicast.Kind == kind {
+			return action.Multicast.Value
 		}
 	}
-	return false
-}
-
-func fileFlag(a Address, kind FileActionKind) bool {
-	for _, action := range a.File.Actions {
-		if action.Kind == kind {
-			return action.Enabled
-		}
-	}
-	return false
+	return -1
 }
 
 func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {

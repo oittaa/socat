@@ -16,7 +16,7 @@ func TestApplySocketOptionsDetachFilterInvalidLinux(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
-	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,so-detach-filter=no")
+	spec, err := parse.ParseSpec("UDP:127.0.0.1:9,so-detach-filter=bogus")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestApplySocketOptionsDetachFilterInvalidLinux(t *testing.T) {
 	if err == nil {
 		err = ApplySocketOptions(fd, config)
 	}
-	if err == nil || !strings.Contains(err.Error(), "invalid value") {
-		t.Fatalf("err=%v want invalid value", err)
+	if err == nil || !strings.Contains(err.Error(), "want an integer") {
+		t.Fatalf("err=%v want integer forms", err)
 	}
 }

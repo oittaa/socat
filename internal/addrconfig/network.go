@@ -599,14 +599,14 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.SocketProtocol = OptionalInt{Set: true, Value: value}
 		return true, nil
 	case "reuseaddr":
-		if o.Has && strings.TrimSpace(o.Value) == "" {
+		if o.Has && o.Value == "" {
 			// Documented empty form: do not call setsockopt.
 			n.ReuseAddr = OptionalBool{Set: true, Value: false}
 			return true, nil
 		}
 		return true, setActive(&n.ReuseAddr, o)
 	case "reuseport":
-		return true, setActive(&n.ReusePort, o)
+		return true, setFlagInt(&n.ReusePort, o)
 	case "ipv6-v6only":
 		v, err := parseBool(o)
 		a.Common.IPv6V6Only = v
@@ -626,7 +626,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.Backlog = OptionalInt{Set: true, Value: backlog}
 		return true, nil
 	case "keepalive":
-		return true, setActive(&n.KeepAlive, o)
+		return true, setFlagInt(&n.KeepAlive, o)
 	case "keepidle":
 		return true, decodePositiveDuration(&n.KeepIdle, o)
 	case "keepintvl":
@@ -639,7 +639,7 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 		n.KeepCnt = OptionalInt{Set: true, Value: count}
 		return true, nil
 	case "nodelay":
-		return true, setActive(&n.NoDelay, o)
+		return true, setFlagInt(&n.NoDelay, o)
 	}
 	if action, ok, err := socketAction(o, name, kernel); ok {
 		if err != nil {
