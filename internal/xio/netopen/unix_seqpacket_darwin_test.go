@@ -13,7 +13,8 @@ import (
 
 func TestUnixSeqpacketRejectedWhenUnsupported(t *testing.T) {
 	_, _, err := unixSocketNetwork(mustAddr(t, parse.Spec{
-		Type: "UNIX-CONNECT",
+		Type:   "UNIX-CONNECT",
+		Params: []string{"peer.sock"},
 		Options: []parse.Option{{
 			Name:  "socktype",
 			Value: strconv.Itoa(syscall.SOCK_SEQPACKET),
