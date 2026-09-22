@@ -15,15 +15,17 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
+var noticeVisibility = []struct {
+	name    string
+	level   logx.Level
+	visible bool
+}{
+	{"visible", logx.Debug, true},
+	{"hidden below notice", logx.Warning, false},
+}
+
 func TestTCPConnectSuccessLoggedAtNotice(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		level   logx.Level
-		visible bool
-	}{
-		{"visible", logx.Debug, true},
-		{"hidden below notice", logx.Warning, false},
-	} {
+	for _, tc := range noticeVisibility {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx(t)
 			ln := listenLoopback(t)
@@ -41,14 +43,7 @@ func TestTCPConnectSuccessLoggedAtNotice(t *testing.T) {
 }
 
 func TestTCPAcceptLoggedAtNotice(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		level   logx.Level
-		visible bool
-	}{
-		{"visible", logx.Debug, true},
-		{"hidden below notice", logx.Warning, false},
-	} {
+	for _, tc := range noticeVisibility {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx(t)
 			port := reserveLoopbackPort(t)
@@ -237,7 +232,7 @@ func assertEndpointLevel(t *testing.T, text, endpoint string, visible bool) {
 	t.Helper()
 	levels := map[string]bool{}
 	for _, line := range strings.Split(text, "\n") {
-		if endpoint == "" || !strings.Contains(line, endpoint) {
+		if !strings.Contains(line, endpoint) {
 			continue
 		}
 		m := diagnosticSeverity.FindStringSubmatch(line)
