@@ -127,6 +127,93 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 	}
 }
 
+// TestStreamCloseRestoresPTYTermios is the normal-exit path. The relay
+// closes the stream before Opened.Close, so restore has to run from that
+// close while the descriptor is still open.
+func TestStreamCloseRestoresPTYTermios(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close() })
+	fd := int(slave.Fd())
+	dupFD, err := unix.Dup(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = unix.Close(dupFD) })
+	orig, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if orig.Lflag&unix.ECHO == 0 || orig.Lflag&unix.ICANON == 0 {
+		t.Fatalf("pty slave is not cooked: %s", formatTermios(orig))
+	}
+	o, err := NewReady("OPEN", FileStream(slave))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	config := terminalConfig(t, "OPEN,raw,echo=0")
+	if err := AttachConfiguredTermios(o, fd, config); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := getTermios(dupFD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.Lflag&unix.ECHO != 0 || raw.Lflag&unix.ICANON != 0 {
+		t.Fatalf("raw,echo=0 did not clear echo/canonical: %s", formatTermios(raw))
+	}
+	if err := o.Stream().Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := getTermios(dupFD)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !termiosEqual(orig, got) {
+		t.Fatalf("stream close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
+	}
+}
+
+// TestTermiosWrapKeepsEndClose checks that the restore wrapper stays outside
+// end-close without hiding it or closing the descriptor.
+func TestTermiosWrapKeepsEndClose(t *testing.T) {
+	master, slave, err := OpenPTYPair()
+	if err != nil {
+		t.Skipf("pty: %v", err)
+	}
+	t.Cleanup(func() { _ = master.Close() })
+	fd := int(slave.Fd())
+	orig, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := NewReady("OPEN", endCloseStream{Stream: FileStream(slave)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	config := terminalConfig(t, "OPEN,raw,echo=0,end-close")
+	if err := AttachConfiguredTermios(o, fd, config); err != nil {
+		t.Fatal(err)
+	}
+	if !StreamIsEndClose(o.Stream()) {
+		t.Fatal("termios restore wrapper hid end-close")
+	}
+	if err := o.Stream().Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := getTermios(fd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !termiosEqual(orig, got) {
+		t.Fatalf("end-close stream close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(got))
+	}
+}
+
 func exitHookCount() int {
 	unlinkMu.Lock()
 	defer unlinkMu.Unlock()

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/relay"
 	"golang.org/x/sys/unix"
 )
 
@@ -481,7 +482,8 @@ func AttachConfiguredTermios(o *Opened, fd int, config addrconfig.Terminal) erro
 		return nil
 	}
 	// Signal exit calls os.Exit and skips Close. Register the same restore
-	// there, and drop it once Close has restored this fd.
+	// there, and drop it once Close has restored this fd. The relay also
+	// closes the stream before Opened.Close, so that close restores first.
 	cp := *saved
 	var mu sync.Mutex
 	live := true
@@ -499,7 +501,37 @@ func AttachConfiguredTermios(o *Opened, fd int, config addrconfig.Terminal) erro
 		unregister()
 		restore()
 	})
+	o.wrapStreamTTYRestore(restore)
 	return nil
+}
+
+// ttyRestoreStream runs restore before the inner stream closes its descriptor.
+type ttyRestoreStream struct {
+	relay.Stream
+	restore func()
+}
+
+func (s *ttyRestoreStream) Close() error {
+	if s.restore != nil {
+		s.restore()
+	}
+	return s.Stream.Close()
+}
+
+func (s *ttyRestoreStream) UnwrapStream() relay.Stream { return s.Stream }
+
+// IsEndClose keeps end-close visible. Attach runs after WrapAfterFD, so this
+// wrapper is outside endCloseStream.
+func (s *ttyRestoreStream) IsEndClose() bool {
+	return StreamIsEndClose(s.Stream)
+}
+
+func (o *Opened) wrapStreamTTYRestore(restore func()) {
+	p := o.ready()
+	if p == nil || p.stream == nil || restore == nil {
+		return
+	}
+	p.stream = &ttyRestoreStream{Stream: p.stream, restore: restore}
 }
 
 // WaitPTYSlave polls the master until POLLHUP clears (a slave is open).
