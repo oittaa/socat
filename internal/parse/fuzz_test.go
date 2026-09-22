@@ -28,8 +28,8 @@ func FuzzParseSpec(f *testing.F) {
 		if (err == nil) != (err2 == nil) || (err == nil && !reflect.DeepEqual(first, second)) {
 			t.Fatalf("ParseSpec is not deterministic: first=%+v/%v second=%+v/%v", first, err, second, err2)
 		}
-		if err == nil && first.Raw != strings.TrimSpace(input) {
-			t.Fatalf("Raw=%q want %q", first.Raw, strings.TrimSpace(input))
+		if err == nil && first.Raw != trimUnescapedSpace(input) {
+			t.Fatalf("Raw=%q want %q", first.Raw, trimUnescapedSpace(input))
 		}
 	})
 }
@@ -53,8 +53,8 @@ func FuzzParseChannel(f *testing.F) {
 		if (channel.Single == nil) == (channel.Dual == nil) {
 			t.Fatalf("channel must contain exactly one representation: %+v", channel)
 		}
-		if channel.Raw != strings.TrimSpace(input) {
-			t.Fatalf("Raw=%q want %q", channel.Raw, strings.TrimSpace(input))
+		if channel.Raw != trimUnescapedSpace(input) {
+			t.Fatalf("Raw=%q want %q", channel.Raw, trimUnescapedSpace(input))
 		}
 	})
 }
