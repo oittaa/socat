@@ -21,7 +21,7 @@ func init() {
 	xio.FeatureSCTP = true
 }
 
-func listenSCTP(ctx context.Context, network string, ip net.IP, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
+func listenSCTP(ctx context.Context, network string, ip net.IP, zone string, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
 	portNum, err := xio.ResolvePort(network, port)
 	if err != nil {
 		return nil, err
@@ -85,7 +85,7 @@ func listenSCTP(ctx context.Context, network string, ip net.IP, port addrconfig.
 			return nil, fmt.Errorf("ipv6-v6only: %w", err)
 		}
 	}
-	sa, err := ipPortSockaddr(family, ip, portNum)
+	sa, err := ipPortSockaddr(family, ip, portNum, zone)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
@@ -112,16 +112,17 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 	if err != nil {
 		return nil, err
 	}
-	ips, err := xio.ResolveDialIPs(ctx, dest, s, g.Options())
+	addrs, err := xio.ResolveDialAddrs(ctx, dest, s, g.Options())
 	if err != nil {
 		return nil, err
 	}
-	if len(ips) == 0 {
+	if len(addrs) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 	lowport := xio.ClientUsesLowport(s)
 	var lastErr error
-	for _, ip := range ips {
+	for _, addr := range addrs {
+		ip := addr.IP
 		af := 2
 		if !xio.WantIPv4(dest.Network, ip) {
 			af = 10
@@ -144,7 +145,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 			}
 			continue
 		}
-		raddr := &net.TCPAddr{IP: ip, Port: portNum}
+		raddr := &net.TCPAddr{IP: ip, Port: portNum, Zone: addr.Zone}
 		optionNetwork := "sctp4"
 		if !xio.WantIPv4(dest.Network, ip) {
 			optionNetwork = "sctp6"
@@ -194,7 +195,7 @@ func connectSCTP(req dialRequest, laddr, raddr *net.TCPAddr) (net.Conn, error) {
 			return nil, fmt.Errorf("lowport: cannot bind a port in %d-%d: %w", xio.LowportMin, xio.LowportMax, err)
 		}
 	} else if laddr != nil {
-		sa, err := ipPortSockaddr(family, laddr.IP, laddr.Port)
+		sa, err := ipPortSockaddr(family, laddr.IP, laddr.Port, laddr.Zone)
 		if err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
@@ -204,7 +205,7 @@ func connectSCTP(req dialRequest, laddr, raddr *net.TCPAddr) (net.Conn, error) {
 			return nil, fmt.Errorf("sctp bind: %w", err)
 		}
 	}
-	sa, err := ipPortSockaddr(family, raddr.IP, raddr.Port)
+	sa, err := ipPortSockaddr(family, raddr.IP, raddr.Port, raddr.Zone)
 	if err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
@@ -223,8 +224,10 @@ func bindSCTPLowport(fd, family int, laddr *net.TCPAddr, g *xio.Global) (int, er
 	if family == unix.AF_INET6 {
 		ip = net.IPv6zero
 	}
+	zone := ""
 	if laddr != nil && laddr.IP != nil {
 		ip = laddr.IP
+		zone = laddr.Zone
 	}
 	return xio.FirstAvailableLowport(func(port int) error {
 		if g != nil && g.Log != nil {
@@ -234,7 +237,7 @@ func bindSCTPLowport(fd, family int, laddr *net.TCPAddr, g *xio.Global) (int, er
 			}
 			g.Log.Debugf("bind({AF=%d %s:%d}, 16)", af, ip.String(), port)
 		}
-		sa, err := ipPortSockaddr(family, ip, port)
+		sa, err := ipPortSockaddr(family, ip, port, zone)
 		if err != nil {
 			return err
 		}
@@ -296,7 +299,7 @@ func fileConn(fd int, name string) (net.Conn, error) {
 	return c, nil
 }
 
-func ipPortSockaddr(family int, ip net.IP, port int) (unix.Sockaddr, error) {
+func ipPortSockaddr(family int, ip net.IP, port int, zone string) (unix.Sockaddr, error) {
 	if ip == nil {
 		return nil, fmt.Errorf("sctp: empty address")
 	}
@@ -323,6 +326,13 @@ func ipPortSockaddr(family int, ip net.IP, port int) (unix.Sockaddr, error) {
 	}
 	sa := &unix.SockaddrInet6{Port: port}
 	copy(sa.Addr[:], v6)
+	if zone != "" {
+		id, err := ipv6ScopeID(zone)
+		if err != nil {
+			return nil, fmt.Errorf("sctp: %w", err)
+		}
+		sa.ZoneId = id
+	}
 	return sa, nil
 }
 

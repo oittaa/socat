@@ -70,7 +70,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 			network: network,
 			timeout: xio.ConnectTimeout(s),
 			config:  s,
-		}, laddr, raddr)
+		}, laddr, raddr, 0)
 	}
 	if err != nil {
 		return nil, err
@@ -109,7 +109,7 @@ func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 			timeout: xio.ConnectTimeout(s),
 			config:  s,
 			g:       g,
-		}, laddr, remote)
+		}, laddr, remote, 0)
 		return err
 	})
 	if err != nil {

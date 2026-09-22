@@ -68,7 +68,7 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	if len(ips) < 2 {
 		t.Skip("localhost not dual-stack")
 	}
-	if ips[0].To4() != nil {
+	if ips[0].IP.To4() != nil {
 		t.Fatalf("with -6 preference first IP should be v6, got %v", ips)
 	}
 }
@@ -124,11 +124,11 @@ func lowportWildcardBindDenied() bool {
 	return errors.Is(err, syscall.EACCES) || errors.Is(err, syscall.EPERM)
 }
 
-func TestResolveDialIPsRejectsTCP6IPv4Literals(t *testing.T) {
+func TestResolveDialAddrsRejectsTCP6IPv4Literals(t *testing.T) {
 	ctx := context.Background()
 	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
 	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
-		_, err := ResolveDialIPs(ctx, DialTargetFromText("tcp6", host, "9"), config, Options{})
+		_, err := ResolveDialAddrs(ctx, DialTargetFromText("tcp6", host, "9"), config, Options{})
 		if err == nil || !strings.Contains(err.Error(), "not IPv6") {
 			t.Fatalf("%s: err=%v want not IPv6", host, err)
 		}

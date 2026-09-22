@@ -15,7 +15,7 @@ func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string,
 	if err != nil {
 		return "", err
 	}
-	ip, err := ResolveIPTarget(ctx, s, network, host)
+	ip, zone, err := ResolveIPTarget(ctx, s, network, host)
 	if err != nil {
 		return "", err
 	}
@@ -25,7 +25,7 @@ func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string,
 	}
 	formatted := host.String()
 	if ip != nil {
-		formatted = FormatIPForNetwork(network, ip)
+		formatted = formatScopedIP(network, ip, zone)
 	}
 	if formatted == "" {
 		return "", fmt.Errorf("%s: bind requires a host", s.Type)

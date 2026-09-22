@@ -110,7 +110,7 @@ func resolvePROXYConnectHost(ctx context.Context, s addrconfig.Address, target a
 	if len(ips) == 0 {
 		return "", fmt.Errorf("PROXY: resolve target %s: no IPv4 addresses", target.Original())
 	}
-	return ips[0].String(), nil
+	return ips[0].IP.String(), nil
 }
 
 func proxyCONNECTTarget(host string, port int) string {

@@ -207,7 +207,7 @@ func (l *udpDispatchListener) readLoop() {
 		packet := udpForkPacket{
 			data: append([]byte(nil), buf[:rn]...),
 			oob:  append([]byte(nil), oob...),
-			peer: cloneUDPAddr(peer),
+			peer: udpPeerFromNet(peer),
 		}
 		key := peer.String()
 		l.mu.Lock()

@@ -5,6 +5,7 @@ package netopen
 import (
 	"context"
 	"errors"
+	"net"
 	"testing"
 	"time"
 
@@ -45,6 +46,27 @@ func TestSCTPServiceNameHTTP(t *testing.T) {
 	}
 	if n != 80 {
 		t.Fatalf("http=%d", n)
+	}
+}
+
+func TestIPPortSockaddrKeepsIPv6Zone(t *testing.T) {
+	ip := net.ParseIP("fe80::1")
+	sa, err := ipPortSockaddr(unix.AF_INET6, ip, 9, "7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in6, ok := sa.(*unix.SockaddrInet6)
+	if !ok || in6.ZoneId != 7 {
+		t.Fatalf("sockaddr=%#v", sa)
+	}
+	ifi := firstInterface(t)
+	sa, err = ipPortSockaddr(unix.AF_INET6, ip, 9, ifi.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in6, ok = sa.(*unix.SockaddrInet6)
+	if !ok || in6.ZoneId != uint32(ifi.Index) {
+		t.Fatalf("sockaddr=%#v want zone %d", sa, ifi.Index)
 	}
 }
 

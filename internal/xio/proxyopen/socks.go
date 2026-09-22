@@ -132,7 +132,7 @@ func socks4DestIP(ctx context.Context, s addrconfig.Address, target addrconfig.H
 		return [4]byte{}, fmt.Errorf("SOCKS4: resolve %s: %w", target.Original(), err)
 	}
 	for _, ip := range ips {
-		if v4 := ip.To4(); v4 != nil {
+		if v4 := ip.IP.To4(); v4 != nil {
 			var ip4 [4]byte
 			copy(ip4[:], v4)
 			return ip4, nil

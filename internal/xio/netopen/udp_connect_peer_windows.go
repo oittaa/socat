@@ -9,15 +9,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func connectUDPPeerFD(fd uintptr, peer *net.UDPAddr) error {
-	sa, err := udpPeerSockaddr(windows.Handle(fd), peer)
+func connectUDPPeerFD(fd uintptr, peer *net.UDPAddr, scope uint32) error {
+	sa, err := udpPeerSockaddr(windows.Handle(fd), peer, scope)
 	if err != nil {
 		return err
 	}
 	return windows.Connect(windows.Handle(fd), sa)
 }
 
-func udpPeerSockaddr(fd windows.Handle, peer *net.UDPAddr) (windows.Sockaddr, error) {
+func udpPeerSockaddr(fd windows.Handle, peer *net.UDPAddr, scope uint32) (windows.Sockaddr, error) {
 	if peer == nil {
 		return nil, net.ErrClosed
 	}
@@ -27,7 +27,7 @@ func udpPeerSockaddr(fd windows.Handle, peer *net.UDPAddr) (windows.Sockaddr, er
 	}
 	switch local.(type) {
 	case *windows.SockaddrInet6:
-		addr, zone, err := udpPeerIPv6Addr(peer)
+		addr, zone, err := udpPeerIPv6Addr(peer, scope)
 		if err != nil {
 			return nil, err
 		}

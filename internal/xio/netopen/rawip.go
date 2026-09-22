@@ -127,14 +127,14 @@ func parseProtoParam(s addrconfig.Address) (int, error) {
 // resolveRawIPTarget uses a prepared host. Literals skip DNS.
 func resolveRawIPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (*net.IPAddr, error) {
 	if ip := host.IP(); ip != nil {
-		return &net.IPAddr{IP: ip}, nil
+		return &net.IPAddr{IP: ip, Zone: host.Zone()}, nil
 	}
 	name := host.Original()
 	ips, err := xio.LookupIP(ctx, s, ipLookupNet(network), name)
 	if err != nil || len(ips) == 0 {
 		return nil, fmt.Errorf("%s: resolve %q: %w", s.Type, name, err)
 	}
-	return &net.IPAddr{IP: ips[0]}, nil
+	return &net.IPAddr{IP: ips[0].IP, Zone: ips[0].Zone}, nil
 }
 
 func bindRawIPAddr(ctx context.Context, s addrconfig.Address, network string, fallback *net.IPAddr) (*net.IPAddr, error) {

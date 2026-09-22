@@ -52,7 +52,7 @@ func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
 	d.SetMultipathTCP(false)
 	cctx, cancel := c.withTimeout()
 	defer cancel()
-	return d.DialContext(cctx, c.network, formatTCPAddr(c.network, raddr.IP, raddr.Port))
+	return d.DialContext(cctx, c.network, formatTCPAddr(c.network, raddr.IP, raddr.Port, raddr.Zone))
 }
 
 // DialTCPAll resolves dest.Host and tries each address in order.
@@ -64,23 +64,24 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	if err != nil {
 		return nil, err
 	}
-	ips, err := resolveDialIPs(ctx, dest, s, g.Options())
+	addrs, err := ResolveDialAddrs(ctx, dest, s, g.Options())
 	if err != nil {
 		return nil, err
 	}
-	if len(ips) == 0 {
+	if len(addrs) == 0 {
 		return nil, fmt.Errorf("no addresses for %s", host)
 	}
 
 	lowport := ClientUsesLowport(s)
 
 	var lastErr error
-	for _, ip := range ips {
+	for _, addr := range addrs {
+		ip := addr.IP
 		af := afForNetwork(dest.Network, ip)
-		raddr := &net.TCPAddr{IP: ip, Port: portNum}
+		raddr := &net.TCPAddr{IP: ip, Port: portNum, Zone: addr.Zone}
 		if g != nil && g.Log != nil {
 			// "opening connection to AF=2 127.0.0.1:9"
-			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port))
+			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port, raddr.Zone))
 		}
 
 		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, dest.Network)
@@ -111,7 +112,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 			lastErr = err
 			if g != nil && g.Log != nil {
 				// Notice for intermediate failures, Warning for last.
-				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(netw, ip, raddr.Port), err)
+				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(netw, ip, raddr.Port, raddr.Zone), err)
 			}
 			continue
 		}
@@ -128,11 +129,8 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	return nil, lastErr
 }
 
-func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IP, error) {
-	return resolveDialIPs(ctx, dest, s, opts)
-}
-
-func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IP, error) {
+// ResolveDialAddrs resolves dest in try order. Each address keeps its IPv6 zone.
+func ResolveDialAddrs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IPAddr, error) {
 	network := connectIPNetwork(dest.Network)
 	host := StripBrackets(dest.Host.Original())
 	if dest.Host.IsLiteral() {
@@ -143,7 +141,7 @@ func resolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, 
 		if err := rejectConnectIPFamily(network, host, ip); err != nil {
 			return nil, err
 		}
-		return []net.IP{ip}, nil
+		return []net.IPAddr{{IP: ip, Zone: dest.Host.Zone()}}, nil
 	}
 	return resolveConnectIPs(ctx, network, host, s, opts)
 }
@@ -211,9 +209,8 @@ func ResolvePortNum(network, port string) (int, error) {
 	return net.LookupPort(proto, port)
 }
 
-func formatTCPAddr(network string, ip net.IP, port int) string {
-	host := FormatIPForNetwork(network, ip)
-	return net.JoinHostPort(host, strconv.Itoa(port))
+func formatTCPAddr(network string, ip net.IP, port int, zone string) string {
+	return net.JoinHostPort(formatScopedIP(network, ip, zone), strconv.Itoa(port))
 }
 
 func tcpDialNetwork(network string, ip net.IP) string {
@@ -227,14 +224,15 @@ func afForNetwork(network string, ip net.IP) int {
 	return afINET6
 }
 
-// resolveConnectIPs returns remote IPs in try order.
-func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, opts Options) ([]net.IP, error) {
-	// Literal IP: single address, no DNS.
+// resolveConnectIPs returns remote addresses in try order.
+func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, opts Options) ([]net.IPAddr, error) {
+	// Literal IP: single address, no DNS. Typed literals keep their zone in
+	// ResolveDialAddrs; this host string has none.
 	if ip := net.ParseIP(host); ip != nil {
 		if err := rejectConnectIPFamily(network, host, ip); err != nil {
 			return nil, err
 		}
-		return []net.IP{ip}, nil
+		return []net.IPAddr{{IP: ip}}, nil
 	}
 
 	hint := IPHint(network)
@@ -242,14 +240,18 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 	if err != nil {
 		return nil, err
 	}
+	out := make([]net.IPAddr, len(ips))
+	for i, addr := range ips {
+		out[i] = net.IPAddr{IP: addr.IP}
+	}
 
 	// Preference order for dual-stack ("tcp"): explicit ai-passive prefers
 	// IPv6 when set, then -4/-6/-0, the process resolver preference, then
 	// the IPv4 default.
-	if hint == "ip" && len(ips) > 1 {
+	if hint == "ip" && len(out) > 1 {
 		if s.Common.Passive.Value {
-			sort.SliceStable(ips, func(i, j int) bool {
-				return ips[i].To4() == nil && ips[j].To4() != nil
+			sort.SliceStable(out, func(i, j int) bool {
+				return out[i].IP.To4() == nil && out[j].IP.To4() != nil
 			})
 		} else {
 			ver := opts.IPVersion
@@ -258,17 +260,17 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 			}
 			switch ver {
 			case IPv6:
-				sort.SliceStable(ips, func(i, j int) bool {
-					return ips[i].To4() == nil && ips[j].To4() != nil
+				sort.SliceStable(out, func(i, j int) bool {
+					return out[i].IP.To4() == nil && out[j].IP.To4() != nil
 				})
 			case IPv4, IPv4Default:
-				sort.SliceStable(ips, func(i, j int) bool {
-					return ips[i].To4() != nil && ips[j].To4() == nil
+				sort.SliceStable(out, func(i, j int) bool {
+					return out[i].IP.To4() != nil && out[j].IP.To4() == nil
 				})
 			}
 		}
 	}
-	return ips, nil
+	return out, nil
 }
 
 func filterAIAddrConfig(ips []net.IP) []net.IP {
@@ -369,8 +371,8 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 			return nil, false, fmt.Errorf("bind %s: %w", bind.Original(), err)
 		}
 		for _, ip := range all {
-			if WantIPv4(network, ip) == want4 {
-				return &net.TCPAddr{IP: ip, Port: port}, false, nil
+			if WantIPv4(network, ip.IP) == want4 {
+				return &net.TCPAddr{IP: ip.IP, Port: port}, false, nil
 			}
 		}
 		return nil, true, nil
@@ -378,7 +380,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 	if len(ips) == 0 {
 		return nil, true, nil
 	}
-	return &net.TCPAddr{IP: ips[0], Port: port}, false, nil
+	return &net.TCPAddr{IP: ips[0].IP, Port: port}, false, nil
 }
 
 // dialTCPLowport binds a lowport (random start in 640-1023, walk down
@@ -389,15 +391,17 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 	if raddr != nil && !WantIPv4(call.network, raddr.IP) {
 		ip = net.IPv6zero
 	}
+	zone := ""
 	if laddr != nil && laddr.IP != nil {
 		ip = laddr.IP
+		zone = laddr.Zone
 	}
 	var conn net.Conn
 	_, err := FirstAvailableLowport(func(port int) error {
 		if call.g != nil && call.g.Log != nil {
 			call.g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(call.network, ip), FormatIPForNetwork(call.network, ip), port)
 		}
-		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port}, raddr)
+		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port, Zone: zone}, raddr)
 		if err != nil {
 			return err
 		}
