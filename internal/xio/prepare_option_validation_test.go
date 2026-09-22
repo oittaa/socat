@@ -23,33 +23,6 @@ func TestCreateUnknownUserDoesNotCreateFile(t *testing.T) {
 	}
 }
 
-func TestPrepareUserGroupStrtoul(t *testing.T) {
-	prepared, err := xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-hex,user=0x10,group=0x20"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	userRef := preparedOwner(t, prepared, addrconfig.FileActionUser)
-	groupRef := preparedOwner(t, prepared, addrconfig.FileActionGroup)
-	if !userRef.Numeric || userRef.ID != 16 || !groupRef.Numeric || groupRef.ID != 32 {
-		t.Fatalf("user=%+v group=%+v", userRef, groupRef)
-	}
-
-	for _, raw := range []string{
-		"CREATE:/tmp/socat-owner-bad,user=08",
-		"CREATE:/tmp/socat-owner-bad,group=08",
-		"CREATE:/tmp/socat-owner-bad,user=-1",
-	} {
-		_, err := xio.PrepareSpec(mustParseSpec(t, raw))
-		if err == nil {
-			t.Fatalf("%s was accepted", raw)
-		}
-	}
-	_, err = xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-bad,group=nosuchgroup"))
-	if err == nil || !strings.Contains(err.Error(), "no such group") {
-		t.Fatalf("group error=%v", err)
-	}
-}
-
 func TestPrepareProtocolFamily(t *testing.T) {
 	_, err := xio.PrepareSpec(mustParseSpec(t, "TCP4:127.0.0.1:9,pf=ipx"))
 	if err == nil || !strings.Contains(err.Error(), "unknown protocol family") {

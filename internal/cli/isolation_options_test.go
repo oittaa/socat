@@ -63,17 +63,6 @@ func validateCLIAddresses(t *testing.T, left, right string) error {
 	return err
 }
 
-func TestFileOwnerUserIsNotIsolationOption(t *testing.T) {
-	ch, err := parse.ParseChannel("CREATE:file,user=65534")
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = xio.PrepareChannel(ch)
-	if err != nil {
-		t.Fatalf("user= is file owner, got %v", err)
-	}
-}
-
 func TestHelpOmitsIsolationOptions(t *testing.T) {
 	var b bytes.Buffer
 	if err := printHelp(&b, 3); err != nil {

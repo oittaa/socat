@@ -47,12 +47,50 @@ func TestPrepareResolvesOwnerNames(t *testing.T) {
 		t.Fatalf("user %s resolved to %+v", account.Username, owner)
 	}
 
-	prepared, err = xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-group,group=root"))
+	group, err := user.LookupGroupId(account.Gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsAny(group.Name, ":,") {
+		t.Skip("group name contains an address separator")
+	}
+	prepared, err = xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-group,group="+group.Name))
 	if err != nil {
 		t.Fatal(err)
 	}
 	owner = preparedOwner(t, prepared, addrconfig.FileActionGroup)
-	if !owner.Numeric || owner.ID != 0 {
-		t.Fatalf("group root resolved to %+v", owner)
+	gid, err := strconv.Atoi(group.Gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !owner.Numeric || owner.ID != gid {
+		t.Fatalf("group %s resolved to %+v", group.Name, owner)
+	}
+}
+
+func TestPrepareUserGroupStrtoul(t *testing.T) {
+	prepared, err := xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-hex,user=0x10,group=0x20"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	userRef := preparedOwner(t, prepared, addrconfig.FileActionUser)
+	groupRef := preparedOwner(t, prepared, addrconfig.FileActionGroup)
+	if !userRef.Numeric || userRef.ID != 16 || !groupRef.Numeric || groupRef.ID != 32 {
+		t.Fatalf("user=%+v group=%+v", userRef, groupRef)
+	}
+
+	for _, raw := range []string{
+		"CREATE:/tmp/socat-owner-bad,user=08",
+		"CREATE:/tmp/socat-owner-bad,group=08",
+		"CREATE:/tmp/socat-owner-bad,user=-1",
+	} {
+		_, err := xio.PrepareSpec(mustParseSpec(t, raw))
+		if err == nil {
+			t.Fatalf("%s was accepted", raw)
+		}
+	}
+	_, err = xio.PrepareSpec(mustParseSpec(t, "CREATE:/tmp/socat-owner-bad,group=nosuchgroup"))
+	if err == nil || !strings.Contains(err.Error(), "no such group") {
+		t.Fatalf("group error=%v", err)
 	}
 }
