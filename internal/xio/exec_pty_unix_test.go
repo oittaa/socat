@@ -112,7 +112,7 @@ func TestPTYLinkStillCreatesSymlink(t *testing.T) {
 	}
 }
 
-// readExecPtySessionProbe uses a sidecar file for the session/ctty result.
+// readExecPtySessionProbe uses a sidecar file for the sid/pty_sid result.
 // Those tests exercise child process attributes, not PTY data transfer; using
 // PTY stdout made them susceptible to a Darwin master/slave startup race.
 func readExecPtySessionProbe(t *testing.T, bin, spec string) string {
@@ -181,8 +181,7 @@ func buildSidCttyHelper(t *testing.T) string {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "sidtty.c")
 	// pty_sid is the session for which fd 0 (the PTY slave) is the controlling
-	// terminal, or -1 when it is not. open("/dev/tty") is a different question:
-	// it also succeeds for a terminal the child inherited.
+	// terminal, or -1 when it is not.
 	body := `#define _XOPEN_SOURCE 700
 #include <stdio.h>
 #include <termios.h>
