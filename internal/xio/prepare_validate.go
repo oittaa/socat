@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -69,19 +70,46 @@ func rejectPreparedStaticChecks(config addrconfig.Address) error {
 	return rejectPreparedSocketType(config)
 }
 
-// rejectUnusableProtocolFamily fails when pf= names a family this address
-// cannot pass to socket() or getaddrinfo. SOCKET and VSOCK keep the number
-// and apply it themselves. IP addresses only use the IPv4 and IPv6 families.
+// rejectUnusableProtocolFamily fails when pf= is not a family this address
+// passes to socket() or getaddrinfo. SOCKET and VSOCK keep any number.
+// IP addresses pass AF_UNSPEC, AF_INET, and AF_INET6. UNIX, abstract, exec,
+// and SOCKETPAIR pass AF_UNIX. INTERFACE passes AF_PACKET. TUN passes AF_INET.
 func rejectUnusableProtocolFamily(config addrconfig.Address) error {
 	n := config.Network
-	if !n.ProtocolSet || n.IPFamily == addrconfig.IPFamilyIPv4 || n.IPFamily == addrconfig.IPFamilyIPv6 {
-		return nil
-	}
-	switch n.Kind {
-	case addrconfig.AddressKindSocket, addrconfig.AddressKindVSOCK:
+	if !n.ProtocolSet || protocolFamilyPassed(config, n.ProtocolFamily) {
 		return nil
 	}
 	return fmt.Errorf("%s: protocol family %d is not usable", config.Type, n.ProtocolFamily)
+}
+
+func protocolFamilyPassed(config addrconfig.Address, pf int) bool {
+	switch config.Facts.Kind {
+	case addrconfig.AddressKindSocket, addrconfig.AddressKindVSOCK:
+		return true
+	case addrconfig.AddressKindUNIX, addrconfig.AddressKindABSTRACT,
+		addrconfig.AddressKindEXEC, addrconfig.AddressKindSYSTEM, addrconfig.AddressKindSHELL:
+		return pf == syscall.AF_UNIX
+	case addrconfig.AddressKindINTERFACE:
+		return interfaceProtocolFamily(pf)
+	case addrconfig.AddressKindTUN:
+		return pf == syscall.AF_INET
+	}
+	if config.Type == "SOCKETPAIR" {
+		return pf == syscall.AF_UNIX
+	}
+	if passesIPProtocolFamily(config.Facts.Group) {
+		return pf == syscall.AF_UNSPEC || pf == syscall.AF_INET || pf == syscall.AF_INET6
+	}
+	return false
+}
+
+func passesIPProtocolFamily(group string) bool {
+	switch group {
+	case GroupTCP, GroupUDP, GroupSCTP, GroupRawIP, GroupTLS, GroupDTLS, GroupWebSocket, GroupQUIC, GroupProxy:
+		return true
+	default:
+		return false
+	}
 }
 
 func rejectPreparedSocketType(config addrconfig.Address) error {

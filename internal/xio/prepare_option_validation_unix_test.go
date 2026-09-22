@@ -13,6 +13,23 @@ import (
 	_ "github.com/oittaa/socat/internal/xio/all"
 )
 
+func TestPrepareUnixAndExecProtocolFamily(t *testing.T) {
+	for _, raw := range []string{
+		"UNIX-LISTEN:/tmp/socat-pf-unix,pf=1",
+		"UNIX-CONNECT:/tmp/socat-pf-unix,pf=1",
+		"EXEC:/bin/true,pf=1",
+		"SOCKETPAIR,pf=1",
+	} {
+		if _, err := xio.PrepareSpec(mustParseSpec(t, raw)); err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+	}
+	_, err := xio.PrepareSpec(mustParseSpec(t, "UNIX-LISTEN:/tmp/socat-pf-unix,pf=2"))
+	if err == nil || !strings.Contains(err.Error(), "not usable") {
+		t.Fatalf("UNIX pf=2 error=%v", err)
+	}
+}
+
 func TestPrepareResolvesOwnerNames(t *testing.T) {
 	account, err := user.Current()
 	if err != nil {
