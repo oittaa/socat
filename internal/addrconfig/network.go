@@ -502,7 +502,8 @@ func decodeNetworkOption(a *Address, o parse.Option, name, kernel string) (bool,
 	n := &a.Network
 	switch name {
 	case "bind":
-		text, err := requiredString(o)
+		// Presence is required. "" and whitespace stay for the address check.
+		text, err := presentString(o)
 		if err != nil {
 			return true, err
 		}

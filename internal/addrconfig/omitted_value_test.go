@@ -88,6 +88,16 @@ var omittedValueCases = []omittedValueCase{
 	{name: "capath", signature: "capath=<dirname>", spec: "OPENSSL:127.0.0.1:9,capath", facts: tlsFacts, wantErr: `option "capath" requires a value`},
 	{name: "capath=", signature: "capath=<dirname> (empty is a value)", spec: "OPENSSL:127.0.0.1:9,capath=", facts: tlsFacts, check: wantText(func(a Address) OptionalString { return a.TLS.CAPath }, "")},
 	{name: "bind", signature: "bind=<sockname>", spec: "TCP:127.0.0.1:9,bind", facts: tcpConnect, wantErr: `option "bind" requires a value`},
+	{name: "bind=", signature: "bind=<sockname> (empty is a value)", spec: "UNIX-CONNECT:/tmp/x,bind=", facts: unixFacts, check: func(t *testing.T, a Address) {
+		if !a.Network.BindSet || a.Network.Bind.Original() != "" {
+			t.Fatalf("bind=%+v set=%v", a.Network.Bind, a.Network.BindSet)
+		}
+	}},
+	{name: "bind=space", signature: "bind=<sockname> (whitespace is a value)", spec: `UNIX-CONNECT:/tmp/x,bind=" "`, facts: unixFacts, check: func(t *testing.T, a Address) {
+		if !a.Network.BindSet || a.Network.Bind.Original() != " " {
+			t.Fatalf("bind=%+v set=%v", a.Network.Bind, a.Network.BindSet)
+		}
+	}},
 	{name: "bind=1", signature: "bind=<sockname>", spec: "TCP:127.0.0.1:9,bind=1", facts: tcpConnect, check: func(t *testing.T, a Address) {
 		if !a.Network.BindSet || a.Network.Bind.Original() != "1" {
 			t.Fatalf("bind=%+v set=%v", a.Network.Bind, a.Network.BindSet)
