@@ -7,11 +7,13 @@ import (
 	"io"
 	"net"
 	"net/netip"
+	"os"
 	"strconv"
 	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/parse"
 )
 
 func TestDialTCP6LinkLocalZoneNotInvalidArgument(t *testing.T) {
@@ -91,6 +93,37 @@ func TestTCP6LinkLocalZoneRoundTrip(t *testing.T) {
 	if err := <-accepted; err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestDialTCP6LinkLocalLowportRoundTrip(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("requires root (CAP_NET_BIND_SERVICE) to bind a port in 640-1023")
+	}
+	host := linkLocalHost(t)
+	listen := decodeListen(t, "TCP6-LISTEN:0,bind=["+host+"]")
+	addr, err := TCPListenAddress(t.Context(), listen, "tcp6", listen.Network.ListenPort)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := ListenTCP(t.Context(), listen, "tcp6", addr)
+	if err != nil {
+		t.Fatalf("listen %s: %v", addr, err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+
+	spec, err := parse.ParseSpec("TCP6:[" + host + "]:" + port + ",bind=[" + host + "],lowport")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := DialTCPAll(t.Context(), DialTargetFromText("tcp6", "["+host+"]", port), mustDecodeAddress(t, spec), nil, 0, nil)
+	if err != nil {
+		if errors.Is(err, syscall.EINVAL) {
+			t.Fatalf("lowport bind dropped the zone: %v", err)
+		}
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
 }
 
 func linkLocalHost(t *testing.T) string {

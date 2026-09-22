@@ -1,34 +1,20 @@
 package netopen
 
 import (
+	"fmt"
 	"net"
 	"strconv"
-	"sync"
+
+	"github.com/oittaa/socat/internal/xio"
 )
 
-// Successful index-to-name lookups are cached. A failed lookup is not, so a
-// later attempt can still resolve the interface.
-var (
-	zoneNameCache  sync.Map // int -> string
-	zoneIndexCache sync.Map // string -> int
-)
-
-func interfaceNameByIndex(index int) (string, error) {
-	if name, ok := zoneNameCache.Load(index); ok {
-		return name.(string), nil
-	}
-	ifi, err := net.InterfaceByIndex(index)
-	if err != nil {
-		return "", err
-	}
-	zoneNameCache.Store(index, ifi.Name)
-	zoneIndexCache.Store(ifi.Name, index)
-	return ifi.Name, nil
-}
+// lookupInterface resolves a zone name. Tests replace it.
+var lookupInterface = net.InterfaceByName
 
 // udpZoneMatch reports whether two IPv6 zones name the same scope.
 // An empty zone matches only another empty zone. A name and a numeric
 // index match when they refer to the same interface.
+// Fork-session routing uses this comparison.
 func udpZoneMatch(a, b string) bool {
 	if a == b {
 		return true
@@ -41,18 +27,38 @@ func udpZoneMatch(a, b string) bool {
 	return aOK && bOK && ia == ib
 }
 
+// udpZoneIndex resolves a zone for fork-session matching.
+// An interface name is tried before a numeric index.
 func udpZoneIndex(zone string) (int, bool) {
+	if ifi, err := lookupInterface(zone); err == nil && ifi.Index > 0 {
+		return ifi.Index, true
+	}
 	if n, err := strconv.Atoi(zone); err == nil && n > 0 {
 		return n, true
 	}
-	if v, ok := zoneIndexCache.Load(zone); ok {
-		return v.(int), true
+	return 0, false
+}
+
+// ipv6ScopeID resolves a zone to an interface index for a socket address.
+// An interface name is tried before a numeric index.
+func ipv6ScopeID(zone string) (uint32, error) {
+	if zone == "" {
+		return 0, nil
 	}
-	ifi, err := net.InterfaceByName(zone)
-	if err != nil || ifi.Index <= 0 {
-		return 0, false
+	ifi, nameErr := lookupInterface(zone)
+	if nameErr == nil {
+		index, ok := xio.Uint32FromInt(ifi.Index)
+		if !ok || index == 0 {
+			return 0, fmt.Errorf("zone %q: interface index %d out of range", zone, ifi.Index)
+		}
+		return index, nil
 	}
-	zoneIndexCache.Store(zone, ifi.Index)
-	zoneNameCache.Store(ifi.Index, ifi.Name)
-	return ifi.Index, true
+	id, err := strconv.ParseUint(zone, 10, 32)
+	if err == nil {
+		if id == 0 {
+			return 0, fmt.Errorf("zone %q: invalid interface index", zone)
+		}
+		return uint32(id), nil
+	}
+	return 0, fmt.Errorf("zone %q: %w", zone, nameErr)
 }

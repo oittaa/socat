@@ -33,13 +33,6 @@ type acceptNext struct {
 	again bool
 }
 
-func (a *udpForkAccept) logger() *logx.Logger {
-	if a == nil || a.l == nil || a.l.g == nil {
-		return nil
-	}
-	return a.l.g.Log
-}
-
 func acceptAgain() acceptNext         { return acceptNext{again: true} }
 func acceptFail(err error) acceptNext { return acceptNext{err: err} }
 func acceptChild(c net.Conn, err error) acceptNext {
@@ -149,7 +142,7 @@ func (a *udpForkAccept) receiveOpener() udpForkReceive {
 		return udpForkReceive{packet: packet, consumed: true, addr: packet.peer}
 	}
 	rn, readOOB, addr, err := xio.RecvOneCtx(a.l.ctx, func() (int, []byte, *net.UDPAddr, error) {
-		return readUDPForkOpener(a.pc, a.buf, a.wantCtrl, a.oob[:], a.peekDial, a.logger())
+		return readUDPForkOpener(a.pc, a.buf, a.wantCtrl, a.oob[:], a.peekDial)
 	})
 	if err != nil {
 		if a.l.ctx.Err() != nil {
@@ -227,7 +220,7 @@ func (a *udpForkAccept) acceptReuse(addr *net.UDPAddr, packet udpForkPacket, con
 }
 
 func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket, consumed bool, dialErr error) acceptNext {
-	if udpAddrIsPeer(addr, a.failedDialPeer) {
+	if udpForkAddrIsPeer(addr, a.failedDialPeer) {
 		a.failedDialAttempts++
 	} else {
 		a.failedDialPeer = cloneUDPAddr(addr)
@@ -245,12 +238,12 @@ func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket,
 	if !consumed {
 		// Remove the opener that MSG_PEEK left on the socket. Preserve an
 		// unexpected packet rather than dropping a different peer.
-		n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
+		n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 		if dropErr != nil {
 			xio.DrainRecvErrOnError(dropErr, a.recvErr, a.pc, a.l.g)
 			return acceptFail(dropErr)
 		}
-		if ok && !udpAddrIsPeer(peer, addr) {
+		if ok && !udpForkAddrIsPeer(peer, addr) {
 			a.l.appendPending(udpForkPacket{
 				data: append([]byte(nil), a.buf[:n]...),
 				oob:  append([]byte(nil), dropOOB...),
@@ -270,7 +263,7 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, pa
 	if consumed {
 		return udpForkReceive{packet: packet}
 	}
-	rn, oob, peer, ok, err := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
+	rn, oob, peer, ok, err := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 	if err != nil {
 		xio.DrainRecvErrOnError(err, a.recvErr, a.pc, a.l.g)
 		logx.CloseQuiet(conn)
@@ -288,7 +281,7 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, pa
 		oob:  append([]byte(nil), oob...),
 		peer: cloneUDPAddr(peer),
 	}
-	if !udpAddrIsPeer(packet.peer, addr) {
+	if !udpForkAddrIsPeer(packet.peer, addr) {
 		logx.CloseQuiet(conn)
 		a.l.appendPending(packet)
 		if a.l.g != nil && a.l.g.Log != nil {
@@ -303,7 +296,7 @@ func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
 	if len(a.l.pending) > 0 {
 		remaining := make([]udpForkPacket, 0, len(a.l.pending))
 		for _, queued := range a.l.pending {
-			if udpAddrIsPeer(queued.peer, child.peer) {
+			if udpForkAddrIsPeer(queued.peer, child.peer) {
 				appendUDPForkSessionPacket(child, queued)
 			} else {
 				remaining = append(remaining, queued)
@@ -312,7 +305,7 @@ func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
 		a.l.pending = remaining
 	}
 	for range udpForkDrainPacketLimit {
-		n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
+		n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 		if drainErr != nil {
 			xio.DrainRecvErrOnError(drainErr, a.recvErr, a.pc, a.l.g)
 			if a.l.g != nil && a.l.g.Log != nil {
@@ -328,7 +321,7 @@ func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
 			oob:  append([]byte(nil), queuedOOB...),
 			peer: cloneUDPAddr(peer),
 		}
-		if udpAddrIsPeer(peer, child.peer) {
+		if udpForkAddrIsPeer(peer, child.peer) {
 			appendUDPForkSessionPacket(child, queued)
 		} else {
 			a.l.appendPending(queued)

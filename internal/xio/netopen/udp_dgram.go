@@ -250,6 +250,8 @@ func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
 	return u.filter.AllowAddr(addr, u.LocalAddr())
 }
 
+// udpAddrIsPeer reports whether got and want are the same address and port.
+// A scoped peer and an unscoped reply still match.
 func udpAddrIsPeer(got, want *net.UDPAddr) bool {
 	if got == nil || want == nil {
 		return false
@@ -264,7 +266,16 @@ func udpAddrIsPeer(got, want *net.UDPAddr) bool {
 	if len(wi) == 0 {
 		wi = net.IPv4zero
 	}
-	return gi.Equal(wi) && udpZoneMatch(got.Zone, want.Zone)
+	return gi.Equal(wi)
+}
+
+// udpForkAddrIsPeer reports whether got and want belong to one fork session.
+// The IPv6 zone is part of that session.
+func udpForkAddrIsPeer(got, want *net.UDPAddr) bool {
+	if !udpAddrIsPeer(got, want) {
+		return false
+	}
+	return udpZoneMatch(got.Zone, want.Zone)
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {

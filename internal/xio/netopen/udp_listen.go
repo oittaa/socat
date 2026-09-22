@@ -579,7 +579,7 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 			u.drainRecvErr(err)
 			return n, err
 		}
-		if udpAddrIsPeer(addr, u.peer) {
+		if udpForkAddrIsPeer(addr, u.peer) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}
@@ -686,7 +686,7 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 			xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
 			return n, err
 		}
-		if udpAddrIsPeer(addr, u.peer) {
+		if udpForkAddrIsPeer(addr, u.peer) {
 			if u.wantCtrl {
 				xio.ProcessAncillary(oob, u.g)
 			}

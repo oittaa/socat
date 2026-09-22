@@ -34,6 +34,8 @@ type dialCall struct {
 	timeout time.Duration
 	g       *Global
 	control func(network, address string, c syscall.RawConn) error
+	// dial, when set, replaces the TCP dial. Tests use it.
+	dial func(laddr, raddr *net.TCPAddr) (net.Conn, error)
 }
 
 func (c dialCall) withTimeout() (context.Context, context.CancelFunc) {
@@ -44,6 +46,9 @@ func (c dialCall) withTimeout() (context.Context, context.CancelFunc) {
 }
 
 func (c dialCall) dialTCP(laddr, raddr *net.TCPAddr) (net.Conn, error) {
+	if c.dial != nil {
+		return c.dial(laddr, raddr)
+	}
 	d := &net.Dialer{
 		Timeout:   c.timeout,
 		LocalAddr: laddr,
@@ -64,7 +69,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	if err != nil {
 		return nil, err
 	}
-	addrs, err := resolveDialAddrs(ctx, dest, s, g.Options())
+	addrs, err := ResolveDialAddrs(ctx, dest, s, g.Options())
 	if err != nil {
 		return nil, err
 	}
@@ -129,25 +134,8 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 	return nil, lastErr
 }
 
-func ResolveDialIPs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IP, error) {
-	addrs, err := resolveDialAddrs(ctx, dest, s, opts)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]net.IP, len(addrs))
-	for i, addr := range addrs {
-		out[i] = addr.IP
-	}
-	return out, nil
-}
-
-// ipAndZone is one dial candidate. Zone is the IPv6 scope, or empty.
-type ipAndZone struct {
-	IP   net.IP
-	Zone string
-}
-
-func resolveDialAddrs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]ipAndZone, error) {
+// ResolveDialAddrs resolves dest in try order. Each address keeps its IPv6 zone.
+func ResolveDialAddrs(ctx context.Context, dest DialTarget, s addrconfig.Address, opts Options) ([]net.IPAddr, error) {
 	network := connectIPNetwork(dest.Network)
 	host := StripBrackets(dest.Host.Original())
 	if dest.Host.IsLiteral() {
@@ -158,7 +146,7 @@ func resolveDialAddrs(ctx context.Context, dest DialTarget, s addrconfig.Address
 		if err := rejectConnectIPFamily(network, host, ip); err != nil {
 			return nil, err
 		}
-		return []ipAndZone{{IP: ip, Zone: dest.Host.Zone()}}, nil
+		return []net.IPAddr{{IP: ip, Zone: dest.Host.Zone()}}, nil
 	}
 	return resolveConnectIPs(ctx, network, host, s, opts)
 }
@@ -242,13 +230,14 @@ func afForNetwork(network string, ip net.IP) int {
 }
 
 // resolveConnectIPs returns remote addresses in try order.
-func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, opts Options) ([]ipAndZone, error) {
-	// Literal IP: single address, no DNS. Keeps an IPv6 zone.
-	if ip, zone, ok := scopedLiteral(host); ok {
+func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.Address, opts Options) ([]net.IPAddr, error) {
+	// Literal IP: single address, no DNS. Typed literals keep their zone in
+	// ResolveDialAddrs; this host string has none.
+	if ip := net.ParseIP(host); ip != nil {
 		if err := rejectConnectIPFamily(network, host, ip); err != nil {
 			return nil, err
 		}
-		return []ipAndZone{{IP: ip, Zone: zone}}, nil
+		return []net.IPAddr{{IP: ip}}, nil
 	}
 
 	hint := IPHint(network)
@@ -256,9 +245,9 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 	if err != nil {
 		return nil, err
 	}
-	out := make([]ipAndZone, len(ips))
+	out := make([]net.IPAddr, len(ips))
 	for i, addr := range ips {
-		out[i] = ipAndZone{IP: addr.IP, Zone: addr.Zone}
+		out[i] = net.IPAddr{IP: addr.IP}
 	}
 
 	// Preference order for dual-stack ("tcp"): explicit ai-passive prefers
@@ -388,7 +377,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 		}
 		for _, ip := range all {
 			if WantIPv4(network, ip.IP) == want4 {
-				return &net.TCPAddr{IP: ip.IP, Port: port, Zone: ip.Zone}, false, nil
+				return &net.TCPAddr{IP: ip.IP, Port: port}, false, nil
 			}
 		}
 		return nil, true, nil
@@ -396,7 +385,7 @@ func BindTCPAddrForRemote(ctx context.Context, remote net.IP, s addrconfig.Addre
 	if len(ips) == 0 {
 		return nil, true, nil
 	}
-	return &net.TCPAddr{IP: ips[0].IP, Port: port, Zone: ips[0].Zone}, false, nil
+	return &net.TCPAddr{IP: ips[0].IP, Port: port}, false, nil
 }
 
 // dialTCPLowport binds a lowport (random start in 640-1023, walk down
@@ -407,15 +396,17 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 	if raddr != nil && !WantIPv4(call.network, raddr.IP) {
 		ip = net.IPv6zero
 	}
+	zone := ""
 	if laddr != nil && laddr.IP != nil {
 		ip = laddr.IP
+		zone = laddr.Zone
 	}
 	var conn net.Conn
 	_, err := FirstAvailableLowport(func(port int) error {
 		if call.g != nil && call.g.Log != nil {
 			call.g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(call.network, ip), FormatIPForNetwork(call.network, ip), port)
 		}
-		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port}, raddr)
+		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port, Zone: zone}, raddr)
 		if err != nil {
 			return err
 		}

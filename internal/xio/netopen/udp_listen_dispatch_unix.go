@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strconv"
 
-	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
 	"golang.org/x/sys/unix"
 )
@@ -17,7 +15,7 @@ func udpForkUsesPeekDial() bool { return true }
 
 // readUDPForkOpener leaves UDP-LISTEN's opener queued until the connected
 // child is bound. UDP-RECVFROM remains a consuming, one-shot receive.
-func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, peek bool, log *logx.Logger) (int, []byte, *net.UDPAddr, error) {
+func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, peek bool) (int, []byte, *net.UDPAddr, error) {
 	if !peek {
 		return xio.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
 	}
@@ -50,14 +48,14 @@ func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byt
 	if recvErr != nil {
 		return n, nil, nil, recvErr
 	}
-	addr, err := udpAddrFromSockaddr(from, log)
+	addr, err := udpAddrFromSockaddr(from)
 	if err != nil {
 		return n, nil, nil, err
 	}
 	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
-func readQueuedUDPForkPacket(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, log *logx.Logger) (int, []byte, *net.UDPAddr, bool, error) {
+func readQueuedUDPForkPacket(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte) (int, []byte, *net.UDPAddr, bool, error) {
 	if len(oobBuffer) < xio.AncillaryBufferSize && wantCtrl {
 		oobBuffer = make([]byte, xio.AncillaryBufferSize)
 	}
@@ -89,30 +87,17 @@ func readQueuedUDPForkPacket(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer
 	if recvErr != nil {
 		return n, nil, nil, false, recvErr
 	}
-	addr, err := udpAddrFromSockaddr(from, log)
+	addr, err := udpAddrFromSockaddr(from)
 	if err != nil {
 		return n, nil, nil, false, err
 	}
 	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, true, nil
 }
 
-func udpAddrFromSockaddr(sa unix.Sockaddr, log *logx.Logger) (*net.UDPAddr, error) {
+func udpAddrFromSockaddr(sa unix.Sockaddr) (*net.UDPAddr, error) {
 	addr, ok := packetAddrFromSockaddr(sa).(*net.UDPAddr)
 	if !ok {
 		return nil, fmt.Errorf("UDP fork opener: unexpected peer address %T", sa)
 	}
-	if addr.Zone == "" {
-		return addr, nil
-	}
-	index, err := strconv.Atoi(addr.Zone)
-	if err != nil {
-		return addr, nil
-	}
-	name, err := interfaceNameByIndex(index)
-	if err != nil {
-		log.Warningf("UDP link-local zone %d: %v", index, err)
-		return addr, nil
-	}
-	addr.Zone = name
 	return addr, nil
 }

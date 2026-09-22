@@ -80,11 +80,11 @@ func openSCTPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	if err != nil {
 		return nil, err
 	}
-	ip, _, err := xio.ResolveIPTarget(ctx, s, network, host)
+	ip, zone, err := xio.ResolveIPTarget(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}
-	ln, err := listenSCTP(ctx, network, ip, port, s)
+	ln, err := listenSCTP(ctx, network, ip, zone, port, s)
 	if err != nil {
 		return nil, err
 	}

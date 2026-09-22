@@ -3,12 +3,10 @@
 package netopen
 
 import (
-	"bytes"
 	"net"
 	"strconv"
 	"testing"
 
-	"github.com/oittaa/socat/internal/logx"
 	"golang.org/x/sys/unix"
 )
 
@@ -20,10 +18,7 @@ func TestUDPAddrFromSockaddrKeepsNumericZone(t *testing.T) {
 	addr[15] = 1
 	sa := &unix.SockaddrInet6{Port: 9, Addr: addr, ZoneId: index}
 
-	var buf bytes.Buffer
-	log := logx.New()
-	log.SetOutput(&buf)
-	got, err := udpAddrFromSockaddr(sa, log)
+	got, err := udpAddrFromSockaddr(sa)
 	if err != nil {
 		t.Fatalf("missing interface index aborted the listener path: %v", err)
 	}
@@ -31,32 +26,22 @@ func TestUDPAddrFromSockaddrKeepsNumericZone(t *testing.T) {
 	if got.Zone != want {
 		t.Fatalf("zone=%q want numeric %s", got.Zone, want)
 	}
-	if !bytes.Contains(buf.Bytes(), []byte(want)) {
-		t.Fatalf("log %q does not mention zone %s", buf.String(), want)
-	}
 }
 
-func TestUDPAddrFromSockaddrNamesRealInterface(t *testing.T) {
+func TestUDPAddrFromSockaddrKeepsRealInterfaceIndex(t *testing.T) {
 	ifi := firstInterface(t)
 	var addr [16]byte
 	addr[0] = 0xfe
 	addr[1] = 0x80
 	addr[15] = 1
 	sa := &unix.SockaddrInet6{Port: 9, Addr: addr, ZoneId: uint32(ifi.Index)}
-	got, err := udpAddrFromSockaddr(sa, nil)
+	got, err := udpAddrFromSockaddr(sa)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Zone != ifi.Name {
-		t.Fatalf("zone=%q want %s", got.Zone, ifi.Name)
-	}
-	// The name lookup is cached: a second call still returns the name.
-	again, err := udpAddrFromSockaddr(sa, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if again.Zone != ifi.Name {
-		t.Fatalf("cached zone=%q want %s", again.Zone, ifi.Name)
+	want := strconv.Itoa(ifi.Index)
+	if got.Zone != want {
+		t.Fatalf("zone=%q want numeric %s", got.Zone, want)
 	}
 }
 
@@ -65,7 +50,7 @@ func TestUDPAddrFromSockaddrIgnoresUnscoped(t *testing.T) {
 	var addr [4]byte
 	copy(addr[:], ip)
 	sa := &unix.SockaddrInet4{Port: 9, Addr: addr}
-	got, err := udpAddrFromSockaddr(sa, nil)
+	got, err := udpAddrFromSockaddr(sa)
 	if err != nil {
 		t.Fatal(err)
 	}

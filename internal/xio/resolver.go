@@ -136,7 +136,7 @@ func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, hos
 		return "", nil, "", fmt.Errorf("resolve %s: no addresses", name)
 	}
 	ip := ips[0]
-	return DialNetwork(network, ip.IP), ip.IP, ip.Zone, nil
+	return DialNetwork(network, ip.IP), ip.IP, "", nil
 }
 
 // PacketNetworkForHost returns the packet/dial network for a hostname lookup.
