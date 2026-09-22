@@ -33,8 +33,13 @@ focused tests, README exceptions, and parity reports.
 
 ## Classic socat compatibility
 
-Remain compatible with official classic socat unless a difference is an
-intentional, documented security exception.
+Follow the man page (`doc/socat.yo` from the pinned classic release) over
+classic socat's implementation. Do not reproduce classic bugs or
+backwards-compatibility quirks. Where `doc/socat.yo` does not specify
+behavior, match classic's implementation. Deviate from the man page only
+when that deviation is explicitly documented in a call-site comment, the
+README, or AGENTS.md. Ask before introducing a new deviation from the man
+page.
 
 Official repository:
 
@@ -43,26 +48,43 @@ Official repository:
 
 Use the latest released tag as the primary baseline and current master as the
 secondary baseline. Record exact commits and report release/master differences
-before implementing.
-
-Read `doc/socat.yo` from the same tag or commit. Do not use third-party source
-or man-page mirrors when the official repository is available.
+before implementing. Read `doc/socat.yo` from that tag or commit. Do not use
+third-party source or man-page mirrors when the official repository is
+available.
 
 Treat the man page as the documented interface. For `[=<bool>]`, accept `0`,
-`1`, or omission meaning `1`. If documentation and implementation disagree,
-report it before choosing behavior.
+`1`, or omission meaning `1`.
+
+Go-only extensions (for example Go duration syntax, or
+`yes`/`no`/`true`/`false` booleans) are a superset only. Every documented
+classic form must still be accepted, and each extension must be documented
+in the README.
+
+Decode command-line, address, and option values once, during parsing and
+preparation, into typed values (bools, enums, numbers, durations). Subsystems
+must not re-parse option strings. Validate before side effects such as
+creating files or opening sockets.
+
+Malformed values, missing required values, and options that do not apply to
+an address fail with an error. Do not fall back or ignore them. Unrecognized
+environment-variable values are the exception: log a warning and use the
+default.
+
+Access-control and security filters (for example tcpwrap) fail closed on
+syntax they do not support.
 
 Document security deviations in the README under “Intentional differences from
 classic socat” or “Unsupported / security-related”, and add a short comment at
-the relevant call site. Ask before introducing any other incompatibility.
+the relevant call site.
 
 Run `make classic-parity` for compatibility-changing work. It compares against
 the pinned release and reviewed master in `scripts/classic-baseline.json`.
 Review master drift before updating that file.
 
 Do not commit official source extracts, binaries, generated catalogs, or
-`-hhh`/`-V` dumps. Compatibility classifications belong in
-`scripts/classic-policy.json`.
+`-hhh`/`-V` dumps. Classify name-level differences (omitted, extra,
+parser-only, or per-OS) in `scripts/classic-policy.json` with a reason.
+Document behavior differences per the man-page rule above.
 
 Ordinary `make check` must remain independent of repo.or.cz.
 
