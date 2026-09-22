@@ -33,6 +33,13 @@ type acceptNext struct {
 	again bool
 }
 
+func (a *udpForkAccept) logger() *logx.Logger {
+	if a == nil || a.l == nil || a.l.g == nil {
+		return nil
+	}
+	return a.l.g.Log
+}
+
 func acceptAgain() acceptNext         { return acceptNext{again: true} }
 func acceptFail(err error) acceptNext { return acceptNext{err: err} }
 func acceptChild(c net.Conn, err error) acceptNext {
@@ -142,7 +149,7 @@ func (a *udpForkAccept) receiveOpener() udpForkReceive {
 		return udpForkReceive{packet: packet, consumed: true, addr: packet.peer}
 	}
 	rn, readOOB, addr, err := xio.RecvOneCtx(a.l.ctx, func() (int, []byte, *net.UDPAddr, error) {
-		return readUDPForkOpener(a.pc, a.buf, a.wantCtrl, a.oob[:], a.peekDial)
+		return readUDPForkOpener(a.pc, a.buf, a.wantCtrl, a.oob[:], a.peekDial, a.logger())
 	})
 	if err != nil {
 		if a.l.ctx.Err() != nil {
@@ -238,7 +245,7 @@ func (a *udpForkAccept) noteDialFailure(addr *net.UDPAddr, packet udpForkPacket,
 	if !consumed {
 		// Remove the opener that MSG_PEEK left on the socket. Preserve an
 		// unexpected packet rather than dropping a different peer.
-		n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
+		n, dropOOB, peer, ok, dropErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
 		if dropErr != nil {
 			xio.DrainRecvErrOnError(dropErr, a.recvErr, a.pc, a.l.g)
 			return acceptFail(dropErr)
@@ -263,7 +270,7 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *net.UDPAddr, pa
 	if consumed {
 		return udpForkReceive{packet: packet}
 	}
-	rn, oob, peer, ok, err := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
+	rn, oob, peer, ok, err := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
 	if err != nil {
 		xio.DrainRecvErrOnError(err, a.recvErr, a.pc, a.l.g)
 		logx.CloseQuiet(conn)
@@ -305,7 +312,7 @@ func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
 		a.l.pending = remaining
 	}
 	for range udpForkDrainPacketLimit {
-		n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
+		n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:], a.logger())
 		if drainErr != nil {
 			xio.DrainRecvErrOnError(drainErr, a.recvErr, a.pc, a.l.g)
 			if a.l.g != nil && a.l.g.Log != nil {

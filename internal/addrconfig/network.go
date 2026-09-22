@@ -85,11 +85,20 @@ func (t HostTarget) IsIPv4Literal() bool {
 }
 
 // IP is the typed literal, or nil when the host must be resolved.
+// An IPv6 zone is not part of net.IP; use Zone.
 func (t HostTarget) IP() net.IP {
 	if !t.IsLiteral() {
 		return nil
 	}
 	return t.Literal.AsSlice()
+}
+
+// Zone is the IPv6 scope of a literal address, or empty.
+func (t HostTarget) Zone() string {
+	if !t.IsLiteral() {
+		return ""
+	}
+	return t.Literal.Zone()
 }
 
 // String returns the original address spelling without brackets.

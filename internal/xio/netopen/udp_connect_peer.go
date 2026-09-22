@@ -3,6 +3,7 @@ package netopen
 import (
 	"fmt"
 	"net"
+	"strconv"
 
 	"github.com/oittaa/socat/internal/xio"
 )
@@ -51,6 +52,12 @@ func udpPeerIPv6Addr(peer *net.UDPAddr) ([16]byte, uint32, error) {
 	copy(addr[:], ip6)
 	if peer.Zone == "" || peer.IP.To4() != nil {
 		return addr, 0, nil
+	}
+	if id, err := strconv.ParseUint(peer.Zone, 10, 32); err == nil {
+		if id == 0 {
+			return addr, 0, fmt.Errorf("UDP connect: zone %q: invalid interface index", peer.Zone)
+		}
+		return addr, uint32(id), nil
 	}
 	ifi, err := net.InterfaceByName(peer.Zone)
 	if err != nil {

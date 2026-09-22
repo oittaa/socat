@@ -376,7 +376,7 @@ func TestLookupIPWithoutAIAllKeepsNativeOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) != 1 || !ips[0].Equal(net.ParseIP("2001:db8::1")) {
+	if len(ips) != 1 || !ips[0].IP.Equal(net.ParseIP("2001:db8::1")) {
 		t.Fatalf("without ai-all ips=%v want only 2001:db8::1", ips)
 	}
 }
@@ -393,7 +393,7 @@ func TestLookupIPAIAllWithoutV4MappedDoesNotMap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) != 1 || !ips[0].Equal(net.ParseIP("2001:db8::1")) {
+	if len(ips) != 1 || !ips[0].IP.Equal(net.ParseIP("2001:db8::1")) {
 		t.Fatalf("ai-all without ai-v4mapped ips=%v want only native IPv6", ips)
 	}
 }
@@ -429,7 +429,7 @@ func TestResUseVCZeroTruncatedUDPRetriesTCP(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) != 1 || !ips[0].Equal(net.IPv4(127, 0, 0, 1)) {
+	if len(ips) != 1 || !ips[0].IP.Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("LookupIP=%v", ips)
 	}
 	if udp, tcp := server.udpQueries.Load(), server.tcpQueries.Load(); udp != 1 || tcp != 1 {
@@ -467,7 +467,7 @@ func TestLookupIPAIPassivePrefersIPv6OnUnspecifiedHint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) < 2 || ips[0].To4() != nil {
+	if len(ips) < 2 || ips[0].IP.To4() != nil {
 		t.Fatalf("ai-passive hint=ip ips=%v want IPv6 first", ips)
 	}
 }
@@ -480,12 +480,12 @@ func TestLookupDialIPAIPassivePrefersIPv6(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true}, parse.Option{Name: "ai-passive"})
-	netw, ip, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", addrconfig.HostFromText("passive-udp.test"))
+	netw, ip, zone, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", addrconfig.HostFromText("passive-udp.test"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if netw != "udp6" || ip.To4() != nil {
-		t.Fatalf("LookupDialIP udp+ai-passive = %s %v want udp6 IPv6", netw, ip)
+	if netw != "udp6" || ip.To4() != nil || zone != "" {
+		t.Fatalf("LookupDialIP udp+ai-passive = %s %v zone %q want udp6 IPv6", netw, ip, zone)
 	}
 }
 
@@ -503,7 +503,7 @@ func TestResolveConnectIPsUsesTypedPreferenceAndCLIOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) < 2 || ips[0].To4() != nil {
+	if len(ips) < 2 || ips[0].IP.To4() != nil {
 		t.Fatalf("process preference ips=%v want IPv6 first", ips)
 	}
 
@@ -511,7 +511,7 @@ func TestResolveConnectIPsUsesTypedPreferenceAndCLIOverride(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ips) < 2 || ips[0].To4() == nil {
+	if len(ips) < 2 || ips[0].IP.To4() == nil {
 		t.Fatalf("CLI override ips=%v want IPv4 first", ips)
 	}
 }

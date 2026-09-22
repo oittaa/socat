@@ -37,6 +37,15 @@ func FormatIPForNetwork(network string, ip net.IP) string {
 	return ip.String()
 }
 
+// formatScopedIP is FormatIPForNetwork with an IPv6 zone appended.
+func formatScopedIP(network string, ip net.IP, zone string) string {
+	host := FormatIPForNetwork(network, ip)
+	if zone == "" || ip == nil || ip.To4() != nil {
+		return host
+	}
+	return host + "%" + zone
+}
+
 // WantIPv4 reports whether ip is used as AF_INET on network.
 // IPv4-mapped AI_V4MAPPED results have a To4() form; Go cannot Dial them on
 // *6 networks ("no suitable address found"), so they stay AF_INET.
@@ -110,30 +119,31 @@ func MatchLocalPacketAddr(network string, laddr net.Addr) (net.Addr, error) {
 
 // LookupDialIP resolves host for network. Literals keep network. Hostnames
 // may switch *6 to *4 after AI_V4MAPPED (README Intentional differences).
-func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, error) {
+// zone is the IPv6 scope, or empty.
+func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, string, error) {
 	if host.IsLiteral() {
-		return network, host.IP(), nil
+		return network, host.IP(), host.Zone(), nil
 	}
 	name := host.String()
 	if name == "" {
-		return network, nil, nil
+		return network, nil, "", nil
 	}
 	ips, err := LookupIP(ctx, s, IPHint(network), name)
 	if err != nil {
-		return "", nil, err
+		return "", nil, "", err
 	}
 	if len(ips) == 0 {
-		return "", nil, fmt.Errorf("resolve %s: no addresses", name)
+		return "", nil, "", fmt.Errorf("resolve %s: no addresses", name)
 	}
 	ip := ips[0]
-	return DialNetwork(network, ip), ip, nil
+	return DialNetwork(network, ip.IP), ip.IP, ip.Zone, nil
 }
 
 // PacketNetworkForHost returns the packet/dial network for a hostname lookup.
 // QUIC and PROXY HTTP/3 call this before binding UDP so an AI_V4MAPPED result
 // can switch udp6 to udp4. Literals keep network.
 func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, error) {
-	netw, _, err := LookupDialIP(ctx, s, network, host)
+	netw, _, _, err := LookupDialIP(ctx, s, network, host)
 	return netw, err
 }
 
@@ -205,18 +215,13 @@ func ipv6Only(addrs []net.IP) []net.IP {
 //
 // IPv4-mapped results are dialed as AF_INET: Go unmaps ::ffff: addresses
 // (README Intentional differences / ai-v4mapped dial family).
-func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]net.IP, error) {
+func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]net.IPAddr, error) {
 	host = StripBrackets(host)
 	if host == "" {
 		return nil, nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		return []net.IP{ip}, nil
-	}
-	if strings.Contains(host, "%") {
-		if addr, err := netip.ParseAddr(host); err == nil {
-			return []net.IP{addr.AsSlice()}, nil
-		}
+	if ip, zone, ok := scopedLiteral(host); ok {
+		return []net.IPAddr{{IP: ip, Zone: zone}}, nil
 	}
 
 	resolver := LookupResolver(s)
@@ -242,7 +247,30 @@ func LookupIP(ctx context.Context, s addrconfig.Address, hint, host string) ([]n
 	if hint == "ip" && s.Common.Passive.Value && len(ips) > 1 {
 		preferIPv6First(ips)
 	}
-	return ips, nil
+	return asIPAddrs(ips), nil
+}
+
+// scopedLiteral parses one IP literal. Unscoped results keep net.ParseIP's
+// representation. A zone is set only for a scoped IPv6 literal.
+func scopedLiteral(host string) (net.IP, string, bool) {
+	if addr, err := netip.ParseAddr(host); err == nil && addr.Zone() != "" {
+		raw := addr.AsSlice()
+		ip := make(net.IP, len(raw))
+		copy(ip, raw)
+		return ip, addr.Zone(), true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip, "", true
+	}
+	return nil, "", false
+}
+
+func asIPAddrs(ips []net.IP) []net.IPAddr {
+	out := make([]net.IPAddr, len(ips))
+	for i, ip := range ips {
+		out[i] = net.IPAddr{IP: ip}
+	}
+	return out
 }
 
 func lookupIPv6Mapped(ctx context.Context, config addrconfig.Address, resolver *net.Resolver, host string) ([]net.IP, error) {
@@ -287,29 +315,27 @@ func finishMappedLookup(config addrconfig.Address, host string, ips []net.IP) ([
 }
 
 // ResolveIPTarget resolves one host with the resolver scoped to s. Literals
-// skip DNS.
-func ResolveIPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (net.IP, error) {
+// skip DNS. The zone is the IPv6 scope, or empty.
+func ResolveIPTarget(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (net.IP, string, error) {
 	if host.IsLiteral() {
-		return host.IP(), nil
+		return host.IP(), host.Zone(), nil
 	}
 	name := host.String()
 	if name == "" {
-		return nil, nil
+		return nil, "", nil
 	}
-	if strings.Contains(name, "%") {
-		if addr, err := netip.ParseAddr(name); err == nil {
-			return addr.AsSlice(), nil
-		}
+	if ip, zone, ok := scopedLiteral(name); ok {
+		return ip, zone, nil
 	}
 	hint := IPHint(network)
 	ips, err := LookupIP(ctx, s, hint, name)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %s: %w", name, err)
+		return nil, "", fmt.Errorf("resolve %s: %w", name, err)
 	}
 	if len(ips) == 0 {
-		return nil, fmt.Errorf("resolve %s: no addresses", name)
+		return nil, "", fmt.Errorf("resolve %s: no addresses", name)
 	}
-	return ips[0], nil
+	return ips[0].IP, ips[0].Zone, nil
 }
 
 // ResolveUDPTarget resolves a typed host and port. Literal IPs never reach
@@ -322,18 +348,18 @@ func ResolveUDPTarget(ctx context.Context, s addrconfig.Address, network string,
 	if host.IsLiteral() {
 		return udpAddrFromHost(network, host, n), nil
 	}
-	_, ip, err := LookupDialIP(ctx, s, network, host)
+	_, ip, zone, err := LookupDialIP(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}
 	if ip == nil {
 		return &net.UDPAddr{Port: n}, nil
 	}
-	return udpAddrFromIP(network, ip, n, ""), nil
+	return udpAddrFromIP(network, ip, n, zone), nil
 }
 
 func udpAddrFromHost(network string, host addrconfig.HostTarget, port int) *net.UDPAddr {
-	return udpAddrFromIP(network, host.IP(), port, host.Literal.Zone())
+	return udpAddrFromIP(network, host.IP(), port, host.Zone())
 }
 
 func udpAddrFromIP(network string, ip net.IP, port int, zone string) *net.UDPAddr {

@@ -68,7 +68,7 @@ func TestResolveOrderIPv6First(t *testing.T) {
 	if len(ips) < 2 {
 		t.Skip("localhost not dual-stack")
 	}
-	if ips[0].To4() != nil {
+	if ips[0].IP.To4() != nil {
 		t.Fatalf("with -6 preference first IP should be v6, got %v", ips)
 	}
 }

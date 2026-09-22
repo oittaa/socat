@@ -80,7 +80,7 @@ func openSCTPListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	if err != nil {
 		return nil, err
 	}
-	ip, err := xio.ResolveIPTarget(ctx, s, network, host)
+	ip, _, err := xio.ResolveIPTarget(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}

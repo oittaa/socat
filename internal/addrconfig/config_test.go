@@ -682,6 +682,25 @@ func TestDecodeSourceMulticastGroupIfaceSource(t *testing.T) {
 	}
 }
 
+func TestHostTargetZone(t *testing.T) {
+	host := HostFromText("[fe80::1%eth0]")
+	if !host.IsLiteral() {
+		t.Fatal("scoped IPv6 literal")
+	}
+	if got := host.Zone(); got != "eth0" {
+		t.Fatalf("zone=%q", got)
+	}
+	if host.IP().String() != "fe80::1" {
+		t.Fatalf("ip=%v", host.IP())
+	}
+	if HostFromText("127.0.0.1").Zone() != "" {
+		t.Fatal("IPv4 zone")
+	}
+	if HostFromText("example.com").Zone() != "" {
+		t.Fatal("hostname zone")
+	}
+}
+
 func TestHostTargetIsIPv4Literal(t *testing.T) {
 	if !HostFromText("127.0.0.1").IsIPv4Literal() {
 		t.Fatal("IPv4 literal")

@@ -264,7 +264,7 @@ func udpAddrIsPeer(got, want *net.UDPAddr) bool {
 	if len(wi) == 0 {
 		wi = net.IPv4zero
 	}
-	return gi.Equal(wi)
+	return gi.Equal(wi) && udpZoneMatch(got.Zone, want.Zone)
 }
 
 func (u *udpDatagramConn) Write(p []byte) (int, error) {
