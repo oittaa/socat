@@ -152,7 +152,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 		_ = safeCloseLn()
 	}
 	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
-		g.Log.Infof("accepted connection from %s", conn.RemoteAddr())
+		g.Log.Noticef("accepted connection from %s", conn.RemoteAddr())
 	}
 	if err := rememberAccepted(g, conn, sess.AfterAccept); err != nil {
 		logx.CloseQuiet(conn)

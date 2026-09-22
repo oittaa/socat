@@ -75,7 +75,7 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 		}
 	}
 	if d.LogOK && g != nil && g.Log != nil {
-		g.Log.Infof("successfully connected from %s to %s%s", conn.LocalAddr(), conn.RemoteAddr(), d.LogSuffix)
+		g.Log.Noticef("successfully connected from %s to %s%s", conn.LocalAddr(), conn.RemoteAddr(), d.LogSuffix)
 	}
 	st, err := wrap(conn)
 	if err != nil {

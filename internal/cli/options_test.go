@@ -70,7 +70,10 @@ func TestEnvironmentOptions(t *testing.T) {
 	t.Setenv("USER", "fallback-user")
 	t.Setenv("SHELL", "/bin/test-shell")
 
-	opts, mainWait := environmentOptions()
+	opts, mainWait, warnings := environmentOptions()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings=%v", warnings)
+	}
 	if opts.DefaultListenIPVersion != xio.IPv6 || opts.PreferredResolveIPVersion != xio.IPvAny {
 		t.Fatalf("IP defaults=%v/%v", opts.DefaultListenIPVersion, opts.PreferredResolveIPVersion)
 	}
@@ -82,7 +85,10 @@ func TestEnvironmentOptions(t *testing.T) {
 	}
 
 	t.Setenv("LOGNAME", "")
-	opts, _ = environmentOptions()
+	opts, _, warnings = environmentOptions()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings=%v", warnings)
+	}
 	if opts.SOCKSUser != "fallback-user" {
 		t.Fatalf("USER fallback=%q", opts.SOCKSUser)
 	}
