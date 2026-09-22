@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
+	"os"
 	"sync"
 	"time"
 
@@ -516,6 +517,64 @@ func (s *ttyRestoreStream) Close() error {
 		s.restore()
 	}
 	return s.Stream.Close()
+}
+
+// ShutdownWrite restores when the half-close closes the descriptor.
+// shut-none, shut-down, shut-null, and end-close leave it open.
+func (s *ttyRestoreStream) ShutdownWrite() error {
+	if s.restore != nil && halfCloseCloses(s.Stream) {
+		s.restore()
+	}
+	return s.Stream.ShutdownWrite()
+}
+
+// halfCloseCloses reports whether ShutdownWrite closes the descriptor.
+func halfCloseCloses(s relay.Stream) bool {
+	cur := any(s)
+	for range 32 {
+		if cur == nil {
+			return false
+		}
+		switch x := cur.(type) {
+		case endCloseStream, shutNoneStream, shutDownStream, shutNullStream:
+			return false
+		case *shutCloseStream:
+			return true
+		case relay.FDStream:
+			if x.CloseW == nil {
+				return false
+			}
+			if f, ok := x.C.(*os.File); ok {
+				return fileHalfCloseCloses(f)
+			}
+			// readbytes and similar forward ShutdownWrite to the inner stream.
+			next, ok := x.W.(relay.Stream)
+			if !ok || next == nil || next == cur {
+				return true
+			}
+			cur = next
+		case interface{ UnwrapStream() relay.Stream }:
+			next := x.UnwrapStream()
+			if next == nil || next == cur {
+				return false
+			}
+			cur = next
+		default:
+			return false
+		}
+	}
+	return false
+}
+
+// fileHalfCloseCloses matches FileStream: sockets and regular files stay
+// open, and other descriptors are closed to deliver EOF.
+func fileHalfCloseCloses(f *os.File) bool {
+	st, err := f.Stat()
+	if err != nil {
+		return true
+	}
+	mode := st.Mode()
+	return !mode.IsRegular() && mode&os.ModeSocket == 0
 }
 
 func (s *ttyRestoreStream) UnwrapStream() relay.Stream { return s.Stream }
