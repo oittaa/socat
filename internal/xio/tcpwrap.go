@@ -13,10 +13,12 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 // tcpwrapLookupTimeout bounds one peer's reverse lookup so a silent
@@ -312,17 +314,11 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	parent := ctx
 	lookupCtx, cancel := context.WithTimeout(parent, tcpwrapLookupTimeout)
 	defer cancel()
-	names, err := resolver.LookupAddr(lookupCtx, ipStr)
+	name, err := lookupPTRName(lookupCtx, resolver, ipStr)
 	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
 		return "", nameUnknown, deadlineErr
 	}
-	if len(names) == 0 {
-		if dnsInvalidName(err) {
-			return "", nameParanoid, nil
-		}
-		return "", nameUnknown, nil
-	}
-	name := strings.TrimSuffix(names[0], ".")
+	name = strings.TrimSuffix(name, ".")
 	if name == "" {
 		return "", nameUnknown, nil
 	}
@@ -341,7 +337,7 @@ func lookupHostStatus(ctx context.Context, resolver *net.Resolver, ipStr string)
 	if err != nil && !dnsNotFound(err) {
 		return "", nameParanoid, nil
 	}
-	ips, err := resolver.LookupIP(lookupCtx, "ip", name)
+	ips, err := resolver.LookupIP(lookupCtx, "ip", rootedDNSName(name))
 	if deadlineErr := lookupDeadline(parent, lookupCtx, err); deadlineErr != nil {
 		return "", nameUnknown, deadlineErr
 	}
@@ -389,17 +385,134 @@ func rootedDNSName(name string) string {
 }
 
 func numericDNSName(name string) bool {
-	return net.ParseIP(name) != nil
+	addr, err := netip.ParseAddr(strings.TrimSuffix(name, "."))
+	return err == nil && addr.IsValid()
+}
+
+// lookupPTRName returns the first PTR. LookupAddr drops names that are not
+// domain names, including a numeric address, so the name is read from the
+// DNS answer and then checked with netip.ParseAddr.
+func lookupPTRName(ctx context.Context, resolver *net.Resolver, ipStr string) (string, error) {
+	if resolver == nil {
+		resolver = net.DefaultResolver
+	}
+	var mu sync.Mutex
+	var pkts [][]byte
+	save := func(b []byte) {
+		if len(b) == 0 {
+			return
+		}
+		mu.Lock()
+		pkts = append(pkts, append([]byte(nil), b...))
+		mu.Unlock()
+	}
+	wrapped := &net.Resolver{
+		PreferGo:     true,
+		StrictErrors: resolver.StrictErrors,
+		Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+			c, err := dialDNS(ctx, resolver, network, address)
+			if err != nil {
+				return nil, err
+			}
+			if pc, ok := c.(net.PacketConn); ok {
+				return &ptrTap{Conn: c, pc: pc, save: save}, nil
+			}
+			return &ptrTapStream{Conn: c, save: save}, nil
+		},
+	}
+	names, err := wrapped.LookupAddr(ctx, ipStr)
+	mu.Lock()
+	defer mu.Unlock()
+	for _, pkt := range pkts {
+		if name := firstPTRName(pkt); name != "" {
+			return name, nil
+		}
+	}
+	if len(names) > 0 {
+		return names[0], nil
+	}
+	return "", err
+}
+
+func dialDNS(ctx context.Context, resolver *net.Resolver, network, address string) (net.Conn, error) {
+	if resolver != nil && resolver.Dial != nil {
+		return resolver.Dial(ctx, network, address)
+	}
+	var d net.Dialer
+	return d.DialContext(ctx, network, address)
+}
+
+type ptrTap struct {
+	net.Conn
+	pc   net.PacketConn
+	save func([]byte)
+}
+
+func (t *ptrTap) Read(b []byte) (int, error) {
+	n, err := t.Conn.Read(b)
+	if n > 0 && t.save != nil {
+		t.save(b[:n])
+	}
+	return n, err
+}
+
+func (t *ptrTap) ReadFrom(p []byte) (int, net.Addr, error) { return t.pc.ReadFrom(p) }
+
+func (t *ptrTap) WriteTo(p []byte, addr net.Addr) (int, error) { return t.pc.WriteTo(p, addr) }
+
+type ptrTapStream struct {
+	net.Conn
+	save func([]byte)
+}
+
+func (t *ptrTapStream) Read(b []byte) (int, error) {
+	n, err := t.Conn.Read(b)
+	if n > 0 && t.save != nil {
+		t.save(b[:n])
+	}
+	return n, err
+}
+
+func firstPTRName(msg []byte) string {
+	if name := ptrFromMessage(msg); name != "" {
+		return name
+	}
+	if len(msg) > 2 {
+		return ptrFromMessage(msg[2:])
+	}
+	return ""
+}
+
+func ptrFromMessage(msg []byte) string {
+	var parser dnsmessage.Parser
+	if _, err := parser.Start(msg); err != nil {
+		return ""
+	}
+	if err := parser.SkipAllQuestions(); err != nil {
+		return ""
+	}
+	for {
+		hdr, err := parser.AnswerHeader()
+		if err != nil {
+			return ""
+		}
+		if hdr.Type != dnsmessage.TypePTR {
+			if err := parser.SkipAnswer(); err != nil {
+				return ""
+			}
+			continue
+		}
+		rec, err := parser.PTRResource()
+		if err != nil {
+			return ""
+		}
+		return rec.PTR.String()
+	}
 }
 
 func dnsNotFound(err error) bool {
 	var dnsErr *net.DNSError
 	return errors.As(err, &dnsErr) && dnsErr.IsNotFound
-}
-
-func dnsInvalidName(err error) bool {
-	var dnsErr *net.DNSError
-	return errors.As(err, &dnsErr) && dnsErr.Err == "DNS response contained records which contain invalid names"
 }
 
 func (e *endpoint) dnsName() (string, nameStatus, error) {
@@ -467,16 +580,15 @@ func parseHostsTable(r io.Reader) (hostsTable, error) {
 			return table, nil
 		}
 		// A backslash before CRLF is part of the line. Only a backslash
-		// before a bare LF continues the line.
+		// before a bare LF continues the line. The backslash and a
+		// carriage return both count toward the 2046-byte limit.
 		crlf := strings.HasSuffix(phys, "\r")
-		phys = strings.TrimSuffix(phys, "\r")
 		if !crlf && strings.HasSuffix(phys, `\`) {
-			piece := phys[:len(phys)-1]
-			if len(pending)+len(piece) > hostsAccessLineMax {
+			if len(pending)+len(phys) > hostsAccessLineMax {
 				table.frame = hostsSyntax("line too long")
 				return table, nil
 			}
-			pending += piece
+			pending += phys[:len(phys)-1]
 			continued = true
 			continue
 		}
@@ -484,6 +596,7 @@ func parseHostsTable(r io.Reader) (hostsTable, error) {
 			table.frame = hostsSyntax("line too long")
 			return table, nil
 		}
+		phys = strings.TrimSuffix(phys, "\r")
 		if continued {
 			table.lines = append(table.lines, pending+phys)
 			pending = ""
@@ -623,7 +736,7 @@ func applyOptions(options []string, fromAllow bool, log *logx.Logger) (accessVer
 			}
 			noteIgnoredOption(log, key)
 		case "rfc931":
-			if value != "" && !validNumber(value, false) {
+			if value != "" && !positiveDecimal(value) {
 				return verdictNone, hostsSyntax(opt)
 			}
 			noteIgnoredOption(log, key)
@@ -689,7 +802,7 @@ func validSeverity(value string) bool {
 
 func syslogLevel(s string) bool {
 	switch s {
-	case "emerg", "alert", "crit", "err", "error", "warning", "warn", "notice", "info", "debug":
+	case "emerg", "alert", "crit", "err", "warning", "notice", "info", "debug":
 		return true
 	default:
 		return false
@@ -698,7 +811,7 @@ func syslogLevel(s string) bool {
 
 func syslogFacility(s string) bool {
 	switch s {
-	case "kern", "user", "mail", "daemon", "auth", "syslog", "lpr", "news", "uucp", "cron", "authpriv", "ftp":
+	case "kern", "user", "mail", "daemon", "auth", "lpr", "news", "uucp", "cron":
 		return true
 	}
 	if strings.HasPrefix(s, "local") && len(s) == len("local")+1 && s[len("local")] >= '0' && s[len("local")] <= '7' {
@@ -719,6 +832,20 @@ func validUmask(value string) bool {
 		n = n*8 + int(c-'0')
 	}
 	return n <= 0o777
+}
+
+func positiveDecimal(value string) bool {
+	if !validNumber(value, false) {
+		return false
+	}
+	n := 0
+	for _, c := range value {
+		n = n*10 + int(c-'0')
+		if n > 1_000_000_000 {
+			return true
+		}
+	}
+	return n > 0
 }
 
 func validNumber(value string, negative bool) bool {
@@ -799,9 +926,9 @@ func matchListAt(tokens []string, i *int, match func(string) (bool, error)) (boo
 	return false, nil
 }
 
-// splitHostsRule splits "daemon : client [ : options ]". A backslash escapes
-// the next byte only inside the option field, so "\:" is a literal colon there
-// and a field separator before that.
+// splitHostsRule splits "daemon : client [ : options ]". Only "\:" in the
+// option field is a literal colon. Any other backslash is kept, and every
+// colon splits an option.
 func splitHostsRule(line string) (daemonList, clientList string, options []string, hasOpt bool, err error) {
 	dEnd := indexHostsColon(line, false)
 	if dEnd < 0 {
@@ -824,33 +951,18 @@ func splitHostsRule(line string) (daemonList, clientList string, options []strin
 func splitOptionField(raw string) ([]string, error) {
 	var parts []string
 	var b strings.Builder
-	depth := 0
 	for i := 0; i < len(raw); i++ {
-		c := raw[i]
-		if c == '\\' && i+1 < len(raw) {
-			b.WriteByte(raw[i+1])
+		if raw[i] == '\\' && i+1 < len(raw) && raw[i+1] == ':' {
+			b.WriteByte(':')
 			i++
 			continue
 		}
-		switch c {
-		case '[':
-			depth++
-			b.WriteByte(c)
-		case ']':
-			if depth > 0 {
-				depth--
-			}
-			b.WriteByte(c)
-		case ':':
-			if depth == 0 {
-				parts = append(parts, strings.TrimSpace(b.String()))
-				b.Reset()
-				continue
-			}
-			b.WriteByte(c)
-		default:
-			b.WriteByte(c)
+		if raw[i] == ':' {
+			parts = append(parts, strings.TrimSpace(b.String()))
+			b.Reset()
+			continue
 		}
+		b.WriteByte(raw[i])
 	}
 	parts = append(parts, strings.TrimSpace(b.String()))
 	return parts, nil
@@ -1153,11 +1265,19 @@ func matchV4(netTok, maskTok string, ep *endpoint) (bool, error) {
 	} else {
 		return false, hostsSyntax(netTok + "/" + maskTok)
 	}
+	// 255.255.255.255 is INADDR_NONE from inet_addr, so it never matches.
+	if network == [4]byte{255, 255, 255, 255} {
+		return false, nil
+	}
 	if ep.ip == nil {
 		return false, nil
 	}
 	ip4 := ep.ip.To4()
 	if ip4 == nil {
+		return false, nil
+	}
+	// inet_addr returns INADDR_NONE for this address, so a net/mask never matches it.
+	if ip4[0] == 255 && ip4[1] == 255 && ip4[2] == 255 && ip4[3] == 255 {
 		return false, nil
 	}
 	var got [4]byte

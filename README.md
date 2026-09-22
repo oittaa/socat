@@ -339,13 +339,15 @@ rule wins. Access is granted when neither file matches. Patterns are
 case-insensitive. Only a `#` in column 0 starts a comment. A newline
 after a backslash continues the rule. A backslash before CRLF does not.
 A final line with no newline, a logical line longer than 2046 bytes
-(including continuations), a continuation at the end of the file, and a
+(including continuations, the continuation backslash, and a carriage
+return), a continuation at the end of the file, and a
 NUL byte are errors: the rest of that `hosts.allow` is ignored, and
 `hosts.deny` denies every peer that did not match an earlier line.
 Those errors are logged.
 
-The optional third field is a colon-separated options list. `\:` is a
-literal colon only in that field. An empty option field denies the
+The optional third field is a colon-separated options list. Only `\:`
+in that field is a literal colon; any other backslash is kept, and
+every colon starts another option. An empty option field denies the
 peer. `allow` and `deny` decide the rule, take no value, and must be
 the last option. The keyword ends at the first `=`, space, tab, or
 newline. `twist` and `aclexec` are not executed, so those rules deny
@@ -371,7 +373,9 @@ Supported patterns:
   decimal, octal with a leading `0`, or hex with a leading `0x`. The
   peer address masked with that mask must equal the pattern address,
   so host bits in the pattern must be zero. Prefix length `/0` and a
-  dotted mask of `255.255.255.255` are rejected. `/32` and a dotted
+  dotted mask of `255.255.255.255` are rejected. A network address of
+  `255.255.255.255` never matches, and that peer address never matches
+  a net/mask pattern. `/32` and a dotted
   mask of `0.0.0.0` are accepted
 - IPv6 `[address]/prefixlen`. Only the prefix bits are compared
 - `LOCAL`, `KNOWN`, `UNKNOWN`, and `PARANOID`. `PARANOID` matches a

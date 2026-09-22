@@ -555,6 +555,70 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 			ip:    "127.0.0.1",
 		},
 		{
+			name:  "severity warn is not a libwrap level",
+			allow: "socat: 127.0.0.1: severity warn\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "severity error is not a libwrap level",
+			allow: "socat: 127.0.0.1: severity error\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "severity authpriv is not a libwrap facility",
+			allow: "socat: 127.0.0.1: severity authpriv.info\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "rfc931 zero denies",
+			allow: "socat: 127.0.0.1: rfc931 0\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "option colon inside brackets still splits",
+			allow: "socat: 127.0.0.1: spawn echo [ : deny\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "backslash does not spell allow",
+			deny: "socat: 127.0.0.1: all\\ow\n",
+			ip:   "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "umask with a backslash denies",
+			allow: "socat: 127.0.0.1: umask 0\\22\n",
+			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
+		},
+		{
+			name:  "all-ones network does not match",
+			allow: "socat: 255.255.255.255/32\n",
+			deny:  "ALL: ALL\n",
+			ip:    "255.255.255.255", wantDeny: true,
+		},
+		{
+			name:  "all-ones peer does not match a zero mask",
+			allow: "socat: 0.0.0.0/0.0.0.0\n",
+			deny:  "ALL: ALL\n",
+			ip:    "255.255.255.255", wantDeny: true,
+		},
+		{
+			name:  "zero mask still matches another peer",
+			allow: "socat: 0.0.0.0/0.0.0.0\n",
+			deny:  "ALL: ALL\n",
+			ip:    "10.1.1.1",
+		},
+		{
+			name: "all-ones peer does not match a containing net",
+			deny: "socat: 255.255.255.0/24\n",
+			ip:   "255.255.255.255",
+		},
+		{
+			name:  "exact all-ones host still matches",
+			allow: "socat: 255.255.255.255\n",
+			deny:  "ALL: ALL\n",
+			ip:    "255.255.255.255",
+		},
+		{
 			name:  "umask must be octal",
 			allow: "socat: 127.0.0.1: umask 999\n",
 			ip:    "127.0.0.1", wantDeny: true, wantSyntax: true,
@@ -699,6 +763,21 @@ func TestTCPWrapHostsAccessPatterns(t *testing.T) {
 		{
 			name:  "line of 2047 bytes is ignored",
 			allow: "socat: 127.0.0.1" + strings.Repeat(" ", hostsAccessLineMax-len("socat: 127.0.0.1")+1) + "\n",
+			deny:  "ALL: ALL\n",
+			ip:    "127.0.0.1", wantDeny: true,
+		},
+		{
+			name: "continued pieces of 2046 bytes are ignored",
+			allow: func() string {
+				content := "socat: 127.0.0.1" + strings.Repeat(" ", 2046-len("socat: 127.0.0.1"))
+				return content[:1023] + "\\\n" + content[1023:] + "\\\n\n"
+			}(),
+			deny: "ALL: ALL\n",
+			ip:   "127.0.0.1", wantDeny: true,
+		},
+		{
+			name:  "carriage return counts toward the line limit",
+			allow: "socat: 127.0.0.1" + strings.Repeat(" ", 2045-len("socat: 127.0.0.1")) + "\\\n \r\n",
 			deny:  "ALL: ALL\n",
 			ip:    "127.0.0.1", wantDeny: true,
 		},
@@ -948,15 +1027,18 @@ func TestTCPWrapLocalAccountOptionIsNotExecuted(t *testing.T) {
 	if _, err := user.Lookup(account.Username); err != nil {
 		t.Skip("current account name is not resolvable by user.Lookup")
 	}
-	group, err := user.LookupGroupId(account.Gid)
-	if err != nil {
-		t.Skip("current account group id is not resolvable by user.LookupGroupId")
+	line := "socat: 127.0.0.1: user " + escapeHostsOption(account.Username)
+	if group, gerr := user.LookupGroupId(account.Gid); gerr == nil && group.Name != "" && !strings.ContainsAny(group.Name, " \t:") {
+		if _, err := user.LookupGroup(group.Name); err == nil {
+			line += " : group " + escapeHostsOption(group.Name)
+		}
 	}
+	line += "\n"
 	var buf bytes.Buffer
 	lg := logx.New()
 	lg.SetOutput(&buf)
 	lg.SetLevel(logx.Warning)
-	cfg := writeWrapTables(t, "socat: 127.0.0.1: user "+account.Username+" : group "+group.Name+"\n", "ALL: ALL\n")
+	cfg := writeWrapTables(t, line, "ALL: ALL\n")
 	err = tcpwrapAllowedWithResolver(context.Background(), nil, cfg, tcpPeer(t, "127.0.0.1", ""), nil, lg)
 	if err != nil {
 		t.Fatal(err)
@@ -964,6 +1046,26 @@ func TestTCPWrapLocalAccountOptionIsNotExecuted(t *testing.T) {
 	if buf.Len() == 0 {
 		t.Fatal("account option produced no warning")
 	}
+}
+
+func TestTCPWrapOptionBackslashKeepsWindowsAccount(t *testing.T) {
+	parts, err := splitOptionField(` user HOST\runneradmin : spawn echo [ : deny`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{`user HOST\runneradmin`, "spawn echo [", "deny"}
+	if len(parts) != len(want) {
+		t.Fatalf("parts=%q", parts)
+	}
+	for i := range want {
+		if parts[i] != want[i] {
+			t.Fatalf("parts=%q", parts)
+		}
+	}
+}
+
+func escapeHostsOption(s string) string {
+	return strings.ReplaceAll(s, ":", `\:`)
 }
 
 func TestTCPWrapRefusalIncludesPeer(t *testing.T) {
