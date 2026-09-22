@@ -17,7 +17,7 @@ import (
 func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	// PTY takes no positional parameters (PTY::::: probes / PTY_VOIDARG).
 	if len(s.Params) > 0 {
-		return nil, fmt.Errorf("PTY: wrong number of parameters (expected 0)")
+		return nil, addrconfig.WrongParameterCount(s.Type, len(s.Params), 0, 0)
 	}
 	master, slave, err := xio.OpenPTYPair()
 	if err != nil {

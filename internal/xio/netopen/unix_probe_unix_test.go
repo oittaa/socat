@@ -3,7 +3,7 @@
 package netopen
 
 import (
-	"context"
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -15,7 +15,8 @@ func TestUnixListenClassicAddressProbeFails(t *testing.T) {
 	if err != nil {
 		return
 	}
-	if _, err := openUnixListen(context.Background(), mustAddr(t, *ch.Single), xio.ModeRDWR, nil); err == nil {
-		t.Fatal("UNIX-LISTEN::::: unexpectedly opened a listener")
+	_, err = xio.PrepareSpec(*ch.Single)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (5 instead of 1)") {
+		t.Fatalf("UNIX-LISTEN::::: err=%v", err)
 	}
 }

@@ -83,7 +83,7 @@ func TestDecodeNamedFileAndPOSIXMQPaths(t *testing.T) {
 	}
 
 	_, err = Decode(parse.Spec{Type: "POSIXMQ", Params: []string{"a", "b"}}, Facts{Type: "POSIXMQ", Kind: AddressKindPOSIXMQ})
-	if err == nil || !strings.Contains(err.Error(), "too many parameters") {
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters") {
 		t.Fatalf("extra posixmq params: %v", err)
 	}
 }

@@ -144,7 +144,7 @@ func TestUnixgramUnnamedAndNamedPeerMatch(t *testing.T) {
 }
 
 func TestUnixgramConnReadDoesNotHangOnEOF(t *testing.T) {
-	c, err := listenUnixgramUnbound(mustAddr(t, parse.Spec{Type: "UNIX-SENDTO"}))
+	c, err := listenUnixgramUnbound(mustAddr(t, parse.Spec{Type: "UNIX-SENDTO", Params: []string{"peer.sock"}}))
 	if err != nil {
 		t.Fatal(err)
 	}

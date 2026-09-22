@@ -61,6 +61,8 @@ type AddressDesc struct {
 	Family      addrconfig.IPFamily
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
+	// Params is filled by RegisterAddress from Syntax. Max < 0 means no maximum.
+	Params ParamCount
 }
 
 type addressRegistry struct {
@@ -152,6 +154,7 @@ func (r *addressRegistry) register(desc AddressDesc) {
 	}
 	sort.Strings(aliases)
 	desc.Aliases = aliases
+	desc.Params = paramCountFor(name, desc.Syntax)
 
 	r.descsByName[name] = desc
 	if desc.Opener != nil {
@@ -229,6 +232,8 @@ type AddressRegistration struct {
 	Kind       addrconfig.AddressKind
 	Role       addrconfig.AddressRole
 	Family     addrconfig.IPFamily
+	ParamMin   int
+	ParamMax   int // inclusive; negative means no maximum
 }
 
 // AddressRegistrationForType returns the registered metadata for one address
@@ -288,6 +293,8 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 		Kind:       d.Kind,
 		Role:       d.Role,
 		Family:     d.Family,
+		ParamMin:   d.Params.Min,
+		ParamMax:   d.Params.Max,
 	}
 }
 

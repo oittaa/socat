@@ -9,7 +9,7 @@ import (
 
 func decodePOSIXMQPositional(n *Network, params []string) error {
 	if len(params) > 1 {
-		return fmt.Errorf("too many parameters (%d instead of 1)", len(params))
+		return parameterCountError(len(params), 1, 1)
 	}
 	n.MQName = firstParam(params)
 	return nil

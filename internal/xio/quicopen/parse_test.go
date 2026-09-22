@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestQUICTargetConnect(t *testing.T) {
@@ -42,8 +43,9 @@ func TestQUICTargetListenRequiresPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := quicTarget(mustAddr(t, s), true); err == nil {
-		t.Fatal("expected error")
+	_, err = xio.PrepareSpec(s)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (0 instead of 1)") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -52,8 +54,9 @@ func TestQUICTargetConnectRequiresHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := quicTarget(mustAddr(t, s), false); err == nil {
-		t.Fatal("expected error")
+	_, err = xio.PrepareSpec(s)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (1 instead of 2)") {
+		t.Fatalf("err=%v", err)
 	}
 }
 

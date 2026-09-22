@@ -57,6 +57,13 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	if err != nil {
 		return PreparedAddress{}, err
 	}
+	// Reject a bad parameter count before option values are decoded and
+	// before any opener can create a file or socket.
+	if registered {
+		if err := validateAddressParams(spec, desc); err != nil {
+			return PreparedAddress{}, err
+		}
+	}
 	facts := addrconfig.Facts{Type: spec.Type}
 	if registered {
 		facts = addrconfig.Facts{

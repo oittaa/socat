@@ -59,7 +59,7 @@ func TestHiddenTLSNamesStayOutOfHelp(t *testing.T) {
 }
 
 func TestConstructedFIPSNameIsRecognized(t *testing.T) {
-	_, err := xio.PrepareSpec(parse.Spec{Type: "OPENSSL", Options: []parse.Option{{Name: "fips"}}})
+	_, err := xio.PrepareSpec(parse.Spec{Type: "OPENSSL", Params: []string{"127.0.0.1", "443"}, Options: []parse.Option{{Name: "fips"}}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -15,7 +15,7 @@ func TestDialUDP6IPv4LiteralKeepsFamily(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	s := parse.Spec{Type: "UDP6", Options: []parse.Option{{Name: "ai-v4mapped"}}}
+	s := parse.Spec{Type: "UDP6", Params: []string{"::1", "9"}, Options: []parse.Option{{Name: "ai-v4mapped"}}}
 	_, err = dialUDPForSpec(dialRequest{
 		ctx:     t.Context(),
 		network: "udp6",

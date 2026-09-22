@@ -199,7 +199,8 @@ func TestIPAddMembershipAcceptedOnUDP4AndUDP6(t *testing.T) {
 
 func TestValidateSpecOptionsUsesOriginalSpellingNotFoldedName(t *testing.T) {
 	spec := parse.Spec{
-		Type: "UDP4-RECV",
+		Type:   "UDP4-RECV",
+		Params: []string{"1"},
 		Options: []parse.Option{{
 			Name:     "ip-add-membership",
 			Spelling: "ipv6-join-group",

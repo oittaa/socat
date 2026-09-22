@@ -1,9 +1,11 @@
 package wsopen
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio"
 )
 
 func TestWSTargetConnect(t *testing.T) {
@@ -159,8 +161,9 @@ func TestWSTargetListenRequiresPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(mustAddr(t, s), true); err == nil {
-		t.Fatal("expected error")
+	_, err = xio.PrepareSpec(s)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (0 instead of 1 or more)") {
+		t.Fatalf("err=%v", err)
 	}
 }
 
@@ -169,7 +172,8 @@ func TestWSTargetConnectRequiresHostPort(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := wsTarget(mustAddr(t, s), false); err == nil {
-		t.Fatal("expected error")
+	_, err = xio.PrepareSpec(s)
+	if err == nil || !strings.Contains(err.Error(), "wrong number of parameters (1 instead of 2 or more)") {
+		t.Fatalf("err=%v", err)
 	}
 }
