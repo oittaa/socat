@@ -154,18 +154,12 @@ func TestPTYTermiosScenarios(t *testing.T) {
 		{name: "stdio", spec: "STDIO,raw,echo=0", stream: func(slave *os.File) relay.Stream {
 			return relay.FDStream{R: slave, W: slave, C: NopCloser{}, CloseW: func() error { return nil }}
 		}, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true, openAfterClose: true},
-		{name: "shut-none", spec: "OPEN,raw,echo=0", stream: func(slave *os.File) relay.Stream {
-			return shutNoneStream{Stream: FileStream(slave)}
-		}, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
-		{name: "shut-down", spec: "OPEN,raw,echo=0", stream: func(slave *os.File) relay.Stream {
-			return shutDownStream{Stream: FileStream(slave)}
-		}, shutdown: true, shutdownErr: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
+		{name: "shut-none", spec: "OPEN:/dev/null,raw,echo=0,shut-none", stream: file, wrapSpec: true, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
+		{name: "shut-down", spec: "OPEN:/dev/null,raw,echo=0,shut-down", stream: file, wrapSpec: true, shutdown: true, shutdownErr: true, rawAfterShutdown: true, openAfterShutdown: true, close: true},
 		{name: "end-close", spec: "OPEN,raw,echo=0,end-close", stream: func(slave *os.File) relay.Stream {
 			return endCloseStream{Stream: FileStream(slave)}
 		}, shutdown: true, rawAfterShutdown: true, openAfterShutdown: true, endClose: true, close: true, openAfterClose: true},
-		{name: "shut-close", spec: "OPEN,raw,echo=0,shut-close", stream: func(slave *os.File) relay.Stream {
-			return newShutCloseStream(FileStream(slave))
-		}, shutdown: true, restoredAfterShutdown: true, close: true},
+		{name: "shut-close", spec: "OPEN:/dev/null,raw,echo=0,shut-close", stream: file, wrapSpec: true, shutdown: true, restoredAfterShutdown: true, close: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
