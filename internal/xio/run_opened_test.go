@@ -92,7 +92,7 @@ func TestRunOpenedDispatch(t *testing.T) {
 					t.Fatal(createErr)
 				}
 				defer func() { _ = ready.Close() }()
-				err = runOpenedPair(ctx, ready, opened, session, ModeRDWR, ModeRDWR)
+				err = runOpenedPair(ctx, ready, opened, session, ModeRDWR)
 			}
 			if tc.canceled {
 				if err != nil || listener.calls != 0 {

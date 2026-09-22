@@ -178,7 +178,7 @@ func TestEXECfdinFdoutHighDescriptors(t *testing.T) {
 
 func TestEXECNoForkfdinFdoutInherit(t *testing.T) {
 	sink := filepath.Join(t.TempDir(), "relayed")
-	out, errb, err := runSocat(t, "", "SYSTEM:printf O; printf D >&4,nofork,fdin=3,fdout=4", "SYSTEM:cat >"+sink)
+	out, errb, err := runSocat(t, "", "SYSTEM:cat >"+sink, "SYSTEM:printf O; printf D >&4,nofork,fdin=3,fdout=4")
 	if err != nil {
 		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
 	}
@@ -205,7 +205,7 @@ func TestEXECNoForkfdinOnlyWrite(t *testing.T) {
 }
 
 func TestEXECNoForkfdoutOnlyRead(t *testing.T) {
-	out, errb, err := runSocat(t, "hello", "-u", "SYSTEM:cat >&4,nofork,fdout=4", "STDOUT")
+	out, errb, err := runSocat(t, "hello", "-U", "STDOUT", "SYSTEM:cat >&4,nofork,fdout=4")
 	if err != nil {
 		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
 	}
@@ -216,7 +216,7 @@ func TestEXECNoForkfdoutOnlyRead(t *testing.T) {
 
 func TestEXECNoForkStderrCustomFDOut(t *testing.T) {
 	sink := filepath.Join(t.TempDir(), "relayed")
-	out, errb, err := runSocat(t, "", "SYSTEM:printf D >&4; printf E >&2,nofork,fdin=3,fdout=4,stderr", "SYSTEM:cat >"+sink)
+	out, errb, err := runSocat(t, "", "SYSTEM:cat >"+sink, "SYSTEM:printf D >&4; printf E >&2,nofork,fdin=3,fdout=4,stderr")
 	if err != nil {
 		t.Fatalf("socat: %v: stderr=%s stdout=%q", err, errb, out)
 	}

@@ -83,6 +83,9 @@ func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 	if err != nil {
 		return nil, nil, err
 	}
+	// single is an owned dup. Close it after the stdin/stdout copies exist
+	// so a fork parent does not keep the peer open.
+	defer logx.CloseQuiet(single)
 	dup := func(f *os.File, name string) (*os.File, error) {
 		if f == nil {
 			return nil, fmt.Errorf("nofork: missing %s fd", name)
@@ -122,23 +125,19 @@ func peerStdioFiles(st relay.Stream, mode Mode) (in, out *os.File, err error) {
 		return os.Stdin, out, nil
 	default:
 		// Full duplex: STDIO uses 0+1; sockets use one duplex FD for both.
+		srcIn, srcOut := r, w
 		if single != nil {
-			in, err = dup(single, "in")
-			if err != nil {
-				return nil, nil, err
-			}
-			out, err = dup(single, "out")
-			if err != nil {
-				return nil, nil, err
-			}
-			return in, out, nil
+			srcIn, srcOut = single, single
 		}
-		in, err = dup(r, "in")
+		in, err = dup(srcIn, "in")
 		if err != nil {
 			return nil, nil, err
 		}
-		out, err = dup(w, "out")
+		out, err = dup(srcOut, "out")
 		if err != nil {
+			if in != os.Stdin && in != os.Stdout && in != os.Stderr {
+				logx.CloseQuiet(in)
+			}
 			return nil, nil, err
 		}
 		return in, out, nil
@@ -347,9 +346,42 @@ func (c *execChild) runNoFork(ctx context.Context, peer relay.Stream) error {
 	if err := c.attachNoForkStdio(peer, extra); err != nil {
 		return err
 	}
-	if err := c.start(ctx); err != nil {
+	err := c.start(ctx)
+	// Parent copies are not the child's inherited descriptors. Close them
+	// once Start returns so the peer can see EOF when the child exits.
+	closeNoForkStdio(c.cmd)
+	if err != nil {
 		return err
 	}
 	closeExtra()
 	return c.waitNoFork()
+}
+
+// closeNoForkStdio closes parent stdin/stdout/stderr copies. Process
+// standard streams are shared and stay open. The same File may be both
+// stdout and stderr.
+func closeNoForkStdio(cmd *exec.Cmd) {
+	if cmd == nil {
+		return
+	}
+	closed := map[*os.File]struct{}{}
+	closeFile := func(f *os.File) {
+		if f == nil || f == os.Stdin || f == os.Stdout || f == os.Stderr {
+			return
+		}
+		if _, ok := closed[f]; ok {
+			return
+		}
+		closed[f] = struct{}{}
+		logx.CloseQuiet(f)
+	}
+	if f, ok := cmd.Stdin.(*os.File); ok {
+		closeFile(f)
+	}
+	if f, ok := cmd.Stdout.(*os.File); ok {
+		closeFile(f)
+	}
+	if f, ok := cmd.Stderr.(*os.File); ok {
+		closeFile(f)
+	}
 }

@@ -40,6 +40,9 @@ func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
 // RunPrepared opens and relays two prepared channels. It retains immutable
 // configuration across accept and fork retry paths.
 func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) error {
+	if err := rejectNoForkOnFirstAddress(left); err != nil {
+		return err
+	}
 	lMode, _ := channelModes(g.Options())
 
 	// Open left first.
@@ -68,7 +71,11 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 	if lo == nil {
 		return fmt.Errorf("xio: nil left")
 	}
-	lMode, rMode := channelModes(g.Options())
+	if lo.nofork() != nil {
+		_ = lo.Close()
+		return fmt.Errorf("option nofork is not allowed here")
+	}
+	_, rMode := channelModes(g.Options())
 	defer func() { _ = lo.Close() }()
 
 	switch lo.payload.(type) {
@@ -83,23 +90,34 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 		return err
 	}
 	defer func() { _ = ro.Close() }()
-	return runOpenedPair(ctx, lo, ro, g, lMode, rMode)
+	return runOpenedPair(ctx, lo, ro, g, rMode)
+}
+
+func rejectNoForkOnFirstAddress(left PreparedChannel) error {
+	if preparedNoFork(left) {
+		return fmt.Errorf("option nofork is not allowed here")
+	}
+	return nil
+}
+
+func preparedNoFork(ch PreparedChannel) bool {
+	if ch.Single != nil && ch.Single.Config.Common.NoFork.Value {
+		return true
+	}
+	if ch.Dual == nil {
+		return false
+	}
+	return ch.Dual.Left.Config.Common.NoFork.Value || ch.Dual.Right.Config.Common.NoFork.Value
 }
 
 // runOpenedPair continues after both endpoints are open. Left accept/dial
 // parents never reach here; they keep the right channel closed until each child.
-func runOpenedPair(ctx context.Context, lo, ro *Opened, g *Global, lMode, rMode Mode) error {
-	// Right fork parents own the child loop. A deferredNoFork left is applied
-	// to each accepted or dialed connection inside that loop.
+func runOpenedPair(ctx context.Context, lo, ro *Opened, g *Global, rMode Mode) error {
 	switch ro.payload.(type) {
 	case *acceptParent:
 		return runForkListenRight(ctx, lo, ro, g)
 	case *repeatedDial:
 		return runConnectForkWithLeft(ctx, lo, ro, g)
-	}
-	if p := lo.nofork(); p != nil {
-		// Left EXEC,nofork: right is already open; inherit its stream.
-		return runExecNoFork(ctx, ro.EffectiveStream(), p.config, g, lMode)
 	}
 	if p := ro.nofork(); p != nil {
 		// Right EXEC,nofork on left stream (TCP-LISTEN + EXEC,nofork).
@@ -121,23 +139,22 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 // runConnectFork is the CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
 func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
-	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		left, err := streamFromDial(lo, c)
 		if err != nil {
 			logForkOpen(cg, err)
-			return nil
+			return
 		}
 		ro, err := OpenPreparedChannel(cctx, right, rMode, cg)
 		if err != nil {
 			logForkOpen(cg, err)
-			return nil
+			return
 		}
 		defer func() { _ = ro.Close() }()
 		runForkSession(forkSession{
 			ctx: cctx, g: cg, conn: left, other: ro,
 			connIsLeft: true, mode: rMode, parent: lo,
 		})
-		return nil
 	})
 }
 
@@ -152,30 +169,24 @@ func waitForkChild(ctx context.Context, maxChildren int, opened *Opened) {
 }
 
 // runConnectForkWithLeft handles CONNECT,fork on the right address with left
-// already open (shared stream; sessions serialized). A deferredNoFork left
-// runs once per dialed connection.
+// already open (shared stream; sessions serialized).
 func runConnectForkWithLeft(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// Serialize sessions on the shared left stream. sessionWrap.Close pokes a
 	// short deadline and returns immediately; the next wrap, started only after
 	// Transfer returns, clears that leftover.
-	lMode, _ := channelModes(g.Options())
 	var leftMu sync.Mutex
-	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) error {
+	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		right, err := streamFromDial(ro, c)
 		if err != nil {
 			logForkOpen(cg, err)
-			return nil
+			return
 		}
-		if lo.nofork() == nil {
-			leftMu.Lock()
-			defer leftMu.Unlock()
-		}
+		leftMu.Lock()
+		defer leftMu.Unlock()
 		runForkSession(forkSession{
 			ctx: cctx, g: cg, conn: right, other: lo,
-			connIsLeft: false, mode: lMode,
-			noCloseLeft: lo.nofork() == nil, noCloseRight: false,
+			connIsLeft: false, noCloseLeft: true,
 		})
-		return nil
 	})
 }
 
@@ -250,32 +261,41 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 			g.Log.Infof("accepted %s", conn.RemoteAddr())
 		}
 		time.Sleep(g.Options().ForkWait)
-		children.Add(1)
-		go func(c net.Conn) {
-			defer func() { _ = c.Close() }()
-			defer slots.release()
-			defer children.Done()
-			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
-			defer stopClose()
-			var cg *Global
-			if child, ok := c.(interface{ Session() *Global }); ok {
-				cg = child.Session()
-			}
-			if cg == nil {
-				cg = g.ForkSession()
-			}
-			if o.ChildrenShutup() > 0 && cg.Log != nil {
-				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
-			}
-			body(c, cg)
-			if cg.Log != nil {
-				cg.Log.CloseOwnedSyslog()
-			}
-		}(conn)
+		spawnForkChild(ctx, conn, o, g, slots, &children, body)
 	}
 }
 
-func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn) error) error {
+func forkChildGlobal(c net.Conn, parent *Opened, g *Global) *Global {
+	var cg *Global
+	if child, ok := c.(interface{ Session() *Global }); ok {
+		cg = child.Session()
+	}
+	if cg == nil {
+		cg = g.ForkSession()
+	}
+	if parent != nil && parent.ChildrenShutup() > 0 && cg != nil && cg.Log != nil {
+		cg.Log = cg.Log.WithShutup(parent.ChildrenShutup())
+	}
+	return cg
+}
+
+func spawnForkChild(ctx context.Context, c net.Conn, parent *Opened, g *Global, slots childSlots, children *sync.WaitGroup, run func(net.Conn, *Global)) {
+	children.Add(1)
+	go func() {
+		defer func() { _ = c.Close() }()
+		defer slots.release()
+		defer children.Done()
+		stop := context.AfterFunc(ctx, func() { _ = c.Close() })
+		defer stop()
+		cg := forkChildGlobal(c, parent, g)
+		run(c, cg)
+		if cg != nil && cg.Log != nil {
+			cg.Log.CloseOwnedSyslog()
+		}
+	}()
+}
+
+func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(context.Context, *Global, net.Conn)) error {
 	dial := o.Dial()
 	interval := o.Interval()
 	if interval <= 0 {
@@ -308,33 +328,16 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			g.Log.Infof("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
 		time.Sleep(g.Options().ForkWait)
-		children.Add(1)
-		go func(c net.Conn) {
-			defer children.Done()
-			defer func() { _ = c.Close() }()
-			defer slots.release()
-			stopClose := context.AfterFunc(ctx, func() { _ = c.Close() })
-			defer stopClose()
-			cg := g.ForkSession()
-			if o.ChildrenShutup() > 0 && cg.Log != nil {
-				cg.Log = cg.Log.WithShutup(o.ChildrenShutup())
-			}
+		spawnForkChild(ctx, conn, o, g, slots, &children, func(c net.Conn, cg *Global) {
 			RememberAddrs(cg, c)
 			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout()); err != nil {
-				if cg.Log != nil {
+				if cg != nil && cg.Log != nil {
 					cg.Log.Debugf("connect handshake: %s", err)
 				}
 				return
 			}
-			if err := child(ctx, cg, c); err != nil {
-				// Child callbacks log open failures themselves. A returned
-				// error is a transfer failure.
-				logForkTransfer(cg, err)
-			}
-			if cg.Log != nil {
-				cg.Log.CloseOwnedSyslog()
-			}
-		}(conn)
+			child(ctx, cg, c)
+		})
 		// Sleep interval before the next connect attempt.
 		t := time.NewTimer(interval)
 		select {
@@ -349,15 +352,14 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 // forkSession is one accepted or dialed connection paired with the other
 // address. other may be deferredNoFork.
 type forkSession struct {
-	ctx          context.Context
-	g            *Global
-	conn         relay.Stream
-	other        *Opened
-	connIsLeft   bool
-	mode         Mode
-	parent       *Opened
-	noCloseLeft  bool
-	noCloseRight bool
+	ctx         context.Context
+	g           *Global
+	conn        relay.Stream
+	other       *Opened
+	connIsLeft  bool
+	mode        Mode
+	parent      *Opened
+	noCloseLeft bool
 }
 
 func (s forkSession) streams() (left, right relay.Stream) {
@@ -367,8 +369,8 @@ func (s forkSession) streams() (left, right relay.Stream) {
 	return s.other.EffectiveStream(), s.conn
 }
 
-// runForkSession relays one fork child. Open and nofork start failures are
-// logged at Error, matching a non-fork run. Transfer failures stay at Debug.
+// runForkSession relays one fork child. Open, nofork start, and transfer
+// failures are logged at Error, matching a non-fork run.
 func runForkSession(s forkSession) {
 	if p := s.other.nofork(); p != nil {
 		runForkNoFork(s, p)
@@ -379,12 +381,19 @@ func runForkSession(s forkSession) {
 		s.g.beginLogicalSession(left, right)
 	}
 	if s.connIsLeft && s.parent != nil && s.parent.ForkSocketpair() && !relay.ConfigureStreamPair(left, right) {
-		runForkSocketpair(s.ctx, left, s.other, s.g, s.parent)
+		parent, rightOpened := s.parent, s.other
+		runForkBridge(s.ctx, left, s.g, nil, func(sp1 *os.File) {
+			defer func() { _ = rightOpened.Close() }()
+			_ = transferStreams(s.ctx, FileStream(sp1), rightOpened.EffectiveStream(), s.g)
+			if parent != nil {
+				waitForkChild(s.ctx, parent.MaxChildren(), rightOpened)
+			}
+		})
 		return
 	}
 	var err error
-	if s.noCloseLeft || s.noCloseRight {
-		err = transferStreamsOpts(s.ctx, left, right, s.g, s.noCloseLeft, s.noCloseRight)
+	if s.noCloseLeft {
+		err = transferStreamsOpts(s.ctx, left, right, s.g, true, false)
 	} else {
 		err = transferStreams(s.ctx, left, right, s.g)
 		if s.parent != nil {
@@ -396,39 +405,21 @@ func runForkSession(s forkSession) {
 
 func runForkNoFork(s forkSession, p *deferredNoFork) {
 	if s.parent != nil && s.parent.ForkSocketpair() {
-		runForkNoForkSocketpair(s, p)
+		runForkBridge(s.ctx, s.conn, s.g, func(sp0 *os.File) {
+			if s.g != nil {
+				s.g.beginLogicalSession(s.conn, FileStream(sp0))
+			}
+		}, func(sp1 *os.File) {
+			logForkOpen(s.g, runExecNoFork(s.ctx, FileStream(sp1), p.config, s.g, s.mode))
+		})
 		return
 	}
 	logForkOpen(s.g, runExecNoFork(s.ctx, s.conn, p.config, s.g, s.mode))
 }
 
-// runForkNoForkSocketpair bridges a datagram child to a stream socket and
-// lets the nofork command inherit the other end.
-func runForkNoForkSocketpair(s forkSession, p *deferredNoFork) {
-	sp0, sp1, err := unixSocketpairLogged(s.g)
-	if err != nil {
-		if s.g != nil {
-			s.g.Log.Errorf("socketpair: %s", err)
-		}
-		return
-	}
-	if s.g != nil {
-		s.g.beginLogicalSession(s.conn, FileStream(sp0))
-	}
-	bridgeDone := make(chan struct{})
-	go func() {
-		defer close(bridgeDone)
-		defer func() { _ = sp1.Close() }()
-		logForkOpen(s.g, runExecNoFork(s.ctx, FileStream(sp1), p.config, s.g, s.mode))
-	}()
-	defer func() { _ = sp0.Close() }()
-	if err := transferStreams(s.ctx, s.conn, FileStream(sp0), s.g); err != nil {
-		logForkTransfer(s.g, err)
-	}
-	<-bridgeDone
-}
-
-func runForkSocketpair(ctx context.Context, left relay.Stream, right *Opened, g *Global, parent *Opened) {
+// runForkBridge copies left to one end of a socketpair. right owns the other
+// end: a nofork command inherits it, or a stream transfer uses it.
+func runForkBridge(ctx context.Context, left relay.Stream, g *Global, prep func(*os.File), right func(*os.File)) {
 	sp0, sp1, err := unixSocketpairLogged(g)
 	if err != nil {
 		if g != nil {
@@ -436,19 +427,20 @@ func runForkSocketpair(ctx context.Context, left relay.Stream, right *Opened, g 
 		}
 		return
 	}
-	bridgeDone := make(chan struct{})
+	if prep != nil {
+		prep(sp0)
+	}
+	done := make(chan struct{})
 	go func() {
-		defer close(bridgeDone)
+		defer close(done)
 		defer func() { _ = sp1.Close() }()
-		defer func() { _ = right.Close() }()
-		_ = transferStreams(ctx, FileStream(sp1), right.EffectiveStream(), g)
-		waitForkChild(ctx, parent.MaxChildren(), right)
+		right(sp1)
 	}()
 	defer func() { _ = sp0.Close() }()
 	if err := transferStreams(ctx, left, FileStream(sp0), g); err != nil {
 		logForkTransfer(g, err)
 	}
-	<-bridgeDone
+	<-done
 }
 
 func logForkOpen(g *Global, err error) {
@@ -462,7 +454,7 @@ func logForkTransfer(g *Global, err error) {
 	if err == nil || g == nil {
 		return
 	}
-	g.Log.Debugf("transfer: %s", err)
+	g.Log.Errorf("%s", err)
 }
 
 func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
@@ -503,7 +495,6 @@ func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode
 
 func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	ln := ro.Listener()
-	lMode, _ := channelModes(g.Options())
 	// Shared left (e.g. FILE,o-append) must stay open across all fork children.
 	// max-children applies to the listen address (right side here).
 	// Shared left stream (FILE append, EXEC socketpair with end-close) cannot
@@ -511,17 +502,14 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// accept sessions. sessionWrap.Close pokes a short deadline and returns
 	// immediately; the next wrap, started only after Transfer returns, clears
 	// that leftover. end-close still uses socketpair (not pipes).
-	// deferredNoFork is not a shared stream: each child inherits its own conn.
 	var leftMu sync.Mutex
 	stop := context.AfterFunc(ctx, func() {
 		logx.CloseQuiet(ln)
 	})
 	defer stop()
 	return ro.forEachAccepted(ctx, ln, g, false, func(c net.Conn, cg *Global) {
-		if lo.nofork() == nil {
-			leftMu.Lock()
-			defer leftMu.Unlock()
-		}
+		leftMu.Lock()
+		defer leftMu.Unlock()
 		if err := rememberAccepted(cg, c, ro.afterAccept()); err != nil {
 			cg.Log.Errorf("accept: %s", err)
 			return
@@ -534,8 +522,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 		// noCloseLeft: do not close/shutdown shared left between children.
 		runForkSession(forkSession{
 			ctx: ctx, g: cg, conn: rightStream, other: lo,
-			connIsLeft: false, mode: lMode,
-			noCloseLeft: lo.nofork() == nil,
+			connIsLeft: false, noCloseLeft: true,
 		})
 	})
 }
