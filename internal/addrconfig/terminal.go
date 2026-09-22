@@ -61,10 +61,9 @@ func decodeTerminal(a *Address, o parse.Option, name string) (bool, error) {
 	case "pty-wait-slave":
 		return true, setActive(&a.Terminal.WaitSlave, o)
 	case "pty-interval":
-		value := optionText(o)
-		d, err := ParseDuration(value)
+		d, err := duration(o)
 		if err != nil {
-			d = 0
+			return true, err
 		}
 		a.Terminal.WaitInterval = OptionalDuration{Set: true, Value: d}
 		return true, nil

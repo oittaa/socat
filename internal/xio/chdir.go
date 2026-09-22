@@ -67,7 +67,7 @@ func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error)
 }
 
 func resolveOptionalPath(value *addrconfig.OptionalString, dir string) {
-	if value.Set {
+	if value.Set && !value.Omitted {
 		value.Value = resolveRelativePath(dir, value.Value)
 	}
 }

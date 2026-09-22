@@ -41,7 +41,11 @@ type Proxy struct {
 func decodeProxyOption(a *Address, o parse.Option, name string) (bool, error) {
 	switch name {
 	case "proxyport":
-		a.Proxy.Port = portTarget(optionText(o))
+		port, err := requiredPortTarget(o)
+		if err != nil {
+			return true, err
+		}
+		a.Proxy.Port = port
 		a.Proxy.PortSet = true
 		return true, nil
 	case "http-version":
@@ -62,23 +66,22 @@ func decodeProxyOption(a *Address, o parse.Option, name string) (bool, error) {
 	case "proxy-resolve":
 		return true, setActive(&a.Proxy.Resolve, o)
 	case "proxy-authorization":
-		if !o.Has {
-			return true, nil
-		}
-		a.Proxy.Authorization = OptionalString{Set: true, Value: o.Value}
-		return true, nil
+		return true, setRequiredString(&a.Proxy.Authorization, o)
 	case "proxy-authorization-file":
-		return true, setOptionText(&a.Proxy.AuthorizationFile, o)
+		return true, setRequiredString(&a.Proxy.AuthorizationFile, o)
 	case "socksport":
-		a.Proxy.SOCKSPort = portTarget(optionText(o))
+		// Empty socksport= keeps the positional server port. A bare socksport is an error.
+		text, err := presentString(o)
+		if err != nil {
+			return true, err
+		}
+		a.Proxy.SOCKSPort = portTarget(text)
 		a.Proxy.SOCKSPortSet = true
 		return true, nil
 	case "socksuser":
-		a.Proxy.SOCKSUser = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
+		return true, setRequiredString(&a.Proxy.SOCKSUser, o)
 	case "sockspass":
-		a.Proxy.SOCKSPassword = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
+		return true, setRequiredString(&a.Proxy.SOCKSPassword, o)
 	}
 	return false, nil
 }

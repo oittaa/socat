@@ -437,8 +437,7 @@ func decodeFileProcess(a *Address, o parse.Option, name string) (bool, error) {
 		}
 		return true, nil
 	case "shell":
-		a.Process.Shell = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
+		return true, setRequiredString(&a.Process.Shell, o)
 	case "chdir":
 		value, err := requiredString(o)
 		if err != nil {
@@ -499,6 +498,7 @@ func nonnegativeInt64(o parse.Option) (int64, error) {
 }
 
 func seekOffset(o parse.Option) (int64, error) {
+	// doc/socat.yo: a missing value defaults to 1, not 0.
 	if !o.Has {
 		return 1, nil
 	}
@@ -521,9 +521,9 @@ func signedOptionalInt(o parse.Option) (int, error) {
 }
 
 func processFD(o parse.Option) (int, bool, error) {
-	value := optionText(o)
-	if value == "" {
-		return 0, false, nil
+	value, err := requiredString(o)
+	if err != nil {
+		return 0, false, err
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(value), 0, 64)
 	if err != nil || n < 0 || n > 1<<16-1 {

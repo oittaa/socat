@@ -62,18 +62,18 @@ func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Opti
 	}
 	switch name {
 	case "cert":
-		return true, setOptionText(&a.TLS.Certificate, o)
+		return true, setRequiredString(&a.TLS.Certificate, o)
 	case "key":
-		return true, setOptionText(&a.TLS.Key, o)
+		return true, setRequiredString(&a.TLS.Key, o)
 	case "cafile":
-		return true, setOptionText(&a.TLS.CAFile, o)
+		return true, setRequiredString(&a.TLS.CAFile, o)
 	case "capath":
-		return true, setOptionText(&a.TLS.CAPath, o)
+		return true, setRequiredString(&a.TLS.CAPath, o)
 	case "verify":
 		return true, setActive(&a.TLS.Verify, o)
 	case "commonname":
 		if !o.Has {
-			return true, nil
+			return true, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
 		}
 		a.TLS.CommonName = OptionalString{Set: true, Value: o.Value}
 		return true, nil
@@ -106,7 +106,10 @@ func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Opti
 	case "openssl-max-proto-version":
 		return true, decodeProtocolVersion(a, o, name, false)
 	case "alpn":
-		value := optionText(o)
+		value, err := requiredString(o)
+		if err != nil {
+			return true, err
+		}
 		if len(value) > 255 {
 			return true, fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
 		}
@@ -127,20 +130,21 @@ func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Opti
 			a.TLS.DTLSUnfragmentedProbes = value
 		}
 		return true, err
-	case "path", "origin":
-		opt := OptionalString{Set: true, Value: optionText(o)}
-		if name == "path" {
-			a.TLS.WSPath = opt
-		} else {
-			a.TLS.WSOrigin = opt
+	case "path":
+		// Empty path= keeps a positional URL path. A bare path is an error.
+		value, err := presentString(o)
+		if err != nil {
+			return true, err
 		}
+		a.TLS.WSPath = OptionalString{Set: true, Value: value}
 		return true, nil
+	case "origin":
+		return true, setRequiredString(&a.TLS.WSOrigin, o)
 	case "protocol":
 		if a.Network.Kind == AddressKindSocket || a.Network.Kind == AddressKindVSOCK {
 			return false, nil
 		}
-		a.TLS.WSProtocol = OptionalString{Set: true, Value: optionText(o)}
-		return true, nil
+		return true, setRequiredString(&a.TLS.WSProtocol, o)
 	}
 	return decodeProxyOption(a, o, name)
 }
@@ -192,11 +196,6 @@ func decodeUnsupportedTLSValue(name string, o parse.Option) error {
 	default:
 		return nil
 	}
-}
-
-func setOptionText(dst *OptionalString, o parse.Option) error {
-	*dst = OptionalString{Set: true, Value: optionText(o)}
-	return nil
 }
 
 func decodeProtocolVersion(a *Address, o parse.Option, name string, minimum bool) error {

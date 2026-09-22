@@ -59,6 +59,17 @@ func TestTCPWrapMissingDefaultTablesRemainOptional(t *testing.T) {
 	}
 }
 
+func TestTCPWrapLiteralOneIsDaemonName(t *testing.T) {
+	one := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap=1"), Options{Progname: "from-argv"})
+	if !one.enabled || !one.daemonExplicit || one.daemon != "1" {
+		t.Fatalf("tcpwrap=1: %+v", one)
+	}
+	bare := parseTCPWrap(decodePeerPolicy(t, "TCP4-LISTEN:1234,tcpwrap"), Options{Progname: "from-argv"})
+	if !bare.enabled || bare.daemonExplicit || bare.daemon != "from-argv" {
+		t.Fatalf("bare tcpwrap: %+v", bare)
+	}
+}
+
 func TestTCPWrapDaemonNameSelectsHostsTable(t *testing.T) {
 	dir := t.TempDir()
 	allow := filepath.Join(dir, "hosts.allow")
