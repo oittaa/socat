@@ -29,7 +29,7 @@ func (s *cookieSecrets) init() error {
 	return nil
 }
 
-func (s *cookieSecrets) clear() {
+func (s *cookieSecrets) wipe() {
 	clear(s.current[:])
 	clear(s.previous[:])
 	s.lastRotate = time.Time{}
@@ -161,15 +161,15 @@ func (s *cookieSecrets) issue(config *Config, peer netip.AddrPort, m handshakeMe
 		return handshakeMessage{}, err
 	}
 	w := wireWriter{}
-	w.uint8(1)
+	w.writeUint8(1)
 	w.data = binary.BigEndian.AppendUint64(w.data, uint64(seconds))
-	w.uint16(suiteID)
-	w.uint16(group)
+	w.writeUint16(suiteID)
+	w.writeUint16(group)
 	flag := byte(0)
 	if requested {
 		flag = 1
 	}
-	w.uint8(flag)
+	w.writeUint8(flag)
 	w.vector8(hash.Sum(nil))
 	w.data = append(w.data, fingerprint...)
 	w.vector16(pskIdentityHashes(hello.extensions[extPreSharedKey]))
@@ -207,13 +207,13 @@ func (s *cookieSecrets) verify(config *Config, peer netip.AddrPort, message hand
 		return nil, errIllegalParameter
 	}
 	r := wireReader{data: data}
-	version := r.uint8()
+	version := r.readUint8()
 	timestamp := r.take(8)
 	if r.err != nil {
 		return nil, errIllegalParameter
 	}
 	issued := binary.BigEndian.Uint64(timestamp)
-	suiteID, group, flag := r.uint16(), r.uint16(), r.uint8()
+	suiteID, group, flag := r.readUint16(), r.readUint16(), r.readUint8()
 	firstHash, fingerprint, identities := r.vector8(), r.take(sha256.Size), r.vector16()
 	if r.done() != nil || version != 1 || flag > 1 || len(identities)%sha256.Size != 0 ||
 		issued > uint64(seconds) || uint64(seconds)-issued >= uint64(cookieLifetime/time.Second) {

@@ -74,7 +74,7 @@ func retryHelloBody(suite, selectedGroup uint16, groupRequested bool, value []by
 	ext := extensions{extSupportedVersions: {0xfe, 0xfc}, extCookie: cookie.data}
 	if groupRequested {
 		group := wireWriter{}
-		group.uint16(selectedGroup)
+		group.writeUint16(selectedGroup)
 		ext[extKeyShare] = group.data
 	}
 	return (serverHello{random: retryRandom, suite: suite, extensions: ext}).marshal()

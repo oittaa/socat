@@ -26,7 +26,7 @@ type pendingHello struct {
 
 func (l *Listener) removeHello(peer netip.AddrPort) {
 	if p := l.hellos[peer]; p != nil {
-		p.session.reassembly.clear()
+		p.session.reassembly.reset()
 		l.helloBudget.release(helloEntryCost + p.replyCost)
 		delete(l.hellos, peer)
 	}
@@ -219,7 +219,7 @@ func (l *Listener) admitHello(peer netip.AddrPort, p *pendingHello) {
 		return
 	}
 	if ok, err := s.reassembly.add(fragment, 0); err != nil || !ok {
-		s.reassembly.clear()
+		s.reassembly.reset()
 		return
 	}
 	// Later plaintext ACKs must not acknowledge records from the retry cache.

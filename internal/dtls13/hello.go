@@ -49,7 +49,7 @@ func parseExtensions(data []byte, messageType byte) (extensions, error) {
 	r := wireReader{data: data}
 	out := make(extensions)
 	for len(r.data) != 0 && r.err == nil {
-		id := r.uint16()
+		id := r.readUint16()
 		body := r.vector16()
 		if _, exists := out[id]; exists {
 			return nil, errDecode
@@ -75,7 +75,7 @@ func (e extensions) marshal() ([]byte, error) {
 	}
 	w := wireWriter{}
 	for _, id := range keys {
-		w.uint16(id)
+		w.writeUint16(id)
 		w.vector16(e[id])
 	}
 	if w.err != nil {
@@ -96,7 +96,7 @@ type clientHello struct {
 
 func parseClientHello(data []byte) (clientHello, error) {
 	r := wireReader{data: data}
-	version := r.uint16()
+	version := r.readUint16()
 	h := clientHello{}
 	copy(h.random[:], r.take(32))
 	h.sessionID = r.vector8()
@@ -134,13 +134,13 @@ func (h clientHello) marshal() ([]byte, error) {
 		return nil, errDecode
 	}
 	w := wireWriter{}
-	w.uint16(legacyVersion)
+	w.writeUint16(legacyVersion)
 	w.data = append(w.data, h.random[:]...)
 	w.vector8(h.sessionID)
 	w.vector8(nil)
 	suites := wireWriter{}
 	for _, suite := range h.suites {
-		suites.uint16(suite)
+		suites.writeUint16(suite)
 	}
 	w.vector16(suites.data)
 	w.vector8([]byte{0})
@@ -157,12 +157,12 @@ type serverHello struct {
 
 func parseServerHello(data []byte) (serverHello, error) {
 	r := wireReader{data: data}
-	version := r.uint16()
+	version := r.readUint16()
 	h := serverHello{}
 	copy(h.random[:], r.take(32))
 	h.sessionID = r.vector8()
-	h.suite = r.uint16()
-	compression := r.uint8()
+	h.suite = r.readUint16()
+	compression := r.readUint8()
 	ext := r.vector16()
 	if r.done() != nil || len(h.sessionID) > 32 {
 		return serverHello{}, errDecode
@@ -187,11 +187,11 @@ func (h serverHello) marshal() ([]byte, error) {
 		return nil, err
 	}
 	w := wireWriter{}
-	w.uint16(legacyVersion)
+	w.writeUint16(legacyVersion)
 	w.data = append(w.data, h.random[:]...)
 	w.vector8(h.sessionID)
-	w.uint16(h.suite)
-	w.uint8(0)
+	w.writeUint16(h.suite)
+	w.writeUint8(0)
 	w.vector16(ext)
 	return w.result()
 }

@@ -122,14 +122,14 @@ func signCertificateVerify(signer crypto.Signer, scheme uint16, transcript []byt
 		return nil, err
 	}
 	w := wireWriter{}
-	w.uint16(scheme)
+	w.writeUint16(scheme)
 	w.vector16(sig)
 	return w.result()
 }
 
 func verifyCertificateVerify(public crypto.PublicKey, offered []uint16, data, transcript []byte, server bool) error {
 	r := wireReader{data: data}
-	scheme, sig := r.uint16(), r.vector16()
+	scheme, sig := r.readUint16(), r.vector16()
 	if r.done() != nil || len(sig) == 0 {
 		return errDecode
 	}

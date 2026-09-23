@@ -141,14 +141,14 @@ func encodeCIDs(ids [][]byte, immediate bool) ([]byte, error) {
 		}
 		usage = 0
 	}
-	w.uint8(usage)
+	w.writeUint8(usage)
 	return w.result()
 }
 
 func parseCIDs(body []byte) ([][]byte, bool, error) {
 	r := wireReader{data: body}
 	list := wireReader{data: r.vector16()}
-	usage := r.uint8()
+	usage := r.readUint8()
 	if r.done() != nil {
 		return nil, false, errDecode
 	}

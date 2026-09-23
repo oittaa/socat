@@ -211,7 +211,7 @@ func tlsClientConfigForContext(s addrconfig.Address, serverName string) (*tls.Co
 }
 
 // TLSClientConfigSettings builds a client config from prepared TLS settings.
-// s remains only for the temporary compatibility rejection adapter.
+// typ names the address in errors.
 func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName string) (*tls.Config, error) {
 	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err
@@ -282,7 +282,7 @@ func tlsServerConfigForContext(s addrconfig.Address) (*tls.Config, error) {
 }
 
 // TLSServerConfigSettings builds a server config from prepared TLS settings.
-// s remains only for the temporary compatibility rejection adapter.
+// typ names the address in errors.
 func TLSServerConfigSettings(typ string, settings addrconfig.TLS) (*tls.Config, error) {
 	if err := rejectUnsupportedOpenSSLOptions(settings, typ); err != nil {
 		return nil, err

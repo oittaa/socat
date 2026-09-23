@@ -62,7 +62,7 @@ func (p *packetTransport) start() {
 	}
 }
 
-func (p *packetTransport) close(err error) {
+func (p *packetTransport) shutdown(err error) {
 	closed := false
 	p.once.Do(func() {
 		closed = true
@@ -110,7 +110,7 @@ func (p *packetTransport) readLoop() {
 			}
 		}
 		if err != nil {
-			p.close(err)
+			p.shutdown(err)
 			return
 		}
 		if n != 0 {

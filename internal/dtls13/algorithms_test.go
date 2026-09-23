@@ -55,7 +55,7 @@ func TestGroupRetryNegotiation(t *testing.T) {
 			}
 			retry, err := parseServerHello(server.retryHello[4:])
 			share := wireReader{data: retry.extensions[extKeyShare]}
-			requested := share.uint16()
+			requested := share.readUint16()
 			if err != nil || share.done() != nil || requested != uint16(group) || client.state.CurveID != group || server.state.CurveID != group {
 				t.Fatal("HelloRetryRequest did not negotiate the requested group")
 			}

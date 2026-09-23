@@ -11,7 +11,7 @@ func encodeList16(values []uint16) ([]byte, error) {
 	}
 	list := wireWriter{}
 	for _, v := range values {
-		list.uint16(v)
+		list.writeUint16(v)
 	}
 	w := wireWriter{}
 	w.vector16(list.data)
@@ -41,7 +41,7 @@ func encodeKeyShare(group uint16, public []byte) ([]byte, error) {
 		return nil, errIllegalParameter
 	}
 	w := wireWriter{}
-	w.uint16(group)
+	w.writeUint16(group)
 	w.vector16(public)
 	return w.result()
 }
@@ -58,7 +58,7 @@ func parseClientShares(data []byte, groups []uint16) (map[uint16][]byte, error) 
 		allowed[group] = true
 	}
 	for len(list.data) != 0 && list.err == nil {
-		group := list.uint16()
+		group := list.readUint16()
 		public := list.vector16()
 		if list.err != nil || len(public) == 0 {
 			return nil, errDecode
@@ -76,7 +76,7 @@ func parseClientShares(data []byte, groups []uint16) (map[uint16][]byte, error) 
 
 func parseServerShare(data []byte) (uint16, []byte, error) {
 	r := wireReader{data: data}
-	group := r.uint16()
+	group := r.readUint16()
 	public := r.vector16()
 	if r.done() != nil || len(public) == 0 {
 		return 0, nil, errDecode
@@ -89,7 +89,7 @@ func encodeServerName(name string) ([]byte, error) {
 		return nil, errIllegalParameter
 	}
 	entry := wireWriter{}
-	entry.uint8(0)
+	entry.writeUint8(0)
 	entry.vector16([]byte(name))
 	if entry.err != nil {
 		return nil, entry.err
@@ -107,7 +107,7 @@ func parseServerName(data []byte) (string, error) {
 	}
 	name := ""
 	for len(list.data) != 0 && list.err == nil {
-		kind := list.uint8()
+		kind := list.readUint8()
 		value := list.vector16()
 		if list.err != nil || len(value) == 0 {
 			return "", errDecode

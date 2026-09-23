@@ -18,11 +18,11 @@ func (s *session) discardHandshakeRead() {
 		clear(old.secret)
 		delete(s.epochs.read, 2)
 	}
-	s.handshakeReadExpiry = time.Time{}
+	s.epoch2ReadKeyExpiry = time.Time{}
 }
 
 func (s *session) expireHandshakeRead(now time.Time) {
-	if !s.handshakeReadExpiry.IsZero() && !now.Before(s.handshakeReadExpiry) {
+	if !s.epoch2ReadKeyExpiry.IsZero() && !now.Before(s.epoch2ReadKeyExpiry) {
 		s.discardHandshakeRead()
 	}
 }
@@ -94,8 +94,8 @@ func (s *session) advancePost(now time.Time) error {
 	if s.epochs.read[2] != nil {
 		if s.handshake.client {
 			s.discardHandshakeRead()
-		} else if s.handshakeReadExpiry.IsZero() {
-			s.handshakeReadExpiry = now.Add(handshakeReadRetention)
+		} else if s.epoch2ReadKeyExpiry.IsZero() {
+			s.epoch2ReadKeyExpiry = now.Add(handshakeReadRetention)
 		}
 	}
 	if s.keyUpdate.updating {
@@ -171,7 +171,7 @@ func (s *session) acknowledgePost(records []recordNumber, authenticated bool, no
 	return s.advancePost(now)
 }
 
-func (s *session) receivePost(m handshakeMessage, now time.Time) error {
+func (s *session) receivePost(m handshakeMessage) error {
 	if m.epoch < 3 || m.epoch != s.epochs.readApplicationEpoch {
 		return errUnexpectedMessage
 	}
