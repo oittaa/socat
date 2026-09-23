@@ -4,6 +4,7 @@ package execopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -113,16 +114,16 @@ func applyConfiguredSetpgid(value addrconfig.OptionalInt, cmd *exec.Cmd) error {
 	return nil
 }
 
-// childWaitExitCode maps cmd.Wait to a process exit status. Go's
-// exec.ExitError.ExitCode is -1 when the child was signaled; POSIX shells
-// report 128+signum. Forked EXEC still skips those statuses on close so a
-// PTY-master SIGHUP does not become EXEC_RC.
+// childWaitExitCode maps cmd.Wait to a process exit status. nofork Wait and
+// the forked reaper both use it. Go's ExitCode is -1 when the child was
+// signaled; this returns 128+signum. Forked EXEC still skips those statuses
+// on close so a PTY-master SIGHUP does not become EXEC_RC.
 func childWaitExitCode(err error) (int, bool) {
 	if err == nil {
 		return 0, true
 	}
-	ee, ok := err.(*exec.ExitError)
-	if !ok {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
 		return 0, false
 	}
 	if ws, ok := ee.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
@@ -225,7 +226,7 @@ type execChild struct {
 	wait       *execWaitState
 }
 
-func newExecChild(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, cmd *exec.Cmd) (*execChild, error) {
+func newExecChild(s addrconfig.Address, mode xio.Mode, g *xio.Global, cmd *exec.Cmd) (*execChild, error) {
 	fdin, fdout, err := processFDPairConfig(s.Process, mode)
 	if err != nil {
 		return nil, err
@@ -377,7 +378,7 @@ func (c *execChild) startForked(ctx context.Context) (*xio.Opened, error) {
 }
 
 func startCmd(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, cmd *exec.Cmd) (*xio.Opened, error) {
-	c, err := newExecChild(ctx, s, mode, g, cmd)
+	c, err := newExecChild(s, mode, g, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -753,10 +754,8 @@ func (c *execChild) watchWait(done chan struct{}) *execWaitState {
 		xio.UnregisterChildSignals(pid)
 		w.mu.Lock()
 		w.waitErr = err
-		if err == nil {
-			w.exitCode = 0
-		} else if ee, ok := err.(*exec.ExitError); ok {
-			w.exitCode = ee.ExitCode()
+		if code, ok := childWaitExitCode(err); ok {
+			w.exitCode = code
 		} else {
 			w.exitCode = 1
 		}

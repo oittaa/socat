@@ -4,8 +4,10 @@ package execopen
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/logx"
@@ -34,5 +36,30 @@ func TestChildWaitExitCodeNormal(t *testing.T) {
 	code, ok = childWaitExitCode(nil)
 	if !ok || code != 0 {
 		t.Fatalf("nil wait code=%d ok=%v want 0", code, ok)
+	}
+}
+
+func TestChildWaitExitCodeSignaled(t *testing.T) {
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Process.Signal(syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	err := cmd.Wait()
+	want := 128 + int(syscall.SIGHUP)
+	code, ok := childWaitExitCode(err)
+	if !ok || code != want {
+		t.Fatalf("childWaitExitCode=%d ok=%v err=%v want %d", code, ok, err, want)
+	}
+	wrapped, ok := childWaitExitCode(fmt.Errorf("wait: %w", err))
+	if !ok || wrapped != want {
+		t.Fatalf("wrapped childWaitExitCode=%d ok=%v want %d", wrapped, ok, want)
+	}
+	g := &xio.Global{}
+	(&execWaitState{exitCode: code, waitErr: err}).recordExit(g)
+	if g.Child.ExitCode != 0 || g.Child.Err != nil {
+		t.Fatalf("fork close recorded signaled status %+v", g.Child)
 	}
 }
