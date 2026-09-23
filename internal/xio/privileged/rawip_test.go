@@ -27,7 +27,15 @@ func TestIPRecvEOFDoesNotLinger(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			g := xio.NewSession(xio.Options{Linger: time.Hour}, nil) // EOF must finish the relay, not the linger timer.
-			if err := xio.Run(ctx, left, right, g); err != nil {
+			preparedLeft, err := xio.PrepareChannel(left)
+			if err != nil {
+				t.Fatal(err)
+			}
+			preparedRight, err := xio.PrepareChannel(right)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := xio.RunPrepared(ctx, preparedLeft, preparedRight, g); err != nil {
 				t.Fatal(err)
 			}
 			if ctx.Err() != nil {
