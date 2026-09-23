@@ -43,7 +43,16 @@ func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 		return err
 	}
 	s.post[typ] = f
-	return s.transmit(f, now)
+	if err := s.transmit(f, now); err != nil {
+		// An unsent flight has no deadline, so drop it instead of wedging.
+		if len(f.sent) == 0 {
+			delete(s.post, typ)
+		} else if f.deadline.IsZero() {
+			f.deadline = now.Add(f.interval)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *session) requestKeyUpdate(requestPeer bool, now time.Time) error {
