@@ -193,8 +193,10 @@ type Global struct {
 	// statsPrinted is shared across forks so --statistics prints once.
 	// Pointer, never an embedded atomic.Bool, so copies cannot copy a lock.
 	statsPrinted *atomic.Bool
-	// sessionMu guards Peer.SessionVars. NewSession and ForkSession each
-	// store a mutex. Zero-value sessions still CAS-install one on first use.
+	// sessionMu guards Peer.SessionVars. Environment snapshots also read
+	// address strings and TLSVars while holding it. NewSession and
+	// ForkSession each store a mutex. Zero-value sessions still
+	// CAS-install one on first use.
 	sessionMu atomic.Pointer[sync.Mutex]
 }
 

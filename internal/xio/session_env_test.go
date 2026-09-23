@@ -53,6 +53,35 @@ func TestSessionEnvironUsesPrognameAndSocatCompatibilityNames(t *testing.T) {
 	}
 }
 
+func TestChildEnvironDropsStaleTLSNames(t *testing.T) {
+	t.Setenv("SOCAT_TLS_CIPHER", "stale")
+	t.Setenv("RELAY_TLS_CIPHER", "stale")
+	t.Setenv("RELAY_OPENSSL_CIPHER", "stale")
+	g := NewSession(Options{Progname: "relay"}, nil)
+	g.Peer.TLSVars = map[string]string{"CIPHER": "A"}
+	got := environMap(ChildEnviron(g))
+	if got["SOCAT_TLS_CIPHER"] != "A" || got["RELAY_TLS_CIPHER"] != "A" || got["RELAY_OPENSSL_CIPHER"] != "A" {
+		t.Fatalf("tls env cipher SOCAT=%q RELAY=%q OPENSSL=%q", got["SOCAT_TLS_CIPHER"], got["RELAY_TLS_CIPHER"], got["RELAY_OPENSSL_CIPHER"])
+	}
+}
+
+func TestChildEnvironKeepsTLSEnvWithoutSessionTLS(t *testing.T) {
+	t.Setenv("SOCAT_TLS_CIPHER", "keep")
+	g := NewSession(Options{}, nil)
+	if got := environMap(ChildEnviron(g))["SOCAT_TLS_CIPHER"]; got != "keep" {
+		t.Fatalf("SOCAT_TLS_CIPHER=%q", got)
+	}
+}
+
+func TestChildEnvironDropsTLSEnvForEmptyTLSMap(t *testing.T) {
+	t.Setenv("SOCAT_TLS_CIPHER", "drop")
+	g := NewSession(Options{}, nil)
+	g.Peer.TLSVars = map[string]string{}
+	if _, ok := environMap(ChildEnviron(g))["SOCAT_TLS_CIPHER"]; ok {
+		t.Fatal("empty TLS map must drop inherited SOCAT_TLS_*")
+	}
+}
+
 func TestSniffEnvFromSession(t *testing.T) {
 	g := &Global{Peer: peer{PeerAddr: "192.0.2.1", PeerPort: "9"}}
 	v, ok := sniffEnvValue(g, "SOCAT_PEERADDR")
