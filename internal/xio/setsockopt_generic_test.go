@@ -55,7 +55,7 @@ func TestDecodeSetsockoptRejectsBadArityAndLevel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := decodeAddress(spec); err == nil || !strings.Contains(err.Error(), "level") {
+	if _, err := decodeAddress(spec); err == nil || !strings.Contains(err.Error(), `option "setsockopt": invalid value`) {
 		t.Fatalf("level: err=%v", err)
 	}
 }

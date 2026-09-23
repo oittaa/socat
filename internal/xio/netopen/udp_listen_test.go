@@ -188,7 +188,7 @@ func TestUDPListenMalformedRangeFailsOpen(t *testing.T) {
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("malformed range took %v; want immediate prepare failure", elapsed)
 	}
-	if err == nil || !strings.Contains(err.Error(), "invalid hex") {
-		t.Fatalf("PrepareSpec err=%v want invalid hex", err)
+	if err == nil || !strings.Contains(err.Error(), `option "range": invalid value: "X0000X7f000000:X0000xff000000"`) {
+		t.Fatalf("PrepareSpec err=%v", err)
 	}
 }

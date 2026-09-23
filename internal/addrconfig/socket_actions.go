@@ -78,9 +78,12 @@ func socketAction(kind optionmeta.Kind, o parse.Option, name, kernel string) (So
 		}
 		return SocketAction{Kind: SocketActionTransparent, Phase: SocketPhasePrebind, Text: name, Number: n}, nil
 	case optionmeta.KindMTUDiscover:
-		n, err := requiredSocketInt(o, name)
+		n, err := requiredSocketInt(o)
 		if err != nil || n < 0 || n > 2 {
-			return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
+			if err != nil && (!o.Has || strings.TrimSpace(o.Value) == "") {
+				return SocketAction{}, err
+			}
+			return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		return SocketAction{Kind: SocketActionMTUDiscovery, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-mtu-discover"}, nil
 	case optionmeta.KindRecvErr:
@@ -136,11 +139,11 @@ func namedSocketAction(kind optionmeta.Kind, o parse.Option, name string) (Socke
 	case optionmeta.KindNamedWord:
 		n, err = parseIntOrBoolWord(o, 1)
 	case optionmeta.KindNamedCInt:
-		n, err = namedCInt(o, name)
+		n, err = namedCInt(o)
 	default:
 		n, err = optionalSocketInt(o, 1)
 		if err != nil {
-			err = fmt.Errorf("%s: invalid value %q", name, o.Value)
+			err = optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 	}
 	if err != nil {
@@ -154,13 +157,13 @@ func namedSocketAction(kind optionmeta.Kind, o parse.Option, name string) (Socke
 	return SocketAction{Kind: SocketActionNamed, Phase: phase, Named: id, Number: n, Text: name}, nil
 }
 
-func namedCInt(o parse.Option, name string) (int, error) {
+func namedCInt(o parse.Option) (int, error) {
 	if !o.Has {
 		return 1, nil
 	}
 	n, err := classicCInt(o.Value)
 	if err != nil {
-		return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return n, nil
 }
@@ -172,10 +175,10 @@ func ipOptionsAction(o parse.Option, name string) (SocketAction, error) {
 	}
 	data, _, err := ParseDalan(value, 'i')
 	if err != nil {
-		return SocketAction{}, fmt.Errorf("ip-options: %w", err)
+		return SocketAction{}, optionValueError(o, "invalid value", err.Error())
 	}
 	if len(data) > 256 {
-		return SocketAction{}, fmt.Errorf("ip-options: value exceeds 256 bytes")
+		return SocketAction{}, optionValueError(o, "invalid value", "value exceeds 256 bytes")
 	}
 	return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: ancillaryID(name), Text: name, Value: SocketValue{Bytes: data}}, nil
 }
@@ -183,7 +186,7 @@ func ipOptionsAction(o parse.Option, name string) (SocketAction, error) {
 func optionalIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, error) {
 	n, err := optionalSocketInt(o, fallback)
 	if err != nil || n < 0 {
-		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
@@ -194,34 +197,37 @@ func optionalWordIntAction(kind SocketActionKind, phase SocketPhase, o parse.Opt
 		return SocketAction{}, err
 	}
 	if n < 0 {
-		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
 
 func requiredIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string) (SocketAction, error) {
-	n, err := requiredSocketInt(o, name)
-	if err != nil || n < 0 {
-		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
+	n, err := requiredSocketInt(o)
+	if err != nil {
+		return SocketAction{}, err
+	}
+	if n < 0 {
+		return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
 
 func genericSocketAction(o parse.Option, name string, mode sockoptMode) (SocketAction, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return SocketAction{}, fmt.Errorf("%s requires level:optname:value", name)
+		return SocketAction{}, optionValueError(o, "invalid value", "level:optname:value")
 	}
 	parts := strings.SplitN(o.Value, ":", 3)
 	if len(parts) != 3 {
-		return SocketAction{}, fmt.Errorf("%s requires level:optname:value", name)
+		return SocketAction{}, optionValueError(o, "invalid value", "level:optname:value")
 	}
 	level, err := socketIntText(parts[0])
 	if err != nil {
-		return SocketAction{}, fmt.Errorf("%s level: %w", name, err)
+		return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	opt, err := socketIntText(parts[1])
 	if err != nil {
-		return SocketAction{}, fmt.Errorf("%s optname: %w", name, err)
+		return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	phase := SocketPhaseConnected
 	switch name {
@@ -235,7 +241,7 @@ func genericSocketAction(o parse.Option, name string, mode sockoptMode) (SocketA
 	case sockoptInt:
 		n, err := socketIntText(parts[2])
 		if err != nil {
-			return SocketAction{}, fmt.Errorf("%s value: %w", name, err)
+			return SocketAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		value = SocketValue{IsInt: true, Int: n}
 	case sockoptString:
@@ -243,10 +249,10 @@ func genericSocketAction(o parse.Option, name string, mode sockoptMode) (SocketA
 	default:
 		data, singleInt, err := ParseDalan(parts[2], 'i')
 		if err != nil {
-			return SocketAction{}, fmt.Errorf("%s value: %w", name, err)
+			return SocketAction{}, optionValueError(o, "invalid value", err.Error())
 		}
 		if len(data) == 0 {
-			return SocketAction{}, fmt.Errorf("%s value: empty dalan value", name)
+			return SocketAction{}, optionValueError(o, "invalid value", "empty dalan value")
 		}
 		if singleInt {
 			value = SocketValue{IsInt: true, Int: nativeCInt(data)}
@@ -347,11 +353,11 @@ func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (Mu
 	}
 	if kind == MulticastTTLIPv4 {
 		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return request, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+			return request, optionValueError(o, "requires a value", "")
 		}
 		n, err := socketIntText(o.Value)
 		if err != nil || n < 0 || n > 255 {
-			return request, fmt.Errorf("%s: invalid value %q", name, o.Value)
+			return request, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		request.Value = n
 		return request, nil
@@ -366,18 +372,18 @@ func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (Mu
 	}
 	parts, err := splitMulticastFields(value)
 	if err != nil {
-		return request, fmt.Errorf("%s: %w", name, err)
+		return request, optionValueError(o, "invalid value", err.Error())
 	}
 	if len(parts) < 2 || len(parts) > 3 {
-		return request, fmt.Errorf("%s: expected mcast:iface, got %q", name, value)
+		return request, optionValueError(o, "invalid value", fmt.Sprintf("expected mcast:iface, got %q", value))
 	}
 	request.Group = targetFromText(parts[0])
 	if request.Group.String() == "" {
-		return request, fmt.Errorf("%s: expected mcast:iface, got %q", name, value)
+		return request, optionValueError(o, "invalid value", fmt.Sprintf("expected mcast:iface, got %q", value))
 	}
 	if len(parts) == 3 {
 		if kind == MulticastJoinIPv6 {
-			return request, fmt.Errorf("%s: three-field form is IPv4-only", name)
+			return request, optionValueError(o, "invalid value", "three-field form is IPv4-only")
 		}
 		request.ThreeField = true
 		request.InterfaceAddr = targetFromText(parts[1])
@@ -386,7 +392,7 @@ func decodeMulticastRequest(o parse.Option, kind MulticastKind, name string) (Mu
 		setInterfaceToken(&request, parts[1])
 	}
 	if request.InterfaceName == "" && !request.InterfaceIsID && !request.InterfaceAddr.IsLiteral() && request.InterfaceAddr.Name == "" {
-		return request, fmt.Errorf("%s: expected mcast:iface, got %q", name, value)
+		return request, optionValueError(o, "invalid value", fmt.Sprintf("expected mcast:iface, got %q", value))
 	}
 	return request, nil
 }
@@ -402,7 +408,7 @@ func decodeSourceMulticastRequest(o parse.Option, name string) (MulticastRequest
 	}
 	parts, err := splitMulticastFields(value)
 	if err != nil || len(parts) != 3 {
-		return MulticastRequest{}, fmt.Errorf("%s: expected group:iface:source, got %q", name, value)
+		return MulticastRequest{}, optionValueError(o, "invalid value", fmt.Sprintf("expected group:iface:source, got %q", value))
 	}
 	request := MulticastRequest{
 		Kind:   kind,

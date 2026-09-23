@@ -72,16 +72,19 @@ func TestPrepareRejectsInvalidSocktypeAndPTYInterval(t *testing.T) {
 }
 
 func TestPrepareDecodesPortsOnce(t *testing.T) {
-	for _, raw := range []string{
-		"TCP4:127.0.0.1:99999",
-		"TCP4:127.0.0.1:080",
-		"TCP4:127.0.0.1:0b10",
-		"TCP4:127.0.0.1:9,sourceport=080",
-		"TCP4:127.0.0.1:9,sourceport=99999",
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{"TCP4:127.0.0.1:99999", "invalid port"},
+		{"TCP4:127.0.0.1:080", "invalid port"},
+		{"TCP4:127.0.0.1:0b10", "invalid port"},
+		{"TCP4:127.0.0.1:9,sourceport=080", `option "sourceport": invalid value`},
+		{"TCP4:127.0.0.1:9,sourceport=99999", `option "sourceport": invalid value`},
 	} {
-		_, err := xio.PrepareSpec(mustParseSpec(t, raw))
-		if err == nil || !strings.Contains(err.Error(), "invalid port") {
-			t.Fatalf("%s: %v", raw, err)
+		_, err := xio.PrepareSpec(mustParseSpec(t, tc.raw))
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Fatalf("%s: %v", tc.raw, err)
 		}
 	}
 	prepared, err := xio.PrepareSpec(mustParseSpec(t, "TCP4:127.0.0.1:http,sourceport=0x50"))

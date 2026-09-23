@@ -196,18 +196,18 @@ func fileMode(o parse.Option, max uint32) (uint32, error) {
 	}
 	n, err := strconv.ParseUint(strings.TrimSpace(value), 8, 32)
 	if err != nil || n > uint64(max) {
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	return uint32(n), nil
 }
 
 func nonnegativeInt64(o parse.Option) (int64, error) {
 	if !o.Has {
-		return 0, fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
 	if err != nil || n < 0 {
-		return 0, fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return n, nil
 }
@@ -219,7 +219,7 @@ func seekOffset(o parse.Option) (int64, error) {
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
 	if err != nil {
-		return 0, fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return n, nil
 }
@@ -230,7 +230,7 @@ func signedOptionalInt(o parse.Option) (int, error) {
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
 	if err != nil || n > int64(math.MaxInt) || n < int64(math.MinInt) {
-		return 0, fmt.Errorf("%s: invalid value %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return int(n), nil
 }
@@ -242,7 +242,7 @@ func processFD(o parse.Option) (int, bool, error) {
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(value), 0, 64)
 	if err != nil || n < 0 || n > 1<<16-1 {
-		return 0, false, fmt.Errorf("%s: invalid file descriptor %q", o.OriginalSpelling(), value)
+		return 0, false, optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	return int(n), true, nil
 }
