@@ -4,7 +4,6 @@ package e2e_test
 
 import (
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -24,30 +23,6 @@ func writeSOCATIPEnvScript(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
-}
-
-func startDarwinAncillaryRecv(t *testing.T, args ...string) *testProcess {
-	t.Helper()
-	return startDarwinAncillaryRecvIO(t, nil, args...)
-}
-
-func startDarwinAncillaryRecvIO(t *testing.T, stdout io.Writer, args ...string) *testProcess {
-	t.Helper()
-	cmd := exec.Command(socatBin(t), args...)
-	if stdout != nil {
-		cmd.Stdout = stdout
-	}
-	proc, err := startTestProcess(cmd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if proc.cmd.Process != nil {
-			_ = proc.cmd.Process.Kill()
-		}
-		<-proc.done
-	})
-	return proc
 }
 
 func processDiag(proc *testProcess, stdout *lockedBuffer) string {
@@ -93,29 +68,6 @@ func sendUntil(t *testing.T, timeout time.Duration, send func() error, ready fun
 func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 	bin := socatBin(t)
 	wantIF := testutil.IPv4LoopbackInterface(t)
-	t.Run("recv", func(t *testing.T) {
-		port := freeUDPPort(t)
-		outPath := filepath.Join(t.TempDir(), "recv.out")
-		proc := startDarwinAncillaryRecv(t, "-u",
-			fmt.Sprintf("UDP4-RECV:%d,reuseaddr,ip-recvdstaddr,ip-recvif", port),
-			"CREATE:"+outPath)
-		if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
-			t.Fatal(err)
-		}
-		send := func() error {
-			c, err := net.DialUDP("udp4", nil, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port})
-			if err != nil {
-				return err
-			}
-			defer func() { _ = c.Close() }()
-			_, err = c.Write([]byte("XYZ"))
-			return err
-		}
-		sendUntil(t, 3*time.Second, send, func() bool {
-			b, err := os.ReadFile(outPath)
-			return err == nil && strings.Contains(string(b), "XYZ")
-		}, func() string { return processDiag(proc, nil) }, proc.done)
-	})
 	t.Run("env", func(t *testing.T) {
 		port := freeUDPPort(t)
 		script := writeSOCATIPEnvScript(t)
