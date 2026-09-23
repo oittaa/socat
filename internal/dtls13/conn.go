@@ -136,7 +136,7 @@ func Client(ctx context.Context, transport net.PacketConn, peer net.Addr, config
 	// are already wired so that path does not depend on an attached session.
 	s, err := newClientSession(prepared, c.driver.sendPacket, time.Now())
 	if err != nil {
-		c.config.transport.close(err)
+		c.config.transport.shutdown(err)
 		return nil, err
 	}
 	c.driver.attach(s)
@@ -635,13 +635,13 @@ func (d *connDriver) teardown() {
 		_, _ = s.sendRecordWith(s.currentWriteEpoch(), contentAlert, []byte{1, 0}, s.handshake.peerCID,
 			func(data []byte) error { return c.config.transport.write(data, s.path.peer.remote, time.Time{}, nil) })
 	}
-	s.reassembly.clear()
+	s.reassembly.reset()
 	for len(c.config.incoming) != 0 {
 		packet := <-c.config.incoming
 		c.releasePacket(len(packet.data))
 	}
 	if c.config.owned {
-		c.config.transport.close(net.ErrClosed)
+		c.config.transport.shutdown(net.ErrClosed)
 	}
 	if c.config.onClose != nil {
 		c.config.onClose(c)

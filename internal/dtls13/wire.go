@@ -20,7 +20,7 @@ func (r *wireReader) take(n int) []byte {
 	return v
 }
 
-func (r *wireReader) uint8() byte {
+func (r *wireReader) readUint8() byte {
 	b := r.take(1)
 	if len(b) == 0 {
 		return 0
@@ -28,7 +28,7 @@ func (r *wireReader) uint8() byte {
 	return b[0]
 }
 
-func (r *wireReader) uint16() uint16 {
+func (r *wireReader) readUint16() uint16 {
 	b := r.take(2)
 	if len(b) == 0 {
 		return 0
@@ -44,8 +44,8 @@ func (r *wireReader) uint24() int {
 	return int(b[0])<<16 | int(b[1])<<8 | int(b[2])
 }
 
-func (r *wireReader) vector8() []byte  { return r.take(int(r.uint8())) }
-func (r *wireReader) vector16() []byte { return r.take(int(r.uint16())) }
+func (r *wireReader) vector8() []byte  { return r.take(int(r.readUint8())) }
+func (r *wireReader) vector16() []byte { return r.take(int(r.readUint16())) }
 func (r *wireReader) vector24() []byte { return r.take(r.uint24()) }
 
 func (r *wireReader) done() error {
@@ -60,8 +60,8 @@ type wireWriter struct {
 	err  error
 }
 
-func (w *wireWriter) uint8(v byte)    { w.data = append(w.data, v) }
-func (w *wireWriter) uint16(v uint16) { w.data = binary.BigEndian.AppendUint16(w.data, v) }
+func (w *wireWriter) writeUint8(v byte)    { w.data = append(w.data, v) }
+func (w *wireWriter) writeUint16(v uint16) { w.data = binary.BigEndian.AppendUint16(w.data, v) }
 
 func (w *wireWriter) uint24(v int) {
 	if v < 0 || v > 0xffffff {
@@ -77,7 +77,7 @@ func (w *wireWriter) vector8(v []byte) {
 		w.err = errDecode
 		return
 	}
-	w.uint8(byte(n))
+	w.writeUint8(byte(n))
 	w.data = append(w.data, v...)
 }
 
@@ -87,7 +87,7 @@ func (w *wireWriter) vector16(v []byte) {
 		w.err = errDecode
 		return
 	}
-	w.uint16(uint16(n))
+	w.writeUint16(uint16(n))
 	w.data = append(w.data, v...)
 }
 

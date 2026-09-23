@@ -28,7 +28,7 @@ func (m handshakeMessage) transcript() ([]byte, error) {
 		return nil, errHandshakeLimit
 	}
 	w := wireWriter{}
-	w.uint8(m.typ)
+	w.writeUint8(m.typ)
 	w.vector24(m.body)
 	return w.result()
 }
@@ -41,9 +41,9 @@ func (m handshakeMessage) fragment(offset, length int) ([]byte, error) {
 		return nil, errDecode
 	}
 	w := wireWriter{}
-	w.uint8(m.typ)
+	w.writeUint8(m.typ)
 	w.uint24(len(m.body))
-	w.uint16(m.sequence)
+	w.writeUint16(m.sequence)
 	w.uint24(offset)
 	w.vector24(m.body[offset : offset+length])
 	return w.result()
@@ -58,7 +58,7 @@ type handshakeFragment struct {
 
 func parseFragment(data []byte) (handshakeFragment, []byte, error) {
 	r := wireReader{data: data}
-	f := handshakeFragment{typ: r.uint8(), total: r.uint24(), sequence: r.uint16()}
+	f := handshakeFragment{typ: r.readUint8(), total: r.uint24(), sequence: r.readUint16()}
 	f.offset = r.uint24()
 	f.body = r.vector24()
 	if r.err != nil || f.offset > f.total || len(f.body) > f.total-f.offset {
@@ -193,7 +193,7 @@ func (r *reassembler) disrupted() bool {
 
 func fragmentCost(size int) int { return size + (size+7)/8 + 128 }
 
-func (r *reassembler) clear() {
+func (r *reassembler) reset() {
 	for _, p := range r.pending {
 		r.budget.release(fragmentCost(len(p.message.body)))
 	}

@@ -76,7 +76,7 @@ type session struct {
 	reassembly          reassembler
 	outbound            *flight
 	ack                 ackState
-	handshakeReadExpiry time.Time
+	epoch2ReadKeyExpiry time.Time
 	post                map[byte]*flight
 	keyUpdate           keyUpdateState
 	peerClosed          *recordNumber
@@ -507,7 +507,7 @@ func (s *session) processHandshakes(now time.Time) error {
 			return nil
 		}
 		if s.handshake.complete {
-			if err := s.receivePost(m, now); err != nil {
+			if err := s.receivePost(m); err != nil {
 				return err
 			}
 			continue
@@ -617,7 +617,7 @@ func (s *session) deadline() time.Time {
 	if s.handshakeACKScheduled() {
 		deadline = s.ack.deadline
 	}
-	deadline = earlierDeadline(deadline, s.handshakeReadExpiry)
+	deadline = earlierDeadline(deadline, s.epoch2ReadKeyExpiry)
 	deadline = earlierDeadline(deadline, flightDeadline(s.outbound))
 	for _, f := range s.post {
 		deadline = earlierDeadline(deadline, flightDeadline(f))

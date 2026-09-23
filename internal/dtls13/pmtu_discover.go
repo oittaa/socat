@@ -202,7 +202,7 @@ func (s *session) sendDiscoveryProbe(size int, now time.Time, kind mtuProbeKind)
 		s.scheduleMTUWatch(now)
 		return
 	}
-	if kind == probeSearch && size <= s.mtu.finder.min {
+	if kind == probeSearch && size <= s.mtu.finder.floor {
 		s.scheduleMTUWatch(now)
 		return
 	}

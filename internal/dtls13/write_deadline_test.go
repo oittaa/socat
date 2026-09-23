@@ -94,7 +94,7 @@ func TestTransportFullWriteQueueDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		p := newHandshakePacketConn(10001)
 		transport := newPacketTransport(p, nil, nil)
-		defer transport.close(net.ErrClosed)
+		defer transport.shutdown(net.ErrClosed)
 		// A stalled writer leaves no queue capacity for this operation.
 		for range cap(transport.writes) {
 			transport.writes <- packetWrite{}

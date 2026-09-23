@@ -205,7 +205,7 @@ func (l *Listener) shutdown(err error) {
 	for peer := range l.hellos {
 		l.removeHello(peer)
 	}
-	l.cookies.clear()
+	l.cookies.wipe()
 	connections := make([]*Conn, 0, len(l.connections))
 	for c := range l.connections {
 		connections = append(connections, c)
@@ -214,7 +214,7 @@ func (l *Listener) shutdown(err error) {
 	for _, c := range connections {
 		c.fail(err)
 	}
-	l.transport.close(err)
+	l.transport.shutdown(err)
 }
 
 func (l *Listener) Accept() (net.Conn, error) { return l.AcceptContext(context.Background()) }

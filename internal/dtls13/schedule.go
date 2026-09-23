@@ -121,7 +121,7 @@ func retryTranscriptHash(id uint16, firstHash, retry, secondClientHello []byte) 
 		return nil, errKeyMaterial
 	}
 	w := wireWriter{}
-	w.uint8(msgMessageHash)
+	w.writeUint8(msgMessageHash)
 	w.vector24(firstHash)
 	w.data = append(w.data, retry...)
 	w.data = append(w.data, secondClientHello...)

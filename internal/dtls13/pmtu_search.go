@@ -1,10 +1,10 @@
 package dtls13
 
-// Interval search and loss tolerance follow quic-go mtu_discoverer.go at
-// 793f74d8e03368c5aded128af6f48d21dbb47f73. QUIC ACK timing is not used.
+// Interval search and loss tolerance follow quic-go mtu_discoverer.go.
+// QUIC ACK timing is not used. See NOTICE.md for the upstream commit.
 
 type mtuFinder struct {
-	min              int
+	floor            int
 	lost             [maxLostMTUProbes]int
 	lastProbeWasLost bool
 	inFlight         int
@@ -18,7 +18,7 @@ func (f *mtuFinder) init(start, ceiling int) {
 	if ceiling < start {
 		ceiling = start
 	}
-	f.min = start
+	f.floor = start
 	f.lost[0] = ceiling
 	for i := 1; i < len(f.lost); i++ {
 		f.lost[i] = invalidProbeSize
@@ -28,11 +28,11 @@ func (f *mtuFinder) init(start, ceiling int) {
 	f.probes = 0
 }
 
-func (f *mtuFinder) max() int {
+func (f *mtuFinder) ceiling() int {
 	for i, v := range f.lost {
 		if v == invalidProbeSize {
 			if i == 0 {
-				return f.min
+				return f.floor
 			}
 			return f.lost[i-1]
 		}
@@ -41,7 +41,7 @@ func (f *mtuFinder) max() int {
 }
 
 func (f *mtuFinder) done() bool {
-	return f.max()-f.min <= maxMTUDiff+1 || f.probes >= maxSearchProbes
+	return f.ceiling()-f.floor <= maxMTUDiff+1 || f.probes >= maxSearchProbes
 }
 
 func (f *mtuFinder) nextSize() int {
@@ -50,17 +50,17 @@ func (f *mtuFinder) nextSize() int {
 	}
 	var size int
 	if f.lastProbeWasLost {
-		size = (f.min + f.lost[0]) / 2
+		size = (f.floor + f.lost[0]) / 2
 	} else {
-		size = (f.min + f.max()) / 2
+		size = (f.floor + f.ceiling()) / 2
 	}
-	if size <= f.min {
-		size = f.min + 1
+	if size <= f.floor {
+		size = f.floor + 1
 	}
-	if max := f.max(); size >= max && max > f.min {
-		size = max - 1
+	if hi := f.ceiling(); size >= hi && hi > f.floor {
+		size = hi - 1
 	}
-	if size <= f.min || size > f.max() {
+	if size <= f.floor || size > f.ceiling() {
 		return 0
 	}
 	return size
@@ -68,8 +68,8 @@ func (f *mtuFinder) nextSize() int {
 
 func (f *mtuFinder) onAcked(size int) {
 	f.inFlight = 0
-	if size > f.min {
-		f.min = size
+	if size > f.floor {
+		f.floor = size
 	}
 	f.lastProbeWasLost = false
 	var j int

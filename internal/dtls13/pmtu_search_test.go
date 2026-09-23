@@ -5,12 +5,12 @@ import "testing"
 func TestMTUFinderInitClampsRange(t *testing.T) {
 	var f mtuFinder
 	f.init(0, 100)
-	if f.min != 1 || f.max() != 100 {
-		t.Fatalf("zero start min=%d max=%d", f.min, f.max())
+	if f.floor != 1 || f.ceiling() != 100 {
+		t.Fatalf("zero start min=%d max=%d", f.floor, f.ceiling())
 	}
 	f.init(80, 40)
-	if f.min != 80 || f.max() != 80 || !f.done() {
-		t.Fatalf("inverted range min=%d max=%d done=%t", f.min, f.max(), f.done())
+	if f.floor != 80 || f.ceiling() != 80 || !f.done() {
+		t.Fatalf("inverted range min=%d max=%d done=%t", f.floor, f.ceiling(), f.done())
 	}
 }
 
@@ -18,11 +18,11 @@ func TestMTUFinderIsolatedLossKeepsCeiling(t *testing.T) {
 	var f mtuFinder
 	f.init(400, 1200)
 	f.onLost(800)
-	if f.max() != 1200 {
-		t.Fatalf("one loss dropped max to %d", f.max())
+	if f.ceiling() != 1200 {
+		t.Fatalf("one loss dropped max to %d", f.ceiling())
 	}
-	if f.min != 400 {
-		t.Fatalf("loss changed working min to %d", f.min)
+	if f.floor != 400 {
+		t.Fatalf("loss changed working min to %d", f.floor)
 	}
 	next := f.nextSize()
 	if next == 0 || next >= 800 {
@@ -35,15 +35,15 @@ func TestMTUFinderThreeLossesLowerMax(t *testing.T) {
 	f.init(400, 1200)
 	f.onLost(700)
 	f.onLost(800)
-	if f.max() != 1200 {
-		t.Fatalf("two losses dropped max to %d", f.max())
+	if f.ceiling() != 1200 {
+		t.Fatalf("two losses dropped max to %d", f.ceiling())
 	}
 	f.onLost(900)
-	if f.max() != 900 {
-		t.Fatalf("three losses max=%d want 900", f.max())
+	if f.ceiling() != 900 {
+		t.Fatalf("three losses max=%d want 900", f.ceiling())
 	}
-	if f.min != 400 {
-		t.Fatalf("losses changed working min to %d", f.min)
+	if f.floor != 400 {
+		t.Fatalf("losses changed working min to %d", f.floor)
 	}
 }
 
@@ -51,10 +51,10 @@ func TestMTUFinderRejectHardDropsCeiling(t *testing.T) {
 	var f mtuFinder
 	f.init(400, 1200)
 	f.rejectHard(800)
-	if f.max() != 800 {
-		t.Fatalf("EMSGSIZE max=%d want 800", f.max())
+	if f.ceiling() != 800 {
+		t.Fatalf("EMSGSIZE max=%d want 800", f.ceiling())
 	}
-	if f.min != 400 {
+	if f.floor != 400 {
 		t.Fatal("hard reject lowered the working min")
 	}
 	next := f.nextSize()
@@ -88,10 +88,10 @@ func TestMTUFinderAckClearsSmallerLosses(t *testing.T) {
 	f.init(400, 1200)
 	f.onLost(700)
 	f.onAcked(900)
-	if f.min != 900 {
-		t.Fatalf("min %d", f.min)
+	if f.floor != 900 {
+		t.Fatalf("min %d", f.floor)
 	}
-	if f.max() != 1200 {
-		t.Fatalf("max %d after larger ack", f.max())
+	if f.ceiling() != 1200 {
+		t.Fatalf("max %d after larger ack", f.ceiling())
 	}
 }
