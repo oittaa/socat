@@ -112,7 +112,7 @@ func TestParameterCountBeforeOptionValues(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = xio.PrepareSpec(spec)
-	if err == nil || !strings.Contains(err.Error(), "invalid retry") || strings.Contains(err.Error(), "wrong number of parameters") {
+	if err == nil || !strings.Contains(err.Error(), `option "retry": invalid value`) || strings.Contains(err.Error(), "wrong number of parameters") {
 		t.Fatalf("err=%v want invalid retry before parameter count", err)
 	}
 
@@ -139,11 +139,11 @@ func TestSocketOptionValueBeforeParameterCount(t *testing.T) {
 		want string
 	}{
 		{addr: "SOCKET-CONNECT:2:6:x:extra,pf=bogus", want: "unknown protocol family"},
-		{addr: "SOCKET-CONNECT:2:6:x:extra,protocol=nope", want: "invalid protocol"},
+		{addr: "SOCKET-CONNECT:2:6:x:extra,protocol=nope", want: `option "protocol": invalid value`},
 		{addr: "SOCKET-CONNECT:2:6:x:extra,bind=X", want: "syntax error"},
 		{addr: "VSOCK:1:2:extra,pf=bogus", want: "unknown protocol family"},
-		{addr: "VSOCK:1:2:extra,protocol=nope", want: "invalid protocol"},
-		{addr: "VSOCK:1:2:extra,bind=1:bad", want: "bind:"},
+		{addr: "VSOCK:1:2:extra,protocol=nope", want: `option "protocol": invalid value`},
+		{addr: "VSOCK:1:2:extra,bind=1:bad", want: `option "bind": invalid value`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.addr, func(t *testing.T) {

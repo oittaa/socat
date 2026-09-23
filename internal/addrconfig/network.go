@@ -699,7 +699,11 @@ func requiredPortTarget(o parse.Option) (PortTarget, error) {
 	if err != nil {
 		return PortTarget{}, err
 	}
-	return portTarget(text)
+	port, err := portTarget(text)
+	if err != nil {
+		return PortTarget{}, optionValueError(o, "invalid value", err.Error())
+	}
+	return port, nil
 }
 
 func portTarget(text string) (PortTarget, error) {
@@ -738,13 +742,13 @@ func socketIntOrZero(value string) (int, error) {
 	return socketIntText(value)
 }
 
-func requiredSocketInt(o parse.Option, name string) (int, error) {
+func requiredSocketInt(o parse.Option) (int, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, fmt.Errorf("option %q requires a number", name)
+		return 0, optionValueError(o, "requires a value", "")
 	}
 	n, err := socketIntText(o.Value)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s=%q", name, o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return n, nil
 }
@@ -967,10 +971,13 @@ func decodePositiveInt(o parse.Option) (int, error) {
 func positiveKeepDuration(o parse.Option) (time.Duration, error) {
 	d, err := parseDurationValue(o)
 	if err != nil {
-		return 0, fmt.Errorf("%s: %w", o.Name, err)
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return 0, err
+		}
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("%s: must be positive, got %q", o.Name, o.Value)
+		return 0, optionValueError(o, "invalid value", "must be positive")
 	}
 	return d, nil
 }

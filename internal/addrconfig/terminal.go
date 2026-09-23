@@ -113,9 +113,9 @@ func terminalBaud(name string) (uint32, bool) {
 	return 0, false
 }
 
-func terminalByte(name string, o parse.Option) (byte, error) {
+func terminalByte(o parse.Option) (byte, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, fmt.Errorf("%s: value required", name)
+		return 0, optionValueError(o, "requires a value", "")
 	}
 	n, err := strconv.ParseUint(strings.TrimSpace(o.Value), 0, 8)
 	if err == nil {
@@ -124,25 +124,25 @@ func terminalByte(name string, o parse.Option) (byte, error) {
 	if errors.Is(err, strconv.ErrRange) {
 		return 255, nil
 	}
-	return 0, fmt.Errorf("%s: invalid byte value %q", name, o.Value)
+	return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 }
 
-func terminalUint(name string, o parse.Option) (uint32, error) {
+func terminalUint(o parse.Option) (uint32, error) {
 	value := strings.TrimSpace(o.Value)
 	if !o.Has || value == "" {
-		return 0, fmt.Errorf("option %q: missing numerical value", name)
+		return 0, optionValueError(o, "invalid value", "missing numerical value")
 	}
 	n, err := strconv.ParseUint(value, 0, 32)
 	if err != nil {
 		for i := len(value) - 1; i > 0; i-- {
 			if _, prefixErr := strconv.ParseUint(value[:i], 0, 32); prefixErr == nil {
-				return 0, fmt.Errorf("option %q: trailing garbage %q", name, value[i:])
+				return 0, optionValueError(o, "invalid value", fmt.Sprintf("trailing garbage %q", value[i:]))
 			}
 		}
 		if value[0] < '0' || value[0] > '9' {
-			return 0, fmt.Errorf("option %q: missing numerical value", name)
+			return 0, optionValueError(o, "invalid value", "missing numerical value")
 		}
-		return 0, fmt.Errorf("%s: invalid unsigned value %q", name, value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	return uint32(n), nil
 }
@@ -150,38 +150,38 @@ func terminalUint(name string, o parse.Option) (uint32, error) {
 func terminalSetFlags(o parse.Option) (uint8, uint64, error) {
 	value := strings.TrimSpace(o.Value)
 	if !o.Has || value == "" {
-		return 0, 0, fmt.Errorf("%s: WORD:FLAGS value required", o.Name)
+		return 0, 0, optionValueError(o, "requires a value", "WORD:FLAGS")
 	}
 	parts := strings.Split(value, ":")
 	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("%s: expected WORD:FLAGS", o.Name)
+		return 0, 0, optionValueError(o, "invalid value", "expected WORD:FLAGS")
 	}
 	word, err := strconv.ParseUint(strings.TrimSpace(parts[0]), 0, 8)
 	if err != nil || word > 3 {
-		return 0, 0, fmt.Errorf("%s: word must be 0..3", o.Name)
+		return 0, 0, optionValueError(o, "invalid value", "word must be 0..3")
 	}
 	flags, err := strconv.ParseUint(strings.TrimSpace(parts[1]), 0, strconv.IntSize)
 	if err != nil {
-		return 0, 0, fmt.Errorf("%s: invalid flags %q", o.Name, strings.TrimSpace(parts[1]))
+		return 0, 0, optionValueError(o, "invalid value", fmt.Sprintf("invalid flags %q", strings.TrimSpace(parts[1])))
 	}
 	return uint8(word), flags, nil
 }
 
 func terminalWinSize(o parse.Option) (uint16, uint16, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return 0, 0, fmt.Errorf("%s: COL:ROW value required", o.Name)
+		return 0, 0, optionValueError(o, "requires a value", "COL:ROW")
 	}
 	parts := strings.Split(o.Value, ":")
 	if len(parts) != 2 {
-		return 0, 0, fmt.Errorf("tiocswinsz requires COL:ROW")
+		return 0, 0, optionValueError(o, "invalid value", "requires COL:ROW")
 	}
 	col, err := strconv.Atoi(strings.TrimSpace(parts[0]))
 	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz col: %w", err)
+		return 0, 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	row, err := strconv.Atoi(strings.TrimSpace(parts[1]))
 	if err != nil {
-		return 0, 0, fmt.Errorf("tiocswinsz row: %w", err)
+		return 0, 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	if col < 0 {
 		col = 0

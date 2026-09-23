@@ -170,7 +170,7 @@ func TestDecodeRequiresForkForMaxChildrenRegardlessOfOrder(t *testing.T) {
 func TestDecodeStrictOptionalBoolean(t *testing.T) {
 	spec := mustParseSpec(t, "TCP:host:9,handshake-timeout=1,binary=maybe")
 	_, err := Decode(spec, tcpConnect)
-	if err == nil || !strings.Contains(err.Error(), `invalid binary "maybe"`) {
+	if err == nil || !strings.Contains(err.Error(), `option "binary": invalid value: "maybe"`) {
 		t.Fatalf("error=%v", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestDecodePTYOptionalValuesAndBareLink(t *testing.T) {
 
 	for _, raw := range []string{"PTY,link", "PTY,link="} {
 		spec := mustParseSpec(t, raw)
-		if _, err := Decode(spec, Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "link: path required") {
+		if _, err := Decode(spec, Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), `option "link": requires a value`) {
 			t.Fatalf("%s: link error=%v", raw, err)
 		}
 	}
@@ -571,7 +571,7 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 	}
 
 	spec := mustParseSpec(t, "TCP-LISTEN:9,backlog=0")
-	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN", Group: "TCP", Role: AddressRoleListen}); err == nil || !strings.Contains(err.Error(), `backlog: invalid value "0"`) {
+	if _, err := Decode(spec, Facts{Type: "TCP-LISTEN", Group: "TCP", Role: AddressRoleListen}); err == nil || !strings.Contains(err.Error(), `option "backlog": invalid value: "0"`) {
 		t.Fatalf("backlog=0 error=%v", err)
 	}
 	spec = mustParseSpec(t, "TCP:host:9,keepidle=-5s")

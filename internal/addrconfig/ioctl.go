@@ -19,7 +19,7 @@ func decodeIoctl(o parse.Option, name string) (FileAction, error) {
 		}
 		request, err := classicCInt(value)
 		if err != nil {
-			return FileAction{}, fmt.Errorf("invalid %s %q", action.Name, o.Value)
+			return FileAction{}, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		action.Request = uint32(int32(request)) // #nosec G115 -- zero-extend a validated C int request.
 	case "ioctl-int", "ioctl-intp":
@@ -40,10 +40,10 @@ func decodeIoctl(o parse.Option, name string) (FileAction, error) {
 		}
 		data, _, err := ParseDalan(rest, 'i')
 		if err != nil {
-			return FileAction{}, fmt.Errorf("invalid %s %q: %w", action.Name, o.Value, err)
+			return FileAction{}, optionValueError(o, "invalid value", err.Error())
 		}
 		if len(data) == 0 {
-			return FileAction{}, fmt.Errorf("invalid %s %q (empty dalan value)", action.Name, o.Value)
+			return FileAction{}, optionValueError(o, "invalid value", "empty dalan value")
 		}
 		action.Request, action.Bytes = request, append([]byte(nil), data...)
 	case "ioctl-string":
@@ -54,7 +54,7 @@ func decodeIoctl(o parse.Option, name string) (FileAction, error) {
 		}
 		action.Request, action.Text = request, value
 	default:
-		return FileAction{}, fmt.Errorf("unknown ioctl option %q", action.Name)
+		return FileAction{}, optionValueError(o, "invalid value", "unknown ioctl option")
 	}
 	return action, nil
 }
@@ -66,7 +66,7 @@ func splitIoctlInt(o parse.Option) (uint32, int, error) {
 	}
 	number, err := classicCInt(rest)
 	if err != nil {
-		return 0, 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return 0, 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return request, number, nil
 }
@@ -78,11 +78,11 @@ func splitIoctlRest(o parse.Option, trim bool) (uint32, string, error) {
 	}
 	parts := strings.SplitN(value, ":", 2)
 	if len(parts) != 2 {
-		return 0, "", fmt.Errorf("invalid %s %q (want request:value)", o.OriginalSpelling(), o.Value)
+		return 0, "", optionValueError(o, "invalid value", fmt.Sprintf("%q (want request:value)", o.Value))
 	}
 	request, err := classicCInt(parts[0])
 	if err != nil {
-		return 0, "", fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return 0, "", optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	rest := parts[1]
 	if trim {

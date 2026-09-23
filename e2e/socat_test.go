@@ -181,7 +181,7 @@ func TestRejectsInvalidAddressOptionsBeforeSideEffects(t *testing.T) {
 		want   string
 	}{
 		{name: "unknown", option: "totally-unknown=1", want: "unknown option"},
-		{name: "invalid-perm", option: "perm=xyz", want: "invalid perm"},
+		{name: "invalid-perm", option: "perm=xyz", want: `option "perm": invalid value`},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

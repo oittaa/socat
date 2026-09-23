@@ -44,9 +44,9 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 		}
 		return assignBool(d, o, name, v)
 	case optionmeta.KindNoValueName:
-		return applyNoValue(d, o, name, o.Name)
+		return applyNoValue(d, o, name)
 	case optionmeta.KindNoValueSpell:
-		return applyNoValue(d, o, name, o.OriginalSpelling())
+		return applyNoValue(d, o, name)
 	case optionmeta.KindString:
 		if (name == "lockfile" || name == "waitlock") && a.File.LockSet {
 			return fmt.Errorf("only one use of options lockfile and waitlock allowed")
@@ -121,14 +121,14 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 	case optionmeta.KindBacklog:
 		backlog, err := decodePositiveInt(o)
 		if err != nil {
-			return fmt.Errorf("backlog: invalid value %q", o.Value)
+			return optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		a.Network.Backlog = OptionalInt{Set: true, Value: backlog}
 		return nil
 	case optionmeta.KindKeepCnt:
 		count, err := decodePositiveInt(o)
 		if err != nil {
-			return fmt.Errorf("keepcnt: invalid count %q", o.Value)
+			return optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		a.Network.KeepCnt = OptionalInt{Set: true, Value: count}
 		return nil
@@ -155,9 +155,9 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 	case optionmeta.KindALPN:
 		return assignALPN(a, o)
 	case optionmeta.KindProtoMin:
-		return decodeProtocolVersion(a, o, name, true)
+		return decodeProtocolVersion(a, o, true)
 	case optionmeta.KindProtoMax:
-		return decodeProtocolVersion(a, o, name, false)
+		return decodeProtocolVersion(a, o, false)
 	case optionmeta.KindDTLSMTU:
 		return assignDTLSMTU(a, o)
 	case optionmeta.KindTUNType:
@@ -169,7 +169,7 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 	case optionmeta.KindLink:
 		value, err := requiredString(o)
 		if err != nil {
-			return fmt.Errorf("link: path required")
+			return err
 		}
 		a.Terminal.Link = OptionalString{Set: true, Value: value}
 		return nil
@@ -188,26 +188,26 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 		appendTerminal(a, TerminalAction{Kind: TerminalActionWinSize, Name: name, Col: col, Row: row})
 		return nil
 	case optionmeta.KindTermiosByte:
-		value, err := terminalByte(name, o)
+		value, err := terminalByte(o)
 		if err != nil {
 			return err
 		}
 		appendTerminal(a, TerminalAction{Kind: TerminalActionChar, Name: name, Value: uint32(value)})
 		return nil
 	case optionmeta.KindTermiosUint:
-		value, err := terminalUint(name, o)
+		value, err := terminalUint(o)
 		if err != nil {
 			return err
 		}
 		appendTerminal(a, TerminalAction{Kind: TerminalActionSpeed, Name: name, Value: value})
 		return nil
 	case optionmeta.KindTermiosField:
-		value, err := terminalUint(name, o)
+		value, err := terminalUint(o)
 		if err != nil {
 			return err
 		}
 		if value > 3 {
-			return fmt.Errorf("%s: invalid value %d", name, value)
+			return optionValueError(o, "invalid value", strconv.Quote(o.Value))
 		}
 		appendTerminal(a, TerminalAction{Kind: TerminalActionField, Name: name, Value: value})
 		return nil
@@ -259,7 +259,7 @@ func decodeRejectedTLS(d *decoder, o parse.Option, definition optionmeta.Option)
 	case optionmeta.KindHiddenInt:
 		if o.Has {
 			if _, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64); err != nil {
-				return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+				return optionValueError(o, "invalid value", strconv.Quote(o.Value))
 			}
 		}
 	default:
@@ -445,9 +445,9 @@ func flockValue(name string) int {
 	}
 }
 
-func applyNoValue(d *decoder, o parse.Option, name, label string) error {
+func applyNoValue(d *decoder, o parse.Option, name string) error {
 	if o.Has {
-		return fmt.Errorf("%s: no value permitted", label)
+		return optionValueError(o, "no value permitted", "")
 	}
 	a := &d.Address
 	if terminalComboName(name) {
@@ -634,11 +634,11 @@ func assignPositiveDuration(a *Address, o parse.Option, name string) error {
 
 func assignSitout(a *Address, o parse.Option) error {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return fmt.Errorf("sitout-eio: option requires a value")
+		return optionValueError(o, "requires a value", "")
 	}
 	value, err := ParseDuration(o.Value)
 	if err != nil || value < 0 {
-		return fmt.Errorf("sitout-eio: invalid timeval %q", o.Value)
+		return optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	a.Terminal.SitoutEIO = OptionalDuration{Set: true, Value: value}
 	return nil
@@ -686,7 +686,7 @@ func assignPresentPort(a *Address, o parse.Option) error {
 	}
 	port, err := portTarget(text)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", err.Error())
 	}
 	a.Proxy.SOCKSPort = port
 	a.Proxy.SOCKSPortSet = true
@@ -713,7 +713,7 @@ func assignReuseAddr(a *Address, o parse.Option) error {
 }
 
 func assignSocketInt(a *Address, o parse.Option, name string) error {
-	value, err := requiredSocketInt(o, name)
+	value, err := requiredSocketInt(o)
 	if err != nil {
 		return err
 	}
@@ -728,7 +728,7 @@ func assignSocketInt(a *Address, o parse.Option, name string) error {
 
 func assignProtocol(a *Address, o parse.Option) error {
 	if a.Network.Kind == AddressKindSocket || a.Network.Kind == AddressKindVSOCK {
-		value, err := requiredSocketInt(o, "protocol")
+		value, err := requiredSocketInt(o)
 		if err != nil {
 			return err
 		}
@@ -745,7 +745,7 @@ func assignOwner(a *Address, o parse.Option, name string) error {
 	}
 	owner, err := parseOwnerRef(value)
 	if err != nil {
-		return fmt.Errorf("%s: %w", o.OriginalSpelling(), err)
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	kind := FileActionUser
 	switch name {
@@ -771,7 +771,7 @@ func assignFamily(a *Address, o parse.Option) error {
 	}
 	pf, family, err := protocolFamily(text)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", err.Error())
 	}
 	a.Network.ProtocolFamily, a.Network.ProtocolSet, a.Network.IPFamily = pf, true, family
 	return nil
@@ -784,7 +784,7 @@ func assignRange(a *Address, o parse.Option) error {
 	}
 	parsed, err := ParseIPRange(value)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	a.Network.Range, a.Network.RangeSet = parsed, true
 	return nil
@@ -799,7 +799,7 @@ func applyBind(a *Address, o parse.Option) error {
 	if n.Kind == AddressKindSocket {
 		data, err := ParseSocatData(text)
 		if err != nil {
-			return err
+			return optionValueError(o, "invalid value", err.Error())
 		}
 		n.RawBind, n.RawBindSet = data, true
 		return nil
@@ -807,7 +807,7 @@ func applyBind(a *Address, o parse.Option) error {
 	if n.Kind == AddressKindVSOCK {
 		ep, hasPort, err := decodeVSOCKBind(text)
 		if err != nil {
-			return err
+			return optionValueError(o, "invalid value", strconv.Quote(text))
 		}
 		n.VSOCKBind, n.VSOCKBindSet, n.VSOCKBindHasPort = ep, true, hasPort
 		n.BindSet = true
@@ -820,7 +820,7 @@ func applyBind(a *Address, o parse.Option) error {
 	}
 	bind, bindPort, bindPortSet, err := parseBindValue(text, bindSplitsHostPort(n))
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", err.Error())
 	}
 	n.Bind, n.BindPort, n.BindPortSet = bind, bindPort, bindPortSet
 	n.BindSet = true
@@ -861,7 +861,7 @@ func assignResNS(a *Address, o parse.Option) error {
 	}
 	ns, err := ParseResNSAddr(value)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", strings.TrimPrefix(err.Error(), "res-nsaddr: "))
 	}
 	a.Common.NameServer = ns
 	return nil
@@ -874,7 +874,7 @@ func assignHTTPVersion(a *Address, o parse.Option) error {
 	}
 	version, err := decodeHTTPVersion(value)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	a.Proxy.HTTPVersion = version
 	return nil
@@ -892,7 +892,7 @@ func assignCiphers(a *Address, o parse.Option) error {
 	}
 	suites, err := decodeCipherSuites(value)
 	if err != nil {
-		return err
+		return optionValueError(o, "invalid value", strings.TrimPrefix(err.Error(), "ciphers: "))
 	}
 	a.TLS.CipherSuites = suites
 	return nil
@@ -904,7 +904,7 @@ func assignALPN(a *Address, o parse.Option) error {
 		return err
 	}
 	if len(value) > 255 {
-		return fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
+		return optionValueError(o, "invalid value", "protocol must contain 1 to 255 bytes")
 	}
 	a.TLS.ALPN = OptionalString{Set: true, Value: value}
 	return nil
@@ -913,7 +913,10 @@ func assignALPN(a *Address, o parse.Option) error {
 func assignDTLSMTU(a *Address, o parse.Option) error {
 	value, err := requiredInt(o, 256)
 	if err != nil || value > 65507 {
-		return fmt.Errorf("dtls-mtu: value must be between 256 and 65507")
+		if !o.Has || strings.TrimSpace(o.Value) == "" {
+			return optionValueError(o, "requires a value", "")
+		}
+		return optionValueError(o, "invalid value", "must be between 256 and 65507")
 	}
 	a.TLS.DTLSMTU = OptionalInt{Set: true, Value: value}
 	return nil
@@ -930,7 +933,7 @@ func assignTUNType(a *Address, o parse.Option) error {
 	case "tap":
 		a.Network.TUNType = TUNTypeTAP
 	default:
-		return fmt.Errorf("unknown tun-type %q", value)
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	return nil
 }
@@ -942,7 +945,7 @@ func assignTUNMTU(a *Address, o parse.Option) error {
 	}
 	mtu, err := strconv.ParseUint(value, 0, 32)
 	if err != nil || mtu == 0 {
-		return fmt.Errorf("if-mtu: invalid %q", value)
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	a.Network.TUNMTU = OptionalUint32{Set: true, Value: uint32(mtu)}
 	return nil
@@ -955,7 +958,7 @@ func assignMQPrio(a *Address, o parse.Option) error {
 	}
 	v, err := strconv.ParseUint(value, 0, 32)
 	if err != nil {
-		return fmt.Errorf("invalid mq-prio %q", value)
+		return optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	a.Network.MQPriority = OptionalUint32{Set: true, Value: uint32(v)}
 	return nil

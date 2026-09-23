@@ -63,7 +63,7 @@ func recordTLSPlaintextName(a *Address, o parse.Option, definition optionmeta.Op
 	}
 }
 
-func decodeProtocolVersion(a *Address, o parse.Option, name string, minimum bool) error {
+func decodeProtocolVersion(a *Address, o parse.Option, minimum bool) error {
 	value, err := requiredString(o)
 	if err != nil {
 		return err
@@ -71,10 +71,10 @@ func decodeProtocolVersion(a *Address, o parse.Option, name string, minimum bool
 	if a.Facts.Kind == AddressKindDTLS {
 		version, err := decodeDTLSVersion(value)
 		if err != nil {
-			return fmt.Errorf("%s: %w", name, err)
+			return optionValueError(o, "invalid value", err.Error())
 		}
 		if !minimum && version < 13 {
-			return fmt.Errorf("%s: only DTLS 1.3 is supported", name)
+			return optionValueError(o, "invalid value", "only DTLS 1.3 is supported")
 		}
 		if minimum {
 			a.TLS.DTLSMinVersion = OptionalInt{Set: true, Value: version}
@@ -85,7 +85,7 @@ func decodeProtocolVersion(a *Address, o parse.Option, name string, minimum bool
 	}
 	version, err := decodeTLSVersion(value)
 	if err != nil {
-		return fmt.Errorf("%s: %w", name, err)
+		return optionValueError(o, "invalid value", err.Error())
 	}
 	if minimum {
 		a.TLS.MinVersion = version

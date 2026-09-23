@@ -307,7 +307,7 @@ func decodeNamedShutdown(dst *ShutdownMode, o parse.Option, mode ShutdownMode) e
 
 func decodeShutdown(dst *ShutdownMode, o parse.Option) error {
 	if !o.Has {
-		return fmt.Errorf("shut: value required (none, down, close, or null)")
+		return optionValueError(o, "requires a value", "none, down, close, or null")
 	}
 	switch strings.ToLower(strings.TrimSpace(o.Value)) {
 	case "none":
@@ -322,7 +322,7 @@ func decodeShutdown(dst *ShutdownMode, o parse.Option) error {
 		if value, ok := boolWord(o.Value); ok && !value {
 			return nil
 		}
-		return fmt.Errorf("shut: invalid value %q (want none, down, close, or null)", o.Value)
+		return optionValueError(o, "invalid value", fmt.Sprintf("%q (want none, down, close, or null)", o.Value))
 	}
 	return nil
 }
@@ -339,7 +339,7 @@ func parseBool(o parse.Option) (OptionalBool, error) {
 	}
 	value, ok := boolWord(o.Value)
 	if !ok {
-		return OptionalBool{}, fmt.Errorf("invalid %s %q (want %s)", o.OriginalSpelling(), o.Value, boolValueForms)
+		return OptionalBool{}, optionValueError(o, "invalid value", fmt.Sprintf("%q (want %s)", o.Value, boolValueForms))
 	}
 	return OptionalBool{Set: true, Value: value}, nil
 }
@@ -368,7 +368,7 @@ func parseIntOrBoolWord(o parse.Option, fallback int) (int, error) {
 	}
 	n, err := socketIntText(o.Value)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s %q (want %s)", o.OriginalSpelling(), o.Value, intValueForms)
+		return 0, optionValueError(o, "invalid value", fmt.Sprintf("%q (want %s)", o.Value, intValueForms))
 	}
 	return n, nil
 }
@@ -395,7 +395,7 @@ func setFlagInt(dst *OptionalBool, o parse.Option) error {
 
 func requiredString(o parse.Option) (string, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
-		return "", fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+		return "", optionValueError(o, "requires a value", "")
 	}
 	return o.Value, nil
 }
@@ -403,7 +403,7 @@ func requiredString(o parse.Option) (string, error) {
 // presentString requires "=value". An empty value is preserved.
 func presentString(o parse.Option) (string, error) {
 	if !o.Has {
-		return "", fmt.Errorf("option %q requires a value", o.OriginalSpelling())
+		return "", optionValueError(o, "requires a value", "")
 	}
 	return o.Value, nil
 }
@@ -422,6 +422,19 @@ func omittedString() OptionalString {
 	return OptionalString{Set: true, Omitted: true}
 }
 
+// optionValueError reports one address-option value error.
+// The name is the spelling written on the address.
+func optionValueError(o parse.Option, kind, reason string) error {
+	spelling := o.OriginalSpelling()
+	if spelling == "" {
+		spelling = o.Name
+	}
+	if reason == "" {
+		return fmt.Errorf("option %q: %s", spelling, kind)
+	}
+	return fmt.Errorf("option %q: %s: %s", spelling, kind, reason)
+}
+
 func requiredInt(o parse.Option, min int) (int, error) {
 	value, err := requiredString(o)
 	if err != nil {
@@ -429,7 +442,7 @@ func requiredInt(o parse.Option, min int) (int, error) {
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(value), 0, 64)
 	if err != nil || n < int64(min) || n > int64(math.MaxInt) {
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(value))
 	}
 	return int(n), nil
 }
@@ -440,7 +453,7 @@ func duration(o parse.Option) (time.Duration, error) {
 		if err != nil && (!o.Has || strings.TrimSpace(o.Value) == "") {
 			return 0, err
 		}
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return d, nil
 }
@@ -475,7 +488,7 @@ func sizeT(o parse.Option) (uint64, error) {
 	}
 	n, err := ParseSizeT(value)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
+		return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 	}
 	return n, nil
 }
@@ -514,5 +527,5 @@ func escapeByte(o parse.Option) (byte, error) {
 	if len(value) == 1 {
 		return value[0], nil
 	}
-	return 0, fmt.Errorf("escape: invalid value %q", o.Value)
+	return 0, optionValueError(o, "invalid value", strconv.Quote(o.Value))
 }

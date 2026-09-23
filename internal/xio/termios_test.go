@@ -95,7 +95,7 @@ func TestApplyTermiosBareVintrIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "value required") {
+	if _, err := addrconfig.Decode(s, addrconfig.Facts{Type: "PTY"}); err == nil || !strings.Contains(err.Error(), "requires a value") {
 		t.Fatalf("bare vintr error=%v", err)
 	}
 }

@@ -15,8 +15,8 @@ func TestTCPListenRejectsInvalidBacklog(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	got := err.Error()
-	if !strings.Contains(got, `backlog: invalid value "0"`) || strings.Contains(got, "backlog: backlog:") {
-		t.Fatalf("error=%q want backlog: invalid value \"0\" once", got)
+	if strings.Count(got, `option "backlog": invalid value: "0"`) != 1 {
+		t.Fatalf("error=%q want backlog invalid value once", got)
 	}
 }
 
@@ -38,7 +38,7 @@ func TestUnixListenRejectsInvalidBacklog(t *testing.T) {
 		t.Fatal("expected error")
 	}
 	got := err.Error()
-	if !strings.Contains(got, `backlog: invalid value "0"`) || strings.Contains(got, "backlog: backlog:") {
-		t.Fatalf("error=%q want backlog: invalid value \"0\" once", got)
+	if strings.Count(got, `option "backlog": invalid value: "0"`) != 1 {
+		t.Fatalf("error=%q want backlog invalid value once", got)
 	}
 }
