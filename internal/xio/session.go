@@ -124,44 +124,74 @@ func SetSessionEnv(g *Global, name, value string) {
 	g.Peer.SessionVars[name] = value
 }
 
-// sessionEnv returns SOCAT_* / PROGNAME_* values from this session.
-func sessionEnv(g *Global) []string {
+// sessionFields is one locked copy of the peer fields published as SOCAT_*.
+type sessionFields struct {
+	sockAddr string
+	peerAddr string
+	sockPort string
+	peerPort string
+	vars     map[string]string
+	tls      map[string]string
+	hasTLS   bool
+}
+
+// snapshotSessionFields copies address, TLS, and session variables under the
+// session lock so one read does not mix those fields.
+func (g *Global) snapshotSessionFields() sessionFields {
 	if g == nil {
-		return nil
+		return sessionFields{}
 	}
-	prog := g.Options().Progname
+	unlock := g.lockSession()
+	defer unlock()
+	return sessionFields{
+		sockAddr: g.Peer.SockAddr,
+		peerAddr: g.Peer.PeerAddr,
+		sockPort: g.Peer.SockPort,
+		peerPort: g.Peer.PeerPort,
+		vars:     cloneStringMap(g.Peer.SessionVars),
+		tls:      cloneStringMap(g.Peer.TLSVars),
+		hasTLS:   g.Peer.TLSVars != nil,
+	}
+}
+
+// sessionEnvPrefixes is SOCAT, plus the uppercased progname when that name
+// is not socat. An empty progname uses socat.
+func sessionEnvPrefixes(prog string) []string {
 	if prog == "" {
 		prog = "socat"
 	}
-	up := strings.ToUpper(prog)
 	prefixes := []string{"SOCAT"}
-	if up != "SOCAT" {
+	if up := strings.ToUpper(prog); up != "SOCAT" {
 		prefixes = append(prefixes, up)
+	}
+	return prefixes
+}
+
+func formatSessionEnv(prefixes []string, fields sessionFields) []string {
+	if len(prefixes) == 0 {
+		return nil
 	}
 	values := map[string]string{
 		"VERSION":  socat.Version,
 		"PID":      strconv.Itoa(os.Getpid()),
 		"PPID":     strconv.Itoa(os.Getpid()),
-		"SOCKADDR": g.Peer.SockAddr,
-		"PEERADDR": g.Peer.PeerAddr,
-		"SOCKPORT": g.Peer.SockPort,
-		"PEERPORT": g.Peer.PeerPort,
+		"SOCKADDR": fields.sockAddr,
+		"PEERADDR": fields.peerAddr,
+		"SOCKPORT": fields.sockPort,
+		"PEERPORT": fields.peerPort,
 	}
-	unlock := g.lockSession()
-	for name, value := range g.Peer.SessionVars {
+	for name, value := range fields.vars {
 		values[name] = value
 	}
-	unlock()
-
 	names := sortedKeys(values)
-	tlsNames := sortedKeys(g.Peer.TLSVars)
+	tlsNames := sortedKeys(fields.tls)
 	out := make([]string, 0, len(prefixes)*(len(names)+2*len(tlsNames)))
 	for _, prefix := range prefixes {
 		for _, name := range names {
 			out = append(out, prefix+"_"+name+"="+values[name])
 		}
 		for _, name := range tlsNames {
-			value := g.Peer.TLSVars[name]
+			value := fields.tls[name]
 			out = append(out,
 				prefix+"_TLS_"+name+"="+value,
 				prefix+"_OPENSSL_"+name+"="+value,
@@ -169,6 +199,14 @@ func sessionEnv(g *Global) []string {
 		}
 	}
 	return out
+}
+
+// sessionEnv returns SOCAT_* / PROGNAME_* values from this session.
+func sessionEnv(g *Global) []string {
+	if g == nil {
+		return nil
+	}
+	return formatSessionEnv(sessionEnvPrefixes(g.Options().Progname), g.snapshotSessionFields())
 }
 
 func sortedKeys(values map[string]string) []string {
@@ -184,7 +222,13 @@ func sortedKeys(values map[string]string) []string {
 // SOCAT_* keys (last key wins). Used for EXEC/SYSTEM/SHELL so fork children
 // do not share process-wide Setenv.
 func ChildEnviron(g *Global) []string {
-	extra := sessionEnv(g)
+	var prefixes []string
+	var fields sessionFields
+	if g != nil {
+		prefixes = sessionEnvPrefixes(g.Options().Progname)
+		fields = g.snapshotSessionFields()
+	}
+	extra := formatSessionEnv(prefixes, fields)
 	if len(extra) == 0 {
 		return os.Environ()
 	}
@@ -195,15 +239,7 @@ func ChildEnviron(g *Global) []string {
 		}
 	}
 	var dropPrefixes []string
-	if g != nil && g.Peer.TLSVars != nil {
-		prog := g.Options().Progname
-		if prog == "" {
-			prog = "socat"
-		}
-		prefixes := []string{"SOCAT"}
-		if up := strings.ToUpper(prog); up != "SOCAT" {
-			prefixes = append(prefixes, up)
-		}
+	if fields.hasTLS {
 		for _, prefix := range prefixes {
 			dropPrefixes = append(dropPrefixes, prefix+"_TLS_", prefix+"_OPENSSL_")
 		}
@@ -239,14 +275,18 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 		return "", false
 	}
 	switch name {
-	case "SOCKADDR":
-		return g.Peer.SockAddr, true
-	case "PEERADDR":
-		return g.Peer.PeerAddr, true
-	case "SOCKPORT":
-		return g.Peer.SockPort, true
-	case "PEERPORT":
-		return g.Peer.PeerPort, true
+	case "SOCKADDR", "PEERADDR", "SOCKPORT", "PEERPORT":
+		fields := g.snapshotSessionFields()
+		switch name {
+		case "SOCKADDR":
+			return fields.sockAddr, true
+		case "PEERADDR":
+			return fields.peerAddr, true
+		case "SOCKPORT":
+			return fields.sockPort, true
+		default:
+			return fields.peerPort, true
+		}
 	}
 	for _, entry := range sessionEnv(g) {
 		if i := strings.IndexByte(entry, '='); i > 0 && entry[:i] == name {
