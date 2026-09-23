@@ -27,54 +27,41 @@ func TestMLDSAEcho(t *testing.T) {
 	assertMLDSA44PEM(t, certs.ClientCert)
 
 	t.Run("TLS", func(t *testing.T) {
-		port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-			return exec.Command(bin, "-t", "2", fmt.Sprintf(
-				"TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,min-version=TLS1.3,cert=%s,key=%s,cafile=%s",
-				port, certs.ServerCert, certs.ServerKey, certs.CAFile,
-			), "PIPE")
-		})
-
-		payload := fmt.Sprintf("mldsa-tls %d\n", time.Now().UnixNano())
-		cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
+		echoMLDSA(t, bin, certs, startTCPTestServer,
+			"TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,min-version=TLS1.3,cert=%s,key=%s,cafile=%s",
 			"TLS:127.0.0.1:%d,verify=1,min-version=TLS1.3,cert=%s,key=%s,cafile=%s,commonname=localhost",
-			port, certs.ClientCert, certs.ClientKey, certs.CAFile,
-		))
-		var cliErr bytes.Buffer
-		cli.Stdin = bytes.NewBufferString(payload)
-		cli.Stderr = &cliErr
-		out, err := cli.Output()
-		if err != nil {
-			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-		}
-		if string(out) != payload {
-			t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-		}
+			"mldsa-tls")
 	})
 
 	t.Run("QUIC", func(t *testing.T) {
-		port, srv := startQUICTestServer(t, func(port int) *exec.Cmd {
-			return exec.Command(bin, "-t", "2", fmt.Sprintf(
-				"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
-				port, certs.ServerCert, certs.ServerKey, certs.CAFile,
-			), "PIPE")
-		})
-
-		payload := fmt.Sprintf("mldsa-quic %d\n", time.Now().UnixNano())
-		cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
+		echoMLDSA(t, bin, certs, startQUICTestServer,
+			"QUIC-LISTEN:%d,reuseaddr,bind=127.0.0.1,fork,verify=1,cert=%s,key=%s,cafile=%s",
 			"QUIC:127.0.0.1:%d,verify=1,cert=%s,key=%s,cafile=%s,commonname=localhost",
-			port, certs.ClientCert, certs.ClientKey, certs.CAFile,
-		))
-		var cliErr bytes.Buffer
-		cli.Stdin = bytes.NewBufferString(payload)
-		cli.Stderr = &cliErr
-		out, err := cli.Output()
-		if err != nil {
-			t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-		}
-		if string(out) != payload {
-			t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-		}
+			"mldsa-quic")
 	})
+}
+
+func echoMLDSA(t *testing.T, bin string, certs testcert.Bundle, start func(*testing.T, func(int) *exec.Cmd) (int, *testProcess), listen, connect, payloadPrefix string) {
+	t.Helper()
+	port, srv := start(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, "-t", "2", fmt.Sprintf(
+			listen, port, certs.ServerCert, certs.ServerKey, certs.CAFile,
+		), "PIPE")
+	})
+	payload := fmt.Sprintf("%s %d\n", payloadPrefix, time.Now().UnixNano())
+	cli := exec.Command(bin, "-t", "2", "stdin!!stdout", fmt.Sprintf(
+		connect, port, certs.ClientCert, certs.ClientKey, certs.CAFile,
+	))
+	var cliErr bytes.Buffer
+	cli.Stdin = bytes.NewBufferString(payload)
+	cli.Stderr = &cliErr
+	out, err := cli.Output()
+	if err != nil {
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
+	}
+	if string(out) != payload {
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
+	}
 }
 
 func mustMLDSA44Trust(t *testing.T) testcert.Bundle {

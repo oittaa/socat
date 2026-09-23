@@ -4,14 +4,15 @@ package xio
 
 import (
 	"errors"
-	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func TestRunAndRestoreNetNSReturnsRestoreFailure(t *testing.T) {
 	safe := false
 	err := runAndRestoreNetNS(-1, &safe, func() error { return nil })
-	if err == nil || !strings.Contains(err.Error(), "setns(-1") {
+	if !errors.Is(err, unix.EBADF) {
 		t.Fatalf("error=%v", err)
 	}
 	if safe {
@@ -24,7 +25,7 @@ func TestRunAndRestoreNetNSJoinsOperationAndRestoreFailures(t *testing.T) {
 
 	safe := false
 	err := runAndRestoreNetNS(-1, &safe, func() error { return operationErr })
-	if !errors.Is(err, operationErr) || !strings.Contains(err.Error(), "setns(-1") {
+	if !errors.Is(err, operationErr) || !errors.Is(err, unix.EBADF) {
 		t.Fatalf("error=%v", err)
 	}
 }

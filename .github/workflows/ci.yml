@@ -229,6 +229,11 @@ jobs:
       - name: Privileged unit tests
         run: |
           sudo "$(command -v go)" test -race -count=1 -v -tags=privileged ./internal/xio/privileged
+      # Ordinary macOS unit tests are unprivileged, so raw-socket opens skip.
+      - name: Netopen tests with raw sockets
+        if: runner.os == 'macOS'
+        run: |
+          sudo "$(command -v go)" test -race -count=1 -v ./internal/xio/netopen/
       # Run the xio package with root and network namespaces available.
       - name: Xio tests with network namespaces
         if: runner.os == 'Linux'

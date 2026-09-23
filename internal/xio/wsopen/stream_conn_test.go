@@ -21,13 +21,13 @@ type wsPairResult struct {
 	err  error
 }
 
-func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
-	t.Helper()
+func newWSTestPair(tb testing.TB) (net.Conn, net.Conn) {
+	tb.Helper()
 	ln, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ln.Close() })
+	tb.Cleanup(func() { _ = ln.Close() })
 
 	serverResult := make(chan wsPairResult, 1)
 	go func() {
@@ -46,7 +46,7 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 	addr := ln.Addr().(*net.TCPAddr)
 	spec, err := parse.ParseSpec(fmt.Sprintf("WS:127.0.0.1:%d", addr.Port))
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	client, err := dialWS(
 		context.Background(),
@@ -57,20 +57,20 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 			Port:    addrconfig.PortFromText(fmt.Sprint(addr.Port)),
 			Path:    "/",
 		},
-		mustAddr(t, spec),
+		mustAddr(tb, spec),
 		&xio.Global{Log: logx.New()},
 		nil,
 		time.Second,
 	)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	result := <-serverResult
 	if result.err != nil {
 		_ = client.Close()
-		t.Fatal(result.err)
+		tb.Fatal(result.err)
 	}
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		closeWSTestConn(client)
 		closeWSTestConn(result.conn)
 	})

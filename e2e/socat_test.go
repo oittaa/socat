@@ -257,6 +257,24 @@ func freeTCPPort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
+func echoStdioPipe(t *testing.T, bin string, listen func(port int) string, connect func(port int) string, payload string) {
+	t.Helper()
+	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
+		return exec.Command(bin, listen(port), "PIPE")
+	})
+	cli := exec.Command(bin, "stdin!!stdout", connect(port))
+	var cliErr bytes.Buffer
+	cli.Stdin = bytes.NewBufferString(payload)
+	cli.Stderr = &cliErr
+	out, err := cli.Output()
+	if err != nil {
+		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
+	}
+	if string(out) != payload {
+		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
+	}
+}
+
 // freeUDPPort is only for startPortTestServer retries. Closing the probe
 // socket leaves a bind race; the caller must retry if the child bind fails.
 func freeUDPPort(t *testing.T) int {
@@ -583,27 +601,15 @@ func TestHelpListsTLSPublicCatalogAliases(t *testing.T) {
 func TestTLSPublicCertificateAliasEcho(t *testing.T) {
 	bin := socatBin(t)
 	cert := listenCert(t)
-	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-		return exec.Command(bin,
-			fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,openssl-verify=0,openssl-certificate=%s", port, cert),
-			"PIPE",
-		)
-	})
-
-	payload := fmt.Sprintf("alias-tls %d\n", time.Now().UnixNano())
-	cli := exec.Command(bin, "stdin!!stdout",
-		fmt.Sprintf("OPENSSL:127.0.0.1:%d,openssl-verify=0", port),
+	echoStdioPipe(t, bin,
+		func(port int) string {
+			return fmt.Sprintf("OPENSSL-LISTEN:%d,reuseaddr,bind=127.0.0.1,openssl-verify=0,openssl-certificate=%s", port, cert)
+		},
+		func(port int) string {
+			return fmt.Sprintf("OPENSSL:127.0.0.1:%d,openssl-verify=0", port)
+		},
+		fmt.Sprintf("alias-tls %d\n", time.Now().UnixNano()),
 	)
-	var cliErr bytes.Buffer
-	cli.Stdin = bytes.NewBufferString(payload)
-	cli.Stderr = &cliErr
-	out, err := cli.Output()
-	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-	}
-	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-	}
 }
 
 func TestHelpListsTLSAndOpenSSLAlias(t *testing.T) {
@@ -627,27 +633,15 @@ func TestHelpListsTLSAndOpenSSLAlias(t *testing.T) {
 func TestTLSPQC(t *testing.T) {
 	bin := socatBin(t)
 	cert := listenCert(t)
-	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-		return exec.Command(bin,
-			fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert),
-			"PIPE",
-		)
-	})
-
-	payload := fmt.Sprintf("pqc-tls %d\n", time.Now().UnixNano())
-	cli := exec.Command(bin, "stdin!!stdout",
-		fmt.Sprintf("TLS:127.0.0.1:%d,verify=0", port),
+	echoStdioPipe(t, bin,
+		func(port int) string {
+			return fmt.Sprintf("TLS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert)
+		},
+		func(port int) string {
+			return fmt.Sprintf("TLS:127.0.0.1:%d,verify=0", port)
+		},
+		fmt.Sprintf("pqc-tls %d\n", time.Now().UnixNano()),
 	)
-	var cliErr bytes.Buffer
-	cli.Stdin = bytes.NewBufferString(payload)
-	cli.Stderr = &cliErr
-	out, err := cli.Output()
-	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-	}
-	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-	}
 }
 
 func TestUDPConnectDefaultShutNullExitsListener(t *testing.T) {

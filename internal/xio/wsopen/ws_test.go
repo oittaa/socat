@@ -2,6 +2,7 @@ package wsopen
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -43,10 +44,10 @@ func TestWSNetConnAbortOnTimeoutClosesRaw(t *testing.T) {
 	defer func() { _ = peer.Close() }()
 	c := &wsNetConn{raw: raw}
 	c.abortOnTimeout(os.ErrDeadlineExceeded)
-	_ = peer.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
+	_ = peer.SetReadDeadline(time.Now().Add(2 * time.Second))
 	var b [1]byte
-	if _, err := peer.Read(b[:]); err == nil {
-		t.Fatal("timeout abort did not close the raw connection")
+	if _, err := peer.Read(b[:]); !errors.Is(err, io.EOF) {
+		t.Fatalf("timeout abort read: %v", err)
 	}
 }
 
@@ -56,16 +57,20 @@ func TestWSNetConnAbortOnTimeoutIgnoresOtherErrors(t *testing.T) {
 	defer func() { _ = peer.Close() }()
 	c := &wsNetConn{raw: raw}
 	c.abortOnTimeout(io.EOF)
-	done := make(chan struct{})
+	wrote := make(chan error, 1)
 	go func() {
-		var b [1]byte
-		_, _ = peer.Read(b[:])
-		close(done)
+		_, err := raw.Write([]byte{1})
+		wrote <- err
 	}()
-	select {
-	case <-done:
-		t.Fatal("non-timeout error closed the raw connection")
-	case <-time.After(50 * time.Millisecond):
+	var b [1]byte
+	if _, err := peer.Read(b[:]); err != nil {
+		t.Fatalf("non-timeout error closed the raw connection: %v", err)
+	}
+	if err := <-wrote; err != nil {
+		t.Fatalf("non-timeout error closed the raw connection: %v", err)
+	}
+	if b[0] != 1 {
+		t.Fatalf("marker = %d", b[0])
 	}
 }
 

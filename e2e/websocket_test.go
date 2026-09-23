@@ -37,44 +37,30 @@ func TestWSHelpTypes(t *testing.T) {
 // TestWSEcho — WS-LISTEN + PIPE echo; client uses stdin!!stdout.
 func TestWSEcho(t *testing.T) {
 	bin := socatBin(t)
-	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-		return exec.Command(bin, fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1", port), "PIPE")
-	})
-
-	payload := fmt.Sprintf("ws-echo %d\n", time.Now().UnixNano())
-	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WS:127.0.0.1:%d", port))
-	var cliErr bytes.Buffer
-	cli.Stdin = bytes.NewBufferString(payload)
-	cli.Stderr = &cliErr
-	out, err := cli.Output()
-	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-	}
-	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-	}
+	echoStdioPipe(t, bin,
+		func(port int) string {
+			return fmt.Sprintf("WS-LISTEN:%d,reuseaddr,bind=127.0.0.1", port)
+		},
+		func(port int) string {
+			return fmt.Sprintf("WS:127.0.0.1:%d", port)
+		},
+		fmt.Sprintf("ws-echo %d\n", time.Now().UnixNano()),
+	)
 }
 
 // TestWSSEcho — WSS-LISTEN with a throwaway cert; client verify=0.
 func TestWSSEcho(t *testing.T) {
 	bin := socatBin(t)
 	cert := listenCert(t)
-	port, srv := startTCPTestServer(t, func(port int) *exec.Cmd {
-		return exec.Command(bin, fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert), "PIPE")
-	})
-
-	payload := fmt.Sprintf("wss-echo %d\n", time.Now().UnixNano())
-	cli := exec.Command(bin, "stdin!!stdout", fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port))
-	var cliErr bytes.Buffer
-	cli.Stdin = bytes.NewBufferString(payload)
-	cli.Stderr = &cliErr
-	out, err := cli.Output()
-	if err != nil {
-		t.Fatalf("client: %v cli=%s srv=%s", err, cliErr.String(), srv.stderr.String())
-	}
-	if string(out) != payload {
-		t.Fatalf("got %q want %q (srv=%s)", out, payload, srv.stderr.String())
-	}
+	echoStdioPipe(t, bin,
+		func(port int) string {
+			return fmt.Sprintf("WSS-LISTEN:%d,reuseaddr,bind=127.0.0.1,verify=0,cert=%s", port, cert)
+		},
+		func(port int) string {
+			return fmt.Sprintf("WSS:127.0.0.1:%d,verify=0", port)
+		},
+		fmt.Sprintf("wss-echo %d\n", time.Now().UnixNano()),
+	)
 }
 
 // TestWSPath — path in the address and path= option; wrong path fails.
