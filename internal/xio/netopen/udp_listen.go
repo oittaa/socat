@@ -114,10 +114,11 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		return nil, err
 	}
 	ln := newUDPListenForkListener(base)
+	// Accept already ran peerFilter. A second check re-reads the tcpwrap
+	// tables and repeats DNS, so the two decisions can disagree.
 	return xio.NewAcceptParent("UDP-LISTEN", xio.AcceptParent{
 		Listener:    ln,
 		MaxChildren: maxChildren,
-		PeerFilter:  peerFilter.AllowConn,
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
 			return xio.WrapOpened(s, udpConnectStream{NetStream: relay.NetStream{Conn: c}})
 		},
