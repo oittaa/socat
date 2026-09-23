@@ -106,6 +106,11 @@ func newQUICListener(parent context.Context, ln *quic.Listener, pc net.PacketCon
 	return l
 }
 
+// quicAcceptQueueCap matches quic-go's completed-handshake queue.
+// A PING refreshes the idle timer, so parking more than this holds
+// silent peers with no cap. Overflow is closed, not queued.
+const quicAcceptQueueCap = 32
+
 // acceptConnections keeps accepting connections while each stream wait runs
 // on its own. Otherwise one peer that never opens a stream blocks Accept.
 func (l *quicListener) acceptConnections() {
@@ -117,7 +122,7 @@ func (l *quicListener) acceptConnections() {
 			err = aerr
 			return
 		}
-		if l.queue.isClosed() {
+		if !l.queue.park() {
 			_ = qc.CloseWithError(0, "")
 			continue
 		}
@@ -128,12 +133,14 @@ func (l *quicListener) acceptConnections() {
 func (l *quicListener) acceptStream(qc *quic.Conn) {
 	st, err := qc.AcceptStream(l.ctx)
 	if err != nil {
+		l.queue.unpark()
 		_ = qc.CloseWithError(0, "")
 		return
 	}
 	nc := wrapQUIC(qc, st)
 	nc.waitPeerClose = l.mode == xio.ModeWrite
 	if !l.queue.push(nc) {
+		l.queue.unpark()
 		_ = nc.Close()
 	}
 }
@@ -147,10 +154,12 @@ func (l *quicListener) AcceptContext(ctx context.Context) (net.Conn, error) {
 }
 
 // acceptQueue delivers conns whose streams are already open.
+// parked counts those conns plus handshakes still waiting for a stream.
 type acceptQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
 	conns  []net.Conn
+	parked int
 	err    error
 	closed bool
 }
@@ -161,10 +170,22 @@ func newAcceptQueue() *acceptQueue {
 	return q
 }
 
-func (q *acceptQueue) isClosed() bool {
+// park reserves a slot for a handshake that is not yet returned from Accept.
+// Overflow and a closed listener are refused so the caller can close them.
+func (q *acceptQueue) park() bool {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.closed
+	if q.closed || q.parked >= quicAcceptQueueCap {
+		return false
+	}
+	q.parked++
+	return true
+}
+
+func (q *acceptQueue) unpark() {
+	q.mu.Lock()
+	q.parked--
+	q.mu.Unlock()
 }
 
 func (q *acceptQueue) push(c net.Conn) bool {
@@ -188,6 +209,7 @@ func (q *acceptQueue) fail(err error) {
 	q.err = err
 	pending := q.conns
 	q.conns = nil
+	q.parked -= len(pending)
 	q.cond.Broadcast()
 	q.mu.Unlock()
 	for _, c := range pending {
@@ -214,6 +236,7 @@ func (q *acceptQueue) pop(ctx context.Context) (net.Conn, error) {
 		c = q.conns[0]
 		q.conns[0] = nil
 		q.conns = q.conns[1:]
+		q.parked--
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case q.err != nil:
