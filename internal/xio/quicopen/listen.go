@@ -4,13 +4,13 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
 	"github.com/oittaa/socat/internal/xio/tlsopen"
@@ -93,11 +93,49 @@ type quicListener struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	once   sync.Once
+	queue  *acceptQueue
 }
 
 func newQUICListener(parent context.Context, ln *quic.Listener, pc net.PacketConn, mode xio.Mode) *quicListener {
 	ctx, cancel := context.WithCancel(parent)
-	return &quicListener{ln: ln, pc: pc, mode: mode, ctx: ctx, cancel: cancel}
+	l := &quicListener{
+		ln: ln, pc: pc, mode: mode, ctx: ctx, cancel: cancel,
+		queue: newAcceptQueue(),
+	}
+	go l.acceptConnections()
+	return l
+}
+
+// acceptConnections keeps accepting connections while each stream wait runs
+// on its own. Otherwise one peer that never opens a stream blocks Accept.
+func (l *quicListener) acceptConnections() {
+	err := net.ErrClosed
+	defer func() { l.queue.fail(err) }()
+	for {
+		qc, aerr := l.ln.Accept(l.ctx)
+		if aerr != nil {
+			err = aerr
+			return
+		}
+		if l.queue.isClosed() {
+			_ = qc.CloseWithError(0, "")
+			continue
+		}
+		go l.acceptStream(qc)
+	}
+}
+
+func (l *quicListener) acceptStream(qc *quic.Conn) {
+	st, err := qc.AcceptStream(l.ctx)
+	if err != nil {
+		_ = qc.CloseWithError(0, "")
+		return
+	}
+	nc := wrapQUIC(qc, st)
+	nc.waitPeerClose = l.mode == xio.ModeWrite
+	if !l.queue.push(nc) {
+		_ = nc.Close()
+	}
 }
 
 func (l *quicListener) Accept() (net.Conn, error) {
@@ -105,24 +143,94 @@ func (l *quicListener) Accept() (net.Conn, error) {
 }
 
 func (l *quicListener) AcceptContext(ctx context.Context) (net.Conn, error) {
-	qc, err := l.ln.Accept(ctx)
-	if err != nil {
-		return nil, err
+	return l.queue.pop(ctx)
+}
+
+// acceptQueue delivers conns whose streams are already open.
+type acceptQueue struct {
+	mu     sync.Mutex
+	cond   *sync.Cond
+	conns  []net.Conn
+	err    error
+	closed bool
+}
+
+func newAcceptQueue() *acceptQueue {
+	q := &acceptQueue{}
+	q.cond = sync.NewCond(&q.mu)
+	return q
+}
+
+func (q *acceptQueue) isClosed() bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	return q.closed
+}
+
+func (q *acceptQueue) push(c net.Conn) bool {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return false
 	}
-	st, err := qc.AcceptStream(ctx)
-	if err != nil {
-		_ = qc.CloseWithError(0, "")
-		return nil, err
+	q.conns = append(q.conns, c)
+	q.cond.Signal()
+	return true
+}
+
+func (q *acceptQueue) fail(err error) {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
 	}
-	nc := wrapQUIC(qc, st)
-	nc.waitPeerClose = l.mode == xio.ModeWrite
-	return nc, nil
+	q.closed = true
+	q.err = err
+	pending := q.conns
+	q.conns = nil
+	q.cond.Broadcast()
+	q.mu.Unlock()
+	for _, c := range pending {
+		_ = c.Close()
+	}
+}
+
+func (q *acceptQueue) pop(ctx context.Context) (net.Conn, error) {
+	stop := context.AfterFunc(ctx, func() {
+		q.mu.Lock()
+		q.cond.Broadcast()
+		q.mu.Unlock()
+	})
+	q.mu.Lock()
+	for len(q.conns) == 0 && !q.closed && ctx.Err() == nil {
+		q.cond.Wait()
+	}
+	var (
+		c   net.Conn
+		err error
+	)
+	switch {
+	case len(q.conns) > 0 && !q.closed && ctx.Err() == nil:
+		c = q.conns[0]
+		q.conns[0] = nil
+		q.conns = q.conns[1:]
+	case ctx.Err() != nil:
+		err = ctx.Err()
+	case q.err != nil:
+		err = q.err
+	default:
+		err = net.ErrClosed
+	}
+	q.mu.Unlock()
+	stop()
+	return c, err
 }
 
 func (l *quicListener) Close() error {
 	var err error
 	l.once.Do(func() {
 		l.cancel()
+		l.queue.fail(net.ErrClosed)
 		err = l.ln.Close()
 		if l.pc != nil {
 			_ = l.pc.Close()
