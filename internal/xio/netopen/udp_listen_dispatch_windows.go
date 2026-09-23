@@ -6,7 +6,7 @@ import (
 	"net"
 
 	"github.com/oittaa/socat/internal/addrconfig"
-	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 func udpForkUsesPacketDispatch(addrconfig.Address) bool { return true }
@@ -16,7 +16,7 @@ func udpForkSharesListenSocket() bool { return true }
 func udpForkUsesPeekDial() bool { return false }
 
 func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, _ bool) (int, []byte, *udpPeer, error) {
-	n, oob, addr, err := xio.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
+	n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
 	return n, oob, udpPeerFromNet(addr), err
 }
 

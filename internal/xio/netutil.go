@@ -13,6 +13,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // Lowport bind range: 640 through 1023.
@@ -111,15 +112,15 @@ func ApplyReuse(fd int, s addrconfig.Address, reuseaddrDefault bool) error {
 		reuse = s.Network.ReuseAddr.Value
 	}
 	if reuse {
-		if err := setSockoptInt(fd, solSocket, soReuseaddr, 1); err != nil && s.Network.ReuseAddr.Set {
+		if err := sockopt.SetSockoptInt(fd, sockopt.SOLSocket, sockopt.SOReuseaddr, 1); err != nil && s.Network.ReuseAddr.Set {
 			return fmt.Errorf("reuseaddr: %w", err)
 		}
 	}
 	if s.Network.ReusePort.Value {
-		if soReuseport == 0 {
+		if sockopt.SOReuseport == 0 {
 			return fmt.Errorf("reuseport is not supported on this platform")
 		}
-		if err := setSockoptInt(fd, solSocket, soReuseport, 1); err != nil {
+		if err := sockopt.SetSockoptInt(fd, sockopt.SOLSocket, sockopt.SOReuseport, 1); err != nil {
 			return fmt.Errorf("reuseport: %w", err)
 		}
 	}
@@ -141,22 +142,22 @@ func applyReuseAndV6Only(fd int, s addrconfig.Address, network string) error {
 		if s.Common.IPv6V6Only.Value {
 			v = 1
 		}
-		if err := setSockoptInt(fd, ipprotoIPv6, ipv6V6only, v); err != nil {
+		if err := sockopt.SetSockoptInt(fd, sockopt.IPProtoIPv6, sockopt.IPv6V6Only, v); err != nil {
 			return fmt.Errorf("ipv6-v6only: %w", err)
 		}
 		return nil
 	}
 	if network == "tcp" || network == "udp" {
-		_ = setSockoptInt(fd, ipprotoIPv6, ipv6V6only, 0)
+		_ = sockopt.SetSockoptInt(fd, sockopt.IPProtoIPv6, sockopt.IPv6V6Only, 0)
 	}
 	return nil
 }
 
-// applyListenOptions applies socket options that must be set before bind
+// ApplyListenOptions applies socket options that must be set before bind
 // (reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
 // so-broadcast and other post-socket options live in ApplySocketOptions and
 // must run first (DialControl / ListenControl / listenUDP Control).
-func applyListenOptions(fd int, s addrconfig.Address, network string) error {
+func ApplyListenOptions(fd int, s addrconfig.Address, network string) error {
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {
@@ -178,7 +179,7 @@ func ApplyPastSocketPhase(fd int, s addrconfig.Address, network string) error {
 // applyPrebindPhase applies generic setsockopt-listen and ip-transparent
 // before bind()/connect(), in command-line order.
 func applyPrebindPhase(fd int, s addrconfig.Address) error {
-	return applyPreparedSocketPhase(fd, s, socketApplyPrebind, "")
+	return sockopt.ApplyPreparedSocketPhase(fd, s, sockopt.SocketApplyPrebind, "")
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
@@ -192,26 +193,26 @@ func ApplyPastSocketThenPrebind(fd int, s addrconfig.Address, network string) er
 }
 
 // ListenControl is a net.ListenConfig.Control that applies
-// ApplyPastSocketPhase then applyListenOptions before bind().
+// ApplyPastSocketPhase then ApplyListenOptions before bind().
 func ListenControl(s addrconfig.Address) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
 			optionErr = ApplyPastSocketPhase(int(fd), s, network)
 			if optionErr == nil {
-				optionErr = applyListenOptions(int(fd), s, network)
+				optionErr = ApplyListenOptions(int(fd), s, network)
 			}
 		})
 		return errors.Join(controlErr, optionErr)
 	}
 }
 
-// newTCPListenConfig is ListenConfig for TCP/TLS/WS listen.
+// NewTCPListenConfig is ListenConfig for TCP/TLS/WS listen.
 // Go 1.21+ may create IPPROTO_MPTCP sockets by default; TCP-LISTEN is
 // IPPROTO_TCP. MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds,
 // getsockopt stays 0) and rejects TCP_MAXSEG (ENOPROTOOPT), so named
 // post-socket options would not have kernel effect. Stay on TCP.
-func newTCPListenConfig(s addrconfig.Address) net.ListenConfig {
+func NewTCPListenConfig(s addrconfig.Address) net.ListenConfig {
 	lc := net.ListenConfig{Control: ListenControl(s)}
 	lc.SetMultipathTCP(false)
 	return lc
@@ -222,7 +223,7 @@ func newTCPListenConfig(s addrconfig.Address) net.ListenConfig {
 // SOL_SOCKET/TCP/SCTP, generic setsockopt-socket, and IP/ancillary/membership
 // options are applied once in command-line order before bind/connect.
 func ApplyNetworkSocketOptions(fd int, s addrconfig.Address, network string) error {
-	return applyPreparedSocketPhase(fd, s, socketApplyPastSocket, network)
+	return sockopt.ApplyPreparedSocketPhase(fd, s, sockopt.SocketApplyPastSocket, network)
 }
 
 // DialControl merges spec-driven socket options with an optional
@@ -506,7 +507,7 @@ func applyKeepAliveConfig(config addrconfig.Address, tc *net.TCPConn) error {
 // and named connected TCP opts; a present option is never ignored because
 // the conn is not *net.TCPConn (TCP_* on UDP/SCTP fails clearly).
 func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
-	c = unwrapNetConn(c)
+	c = sockopt.UnwrapNetConn(c)
 	if tc, ok := c.(*net.TCPConn); ok {
 		if err := applyKeepAliveConfig(s, tc); err != nil {
 			return err
@@ -516,16 +517,16 @@ func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
 				return fmt.Errorf("nodelay: %w", err)
 			}
 		}
-		if err := ApplyGenericSetsockoptToNetConn(tc, s, SockoptPhaseConnected); err != nil {
+		if err := sockopt.ApplyGenericSetsockoptToNetConn(tc, s, sockopt.SockoptPhaseConnected); err != nil {
 			return err
 		}
 		// so-sndbuf-late / so-rcvbuf-late on the raw TCP fd after
 		// connect()/accept(), before TLS/PROXY handshake. WrapOpened
 		// still applies the same options on UNIX/UDP streams; a second
 		// SO_SNDBUF set on this TCP conn is harmless.
-		return applyLateSocketOptionsToConn(tc, s)
+		return sockopt.ApplyLateSocketOptionsToConn(tc, s)
 	}
-	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
+	return sockopt.ApplyGenericSetsockoptToNetConn(c, s, sockopt.SockoptPhaseConnected)
 }
 
 func FirstHost(s addrconfig.Address) addrconfig.HostTarget {

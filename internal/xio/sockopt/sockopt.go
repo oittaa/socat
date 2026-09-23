@@ -1,0 +1,176 @@
+package sockopt
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"syscall"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/relay"
+)
+
+// ApplySocketOptions applies post-socket() options on a raw descriptor
+// whose network is unknown here: fixed SOL_SOCKET options (broadcast,
+// sndbuf/rcvbuf, bindtodevice, linger, timeos), named SOL_SOCKET/TCP/SCTP
+// options, owner ioctls, and generic setsockopt-socket. IP/ancillary/
+// membership options are skipped. Go net sockets and raw SCTP use
+// ApplyNetworkSocketOptions with the actual network name.
+func ApplySocketOptions(fd int, s addrconfig.Address) error {
+	return ApplyPreparedSocketPhase(fd, s, SocketApplyPastSocket, "")
+}
+
+// ApplyLateSocketOptions applies so-sndbuf-late / so-rcvbuf-late
+// (same SO_SNDBUF / SO_RCVBUF constants).
+func ApplyLateSocketOptions(fd int, s addrconfig.Address) error {
+	return applyPreparedLateSocketOptions(fd, s)
+}
+
+func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
+	for _, action := range config.Network.Actions {
+		if action.Kind != addrconfig.SocketActionBuffer || action.Phase != addrconfig.SocketPhaseLate {
+			continue
+		}
+		opt := soSndbuf
+		if action.Recv {
+			opt = soRcvbuf
+		}
+		name := action.Text
+		if name == "" {
+			if action.Recv {
+				name = "rcvbuf-late"
+			} else {
+				name = "sndbuf-late"
+			}
+		}
+		if err := SetSockoptInt(fd, SOLSocket, opt, action.Number); err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// applyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
+// on a connected or accepted socket, after connect/accept and before
+// SSL/PROXY handshake.
+func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error {
+	if conn == nil {
+		return nil
+	}
+	if !hasLateSocketBuffers(s) {
+		return nil
+	}
+	raw, err := conn.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = applyPreparedLateSocketOptions(int(fd), s)
+	})
+	err = errors.Join(ctrlErr, optErr)
+	if err == nil || isNotSocketError(err) {
+		return nil
+	}
+	return err
+}
+
+// applyLateSocketOptionsToPacketConn applies late buffers on a UDP
+// PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
+// when the conn does not expose a socket fd.
+func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
+	if pc == nil {
+		return nil
+	}
+	if !hasLateSocketBuffers(s) {
+		return nil
+	}
+	sc, ok := pc.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("sndbuf-late/rcvbuf-late: packet connection does not expose a socket")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var optErr error
+	ctrlErr := raw.Control(func(fd uintptr) {
+		optErr = applyPreparedLateSocketOptions(int(fd), s)
+	})
+	err = errors.Join(ctrlErr, optErr)
+	if err == nil || isNotSocketError(err) {
+		return nil
+	}
+	return err
+}
+
+func hasLateSocketBuffers(config addrconfig.Address) bool {
+	for _, action := range config.Network.Actions {
+		if action.Kind == addrconfig.SocketActionBuffer && action.Phase == addrconfig.SocketPhaseLate {
+			return true
+		}
+	}
+	return false
+}
+
+// ApplyStreamLateSocketOptions applies buffer sizes on exposed sockets.
+func ApplyStreamLateSocketOptions(s addrconfig.Address, stream relay.Stream) error {
+	if !hasLateSocketBuffers(s) {
+		return nil
+	}
+	for _, raw := range StreamSyscallConns(stream) {
+		var optErr error
+		ctrlErr := raw.Control(func(fd uintptr) {
+			optErr = applyPreparedLateSocketOptions(int(fd), s)
+		})
+		err := errors.Join(ctrlErr, optErr)
+		if err == nil || isNotSocketError(err) {
+			continue
+		}
+		return err
+	}
+	return nil
+}
+
+func StreamSyscallConns(stream relay.Stream) []syscall.RawConn {
+	var out []syscall.RawConn
+	add := func(v any) {
+		for hops := 0; v != nil && hops < 8; hops++ {
+			if u, ok := v.(interface{ UnwrapWriter() io.Writer }); ok {
+				v = u.UnwrapWriter()
+				continue
+			}
+			if sc, ok := v.(syscall.Conn); ok {
+				raw, err := sc.SyscallConn()
+				if err != nil || raw == nil {
+					return
+				}
+				out = append(out, raw)
+				return
+			}
+			unwrapper, ok := v.(interface{ NetConn() net.Conn })
+			if !ok {
+				return
+			}
+			next := unwrapper.NetConn()
+			if next == nil || next == v {
+				return
+			}
+			v = next
+		}
+	}
+	switch s := stream.(type) {
+	case relay.NetStream:
+		add(s.Conn)
+	case relay.FDStream:
+		add(s.R)
+		add(s.W)
+		add(s.C)
+	case relay.RWCStream:
+		add(s.ReadWriteCloser)
+	default:
+		add(stream)
+	}
+	return out
+}

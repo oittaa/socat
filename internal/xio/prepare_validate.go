@@ -9,6 +9,8 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio/sockopt"
+	"github.com/oittaa/socat/internal/xio/termios"
 )
 
 type resolvedAddressOptions struct {
@@ -46,13 +48,13 @@ func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (
 }
 
 func rejectPreparedStaticChecks(config addrconfig.Address) error {
-	if err := rejectUnsupportedIPAncillary(config); err != nil {
+	if err := sockopt.RejectUnsupportedIPAncillary(config); err != nil {
 		return err
 	}
-	if err := rejectUnsupportedTermios(config); err != nil {
+	if err := termios.RejectUnsupportedTermios(config); err != nil {
 		return err
 	}
-	if err := rejectUnsupportedRecvErr(config); err != nil {
+	if err := sockopt.RejectUnsupportedRecvErr(config); err != nil {
 		return err
 	}
 	if err := validateDescriptorModeOptions(config); err != nil {
@@ -125,7 +127,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 		if def, ok := optionmeta.Lookup(name); ok {
 			return def, true
 		}
-		if isTermiosOption(name) {
+		if termios.IsTermiosOption(name) {
 			canonical := strings.ToLower(strings.TrimSpace(option.Name))
 			if canonical == "" {
 				canonical = strings.ToLower(strings.TrimSpace(name))
@@ -141,7 +143,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 }
 
 func optionImplementedForGroup(group string, option optionmeta.Option) bool {
-	if !ipAncillarySupported(group, addrconfig.AncillaryID(option.Canonical)) {
+	if !sockopt.IPAncillarySupported(group, addrconfig.AncillaryID(option.Canonical)) {
 		return false
 	}
 	groups := option.Scope.ImplGroups

@@ -8,6 +8,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -157,7 +158,7 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 	// FD applies after-open and after-socket() options, not before-bind or
 	// after-connect/accept. Reject those combinations instead of applying
 	// them to an existing socket or silently ignoring them.
-	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind, xio.SockoptPhaseConnected); err != nil {
+	if err := sockopt.RejectGenericSetsockoptPhases(s, s.Type, sockopt.SockoptPhasePrebind, sockopt.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
 	// Default FD_CLOEXEC on the caller's descriptor before options, then
@@ -188,7 +189,7 @@ func openFD(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global
 		return fail(err)
 	}
 	// After socket() options (so-priority, …) apply to the inherited fd.
-	if err := xio.ApplySocketOptions(int(f.Fd()), s); err != nil {
+	if err := sockopt.ApplySocketOptions(int(f.Fd()), s); err != nil {
 		return fail(err)
 	}
 	closeOrig := s.Transfer.EndClose.Value && (g == nil || !g.ForkChild)
@@ -216,7 +217,7 @@ func applyInheritedFDAndSocket(f *os.File, config addrconfig.Address) error {
 	if err := xio.ApplyConfiguredFDOptions(f, config.File, xio.FDSkip{}); err != nil {
 		return err
 	}
-	return xio.ApplySocketOptions(int(f.Fd()), config)
+	return sockopt.ApplySocketOptions(int(f.Fd()), config)
 }
 
 func attachConfiguredTermios(o *xio.Opened, config addrconfig.Address, files ...*os.File) error {

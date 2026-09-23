@@ -12,6 +12,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/windows"
 )
 
@@ -184,7 +185,7 @@ func applyFDLifecycleToStreamMode(s addrconfig.Address, stream relay.Stream, ski
 	} else if !hasConfiguredFDActions(s.File, skip) {
 		return nil
 	}
-	targets := streamSyscallConns(stream)
+	targets := sockopt.StreamSyscallConns(stream)
 	if len(targets) == 0 {
 		return fmt.Errorf("append/perm/user/group/ftruncate: stream does not expose a descriptor")
 	}

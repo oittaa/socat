@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
@@ -87,7 +88,7 @@ func dialRawSocket(ctx context.Context, call socketCall, sa rawSockaddr, config 
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("connect: %w", err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, config, xio.SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, config, sockopt.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -214,7 +215,7 @@ func openSocketListen(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *
 		Listener: ln,
 		Label:    "SOCKET-LISTEN",
 		WrapDial: func(c net.Conn) (relay.Stream, error) {
-			if err := xio.ApplyGenericSetsockoptToNetConn(c, s, xio.SockoptPhaseConnected); err != nil {
+			if err := sockopt.ApplyGenericSetsockoptToNetConn(c, s, sockopt.SockoptPhaseConnected); err != nil {
 				return nil, err
 			}
 			return xio.SetupConnectedStream(s, relay.NetStream{Conn: c})

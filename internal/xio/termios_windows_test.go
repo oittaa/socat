@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio/termios"
 )
 
 func TestOPENNULRejectsB0(t *testing.T) {
@@ -19,7 +20,7 @@ func TestOPENNULRejectsB0(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = rejectUnsupportedTermios(config)
+	err = termios.RejectUnsupportedTermios(config)
 	if err == nil || !strings.Contains(err.Error(), "b0") || !strings.Contains(err.Error(), "not supported on this platform") {
 		t.Fatalf("OPEN:NUL,b0: %v", err)
 	}

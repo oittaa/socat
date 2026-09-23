@@ -17,6 +17,7 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -69,7 +70,7 @@ func openSocketDgram(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 			return nil, fmt.Errorf("bind: %w", err)
 		}
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -129,11 +130,11 @@ func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mo
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := xio.ApplySocketOptions(fd, s); err != nil {
+	if err := sockopt.ApplySocketOptions(fd, s); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -141,7 +142,7 @@ func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mo
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -150,7 +151,7 @@ func openSocketRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mo
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}
-		if err := xio.ApplyLateSocketOptions(fd, s); err != nil {
+		if err := sockopt.ApplyLateSocketOptions(fd, s); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			return nil, err
 		}

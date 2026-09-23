@@ -7,6 +7,7 @@ import (
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // udpForkAccept is one Accept loop: wait for an opener, then oneshot-share,
@@ -18,7 +19,7 @@ type udpForkAccept struct {
 	wantCtrl           bool
 	recvErr            bool
 	peekDial           bool
-	oob                [xio.AncillaryBufferSize]byte
+	oob                [sockopt.AncillaryBufferSize]byte
 	acceptDeadline     time.Time
 	failedDialPeer     *udpPeer
 	failedDialAttempts int
@@ -69,8 +70,8 @@ func newUDPForkAccept(l *udpForkListener) (*udpForkAccept, error) {
 		l:        l,
 		pc:       l.pc,
 		buf:      make([]byte, 65535),
-		wantCtrl: xio.NeedAncillary(l.config),
-		recvErr:  xio.NeedRecvErr(l.config),
+		wantCtrl: sockopt.NeedAncillary(l.config),
+		recvErr:  sockopt.NeedRecvErr(l.config),
 		peekDial: !l.oneShot && xio.UDPForkPortReuse(l.config) && udpForkUsesPeekDial(),
 	}
 	if l.acceptTimeout > 0 {
@@ -111,11 +112,11 @@ func (a *udpForkAccept) step() acceptNext {
 
 	session := a.l.g.ForkSession()
 	if a.l.oneShot {
-		xio.ProcessAncillary(got.packet.oob, session)
+		sockopt.ProcessAncillary(got.packet.oob, session)
 		return acceptChild(a.l.newUDPOneshotChild(a.pc, got.packet, session), nil)
 	}
 	if !xio.UDPForkPortReuse(a.l.config) {
-		xio.ProcessAncillary(got.packet.oob, session)
+		sockopt.ProcessAncillary(got.packet.oob, session)
 		child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
 		return acceptChild(a.l.handoffListenSocket(child))
 	}
@@ -182,7 +183,7 @@ func (a *udpForkAccept) filterPeer(addr *udpPeer, consumed bool) acceptNext {
 		if a.peekDial && !consumed {
 			// The opener was only peeked. Consume the refused datagram or the
 			// next loop would inspect the same peer forever.
-			if _, _, _, dropErr := xio.ReadUDPMsgWithBuffer(a.pc, a.buf, false, nil); dropErr != nil {
+			if _, _, _, dropErr := sockopt.ReadUDPMsgWithBuffer(a.pc, a.buf, false, nil); dropErr != nil {
 				xio.DrainRecvErrOnError(dropErr, a.recvErr, a.pc, a.l.g)
 				return acceptFail(dropErr)
 			}
@@ -216,7 +217,7 @@ func (a *udpForkAccept) acceptReuse(addr *udpPeer, packet udpForkPacket, consume
 		return next
 	}
 
-	xio.ProcessAncillary(got.packet.oob, session)
+	sockopt.ProcessAncillary(got.packet.oob, session)
 	child := a.l.newUDPForkChild(got.packet, session, a.wantCtrl, a.recvErr)
 	child.setConnected(conn)
 	a.drainForChild(child)

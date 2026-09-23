@@ -162,7 +162,7 @@ func verifyLockIdentity(path string, original os.FileInfo) error {
 // Security exception: unlink only when the name still refers to the acquired
 // object. A replacement at the same path is left in place.
 func releaseLockFile(path string, original os.FileInfo) {
-	unlinkIfSameFile(path, original)
+	UnlinkIfSameFile(path, original)
 }
 
 // applyAddressLock applies lockfile=/waitlock= after resolvePreparedPaths and

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/termios"
 )
 
 func TestMain(m *testing.M) {
@@ -65,7 +65,7 @@ func runSimpleOnFD(t *testing.T, style string, fd int) string {
 }
 
 func TestFdnameLabelsPTYAsTTY(t *testing.T) {
-	master, slave, err := xio.OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestFdnameLabelsPTYAsTTY(t *testing.T) {
 }
 
 func TestFdnameDetailedPTYStaysChrdev(t *testing.T) {
-	master, slave, err := xio.OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestFdnameDevNullStaysChrdev(t *testing.T) {
 func TestFdnameDevTTYInSession(t *testing.T) {
 	for _, style := range []string{"-s", "-S"} {
 		t.Run(style, func(t *testing.T) {
-			master, slave, err := xio.OpenPTYPair()
+			master, slave, err := termios.OpenPTYPair()
 			if err != nil {
 				t.Fatal(err)
 			}

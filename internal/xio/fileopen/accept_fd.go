@@ -6,6 +6,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // parseFDNum returns the FD / ACCEPT-FD number decoded at preparation.
@@ -23,7 +24,7 @@ func openAcceptFD(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *x
 	}
 	// setsockopt-listen / ip-transparent apply before bind. ACCEPT-FD never
 	// bind()s, so reject those options rather than ignore them.
-	if err := xio.RejectGenericSetsockoptPhases(s, s.Type, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.RejectGenericSetsockoptPhases(s, s.Type, sockopt.SockoptPhasePrebind); err != nil {
 		return nil, err
 	}
 	if err := rejectAcceptFDTransparent(s); err != nil {

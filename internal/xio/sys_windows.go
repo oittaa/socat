@@ -10,7 +10,7 @@ const oCloexec = 0
 // export it. Value from WinSock2.h.
 const soType = 0x1008
 
-func closeOnExec(int) {}
+func CloseOnExec(int) {}
 
 // ShutdownWrite is Winsock shutdown(SD_SEND). A no-op here made connected
 // UDP shut-down silently do nothing because *net.UDPConn has no CloseWrite.

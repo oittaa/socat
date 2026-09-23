@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"strconv"
@@ -12,6 +11,9 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -206,7 +208,7 @@ func openIPSendtoNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode, 
 	}
 	// Connected IPv4 Read() keeps the IP header; strip so user data starts at payload.
 	v4 := network == "ip4" || raddr.IP.To4() != nil
-	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: xio.NeedAncillary(s), recvErr: xio.NeedRecvErr(s), g: g})
+	st := relay.Stream(&rawIPConn{IPConn: c, peer: raddr, v4: v4, wantCtrl: sockopt.NeedAncillary(s), recvErr: sockopt.NeedRecvErr(s), g: g})
 	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(c)
@@ -266,8 +268,8 @@ func openIPDatagramNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		c:        pc,
 		raddr:    raddr,
 		v4:       v4,
-		wantCtrl: xio.NeedAncillary(s),
-		recvErr:  xio.NeedRecvErr(s),
+		wantCtrl: sockopt.NeedAncillary(s),
+		recvErr:  sockopt.NeedRecvErr(s),
 		g:        g,
 		ctx:      ctx,
 		filter:   filter,
@@ -304,7 +306,7 @@ func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode,
 		return nil, err
 	}
 
-	wantCtrl := xio.NeedAncillary(s)
+	wantCtrl := sockopt.NeedAncillary(s)
 	if recvfrom {
 		if xio.ForkRequested(s) {
 			return openIPRecvfromFork(ctx, s, g, pc, network)
@@ -328,7 +330,7 @@ func openIPRecvNetwork(ctx context.Context, s addrconfig.Address, mode xio.Mode,
 		g:        g,
 		ctx:      ctx,
 		wantCtrl: wantCtrl,
-		recvErr:  xio.NeedRecvErr(s),
+		recvErr:  sockopt.NeedRecvErr(s),
 		v4:       network == "ip4",
 	})
 	st, err = xio.WrapOpened(s, st)
@@ -382,7 +384,7 @@ func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Glo
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	recvErr := xio.NeedRecvErr(s)
+	recvErr := sockopt.NeedRecvErr(s)
 	n, oob, raddr, err := recvRawIPFiltered(ctx, pc, buf, rawIPRecvPolicy{
 		Ancillary: wantCtrl,
 		RecvErr:   recvErr,
@@ -393,7 +395,7 @@ func openIPRecvfromOneShot(ctx context.Context, s addrconfig.Address, g *xio.Glo
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
-	xio.ProcessAncillary(oob, g)
+	sockopt.ProcessAncillary(oob, g)
 	peerIP := ipAddrFromNet(raddr)
 	rememberRawIPPeer(g, peerIP, pc.LocalAddr())
 	st := relay.Stream(&rawIPRecvFrom{
@@ -421,7 +423,7 @@ type rawIPRecvPolicy struct {
 }
 
 func recvRawIPFiltered(ctx context.Context, pc *net.IPConn, buf []byte, policy rawIPRecvPolicy, filter *xio.PeerFilter, g *xio.Global) (int, []byte, net.Addr, error) {
-	var oobBuffer [xio.AncillaryBufferSize]byte
+	var oobBuffer [sockopt.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, net.Addr, error) {
 			return readIPKernel(pc, buf, policy.Ancillary, oobBuffer[:])
@@ -524,7 +526,7 @@ func applyIPConnOpts(c *net.IPConn, s addrconfig.Address, _ string) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		if optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected); optionErr != nil {
+		if optionErr = sockopt.ApplyGenericSetsockopt(int(fd), s, sockopt.SockoptPhaseConnected); optionErr != nil {
 			return
 		}
 		// reuseaddr applies on raw sockets too when present.
@@ -542,8 +544,8 @@ func applyIPConnOpts(c *net.IPConn, s addrconfig.Address, _ string) error {
 // returns the kernel packet unstripped, including when ancillary data is not
 // requested.
 func readIPKernel(c *net.IPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n int, oob []byte, addr net.Addr, err error) {
-	if wantCtrl && len(oobBuffer) < xio.AncillaryBufferSize {
-		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	if wantCtrl && len(oobBuffer) < sockopt.AncillaryBufferSize {
+		oobBuffer = make([]byte, sockopt.AncillaryBufferSize)
 	}
 	if !wantCtrl {
 		oobBuffer = nil
@@ -556,7 +558,7 @@ func readIPKernel(c *net.IPConn, p []byte, wantCtrl bool, oobBuffer []byte) (n i
 	if !wantCtrl {
 		return n, nil, addr, nil
 	}
-	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
+	return n, sockopt.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
 // afterRawIPRecv maps a raw IP receive onto stream semantics. A kernel-empty
@@ -624,7 +626,7 @@ func (r *rawIPDatagramConn) Read(p []byte) (int, error) {
 			n = skipIPv4HeaderIfPresent(p, n)
 		}
 		if r.wantCtrl {
-			xio.ProcessAncillary(oob, r.g)
+			sockopt.ProcessAncillary(oob, r.g)
 		}
 		return afterRawIPRecv(n, kernelN, len(p))
 	}
@@ -676,7 +678,7 @@ func (r *rawIPConn) Read(p []byte) (int, error) {
 		if r.v4 {
 			n = skipIPv4HeaderIfPresent(p, n)
 		}
-		xio.ProcessAncillary(oob, r.g)
+		sockopt.ProcessAncillary(oob, r.g)
 		return afterRawIPRecv(n, kernelN, len(p))
 	}
 	n, err := r.IPConn.Read(p)
@@ -775,7 +777,7 @@ func (r *rawIPFilteredRecv) Read(p []byte) (int, error) {
 			n = skipIPv4HeaderIfPresent(p, n)
 		}
 		if r.wantCtrl {
-			xio.ProcessAncillary(oob, r.g)
+			sockopt.ProcessAncillary(oob, r.g)
 		}
 		return afterRawIPRecv(n, kernelN, len(p))
 	}
@@ -871,8 +873,8 @@ func (l *rawIPForkListener) Close() error {
 
 func (l *rawIPForkListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65535)
-	wantCtrl := xio.NeedAncillary(l.config)
-	var oobBuffer [xio.AncillaryBufferSize]byte
+	wantCtrl := sockopt.NeedAncillary(l.config)
+	var oobBuffer [sockopt.AncillaryBufferSize]byte
 	ctx := l.ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -891,7 +893,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
-			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.config), l.pc, l.g)
+			xio.DrainRecvErrOnError(err, sockopt.NeedRecvErr(l.config), l.pc, l.g)
 			return nil, err
 		}
 		if err := l.filter.AllowAddr(a, l.pc.LocalAddr()); err != nil {
@@ -907,7 +909,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			rn = skipIPv4HeaderIfPresent(buf, rn)
 		}
 		session := l.g.ForkSession()
-		xio.ProcessAncillary(oob, session)
+		sockopt.ProcessAncillary(oob, session)
 		peer := ipAddrFromNet(a)
 		rememberRawIPPeer(session, peer, l.pc.LocalAddr())
 		return newOneshotForkConn(
@@ -918,7 +920,7 @@ func (l *rawIPForkListener) Accept() (net.Conn, error) {
 			&l.writeMu,
 			l.pc.SetWriteDeadline,
 			func(p []byte) (int, error) { return l.pc.WriteToIP(p, peer) },
-			func(err error) { xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.config), l.pc, session) },
+			func(err error) { xio.DrainRecvErrOnError(err, sockopt.NeedRecvErr(l.config), l.pc, session) },
 		), nil
 	}
 }

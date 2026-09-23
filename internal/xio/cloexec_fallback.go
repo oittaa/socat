@@ -2,4 +2,4 @@
 
 package xio
 
-func setCloexecRange(int) bool { return false }
+func SetCloexecRange(int) bool { return false }

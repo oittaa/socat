@@ -13,8 +13,9 @@
 //	wsopen      - WS / WSS (coder/websocket)
 //	quicopen    - QUIC (quic-go; not HTTP/3)
 //
-// EXEC/SYSTEM/SHELL stay in this package (tightly coupled to Run / nofork).
-// Import internal/xio/all from main/cli so opener registration runs.
+// EXEC/SYSTEM/SHELL live in execopen. Termios and socket options live in
+// termios and sockopt. Import internal/xio/all from main/cli so opener
+// registration runs.
 //
 // OPENSSL/SSL type names and SOCAT_OPENSSL_X509_* env stay as aliases
 // so existing scripts keep matching.
@@ -35,7 +36,7 @@
 // What happens inside the opener is not one sequence.
 //
 // Stream listen (TCP, UNIX, TLS-LISTEN, WS-LISTEN, …) creates the socket with
-// ListenControl: ApplyPastSocketPhase then applyListenOptions (reuse/v6only
+// ListenControl: ApplyPastSocketPhase then ApplyListenOptions (reuse/v6only
 // plus setsockopt-listen) before bind. OpenListenSession then compiles the peer
 // filter, then either returns a fork parent or accepts one connection. Accept
 // wait honors context and accept-timeout by aborting the listener. TCP accept

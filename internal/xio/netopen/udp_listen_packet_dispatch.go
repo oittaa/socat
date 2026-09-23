@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // Darwin and Windows can steer a new peer's datagram to an existing connected
@@ -169,13 +170,13 @@ func (l *udpDispatchListener) Addr() net.Addr { return l.base.pc.LocalAddr() }
 
 func (l *udpDispatchListener) readLoop() {
 	buf := make([]byte, 65535)
-	wantCtrl := xio.NeedAncillary(l.base.config)
-	var oobBuffer [xio.AncillaryBufferSize]byte
+	wantCtrl := sockopt.NeedAncillary(l.base.config)
+	var oobBuffer [sockopt.AncillaryBufferSize]byte
 	for {
 		if l.base.rcvTimeout > 0 {
 			_ = l.base.pc.SetReadDeadline(time.Now().Add(l.base.rcvTimeout))
 		}
-		rn, oob, peer, err := xio.ReadUDPMsgWithBuffer(l.base.pc, buf, wantCtrl, oobBuffer[:])
+		rn, oob, peer, err := sockopt.ReadUDPMsgWithBuffer(l.base.pc, buf, wantCtrl, oobBuffer[:])
 		if err != nil {
 			select {
 			case <-l.done:
@@ -185,7 +186,7 @@ func (l *udpDispatchListener) readLoop() {
 			if l.base.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
 				continue
 			}
-			xio.DrainRecvErrOnError(err, xio.NeedRecvErr(l.base.config), l.base.pc, l.base.g)
+			xio.DrainRecvErrOnError(err, sockopt.NeedRecvErr(l.base.config), l.base.pc, l.base.g)
 			_ = l.shutdown(err)
 			return
 		}
@@ -217,7 +218,7 @@ func (l *udpDispatchListener) readLoop() {
 			continue
 		}
 		session := l.base.g.ForkSession()
-		xio.ProcessAncillary(packet.oob, session)
+		sockopt.ProcessAncillary(packet.oob, session)
 		packet.oob = nil // opener ancillary is available before the child starts
 		child = &udpDispatchConn{
 			listener:        l,
@@ -230,7 +231,7 @@ func (l *udpDispatchListener) readLoop() {
 			done:            make(chan struct{}),
 			deadlineChanged: make(chan struct{}, 1),
 			g:               session,
-			recvErr:         xio.NeedRecvErr(l.base.config),
+			recvErr:         sockopt.NeedRecvErr(l.base.config),
 		}
 		l.mu.Lock()
 		select {
@@ -320,7 +321,7 @@ func (c *udpDispatchConn) Read(p []byte) (int, error) {
 			packet := c.pending
 			c.pending = udpForkPacket{}
 			c.havePending = false
-			xio.ProcessAncillary(packet.oob, c.g)
+			sockopt.ProcessAncillary(packet.oob, c.g)
 			n := copy(p, packet.data)
 			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}

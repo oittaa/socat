@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -145,14 +147,14 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 	// Non-fork: one peer session. Keep the listen socket for further
 	// packets from that peer and for replies.
 	buf := make([]byte, max(g.Options().BlockSize, 8192))
-	wantCtrl := xio.NeedAncillary(s)
-	recvErr := xio.NeedRecvErr(s)
+	wantCtrl := sockopt.NeedAncillary(s)
+	recvErr := sockopt.NeedRecvErr(s)
 	var n int
 	var raddr *net.UDPAddr
-	var oobBuffer [xio.AncillaryBufferSize]byte
+	var oobBuffer [sockopt.AncillaryBufferSize]byte
 	for {
 		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UDPAddr, error) {
-			return xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+			return sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
 		})
 		if err != nil {
 			xio.DrainRecvErrOnError(err, recvErr, pc, g)
@@ -167,7 +169,7 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 			continue
 		}
 		n, raddr = rn, a
-		xio.ProcessAncillary(oob, g)
+		sockopt.ProcessAncillary(oob, g)
 		break
 	}
 	if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
@@ -420,7 +422,7 @@ func (l *udpForkListener) newUDPOneshotChild(pc *net.UDPConn, packet udpForkPack
 	if local == nil && l.laddr != nil {
 		local = l.laddr
 	}
-	recvErr := xio.NeedRecvErr(l.config)
+	recvErr := sockopt.NeedRecvErr(l.config)
 	var peerAddr *net.UDPAddr
 	var remote net.Addr
 	if peer != nil && peer.UDPAddr != nil {
@@ -472,7 +474,7 @@ func dialUDPSession(ctx context.Context, network string, local *net.UDPAddr, rem
 			if !xio.UDPForkPortReuse(s) {
 				return
 			}
-			optionErr = xio.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
+			optionErr = sockopt.SetSockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_REUSEADDR, 1)
 			if optionErr == nil {
 				optionErr = enableUDPForkPortReuse(int(fd))
 			}
@@ -502,7 +504,11 @@ func dialUDPSession(ctx context.Context, network string, local *net.UDPAddr, rem
 		logx.CloseQuiet(c)
 		return nil, fmt.Errorf("UDP session: unexpected conn type")
 	}
-	if err := xio.ApplyUDPConnOpts(uc, s, network); err != nil {
+	if err := sockopt.ApplyUDPConnOpts(uc, s, network); err != nil {
+		logx.CloseQuiet(uc)
+		return nil, err
+	}
+	if err := xio.ApplyFDLifecycleToConn(uc, s); err != nil {
 		logx.CloseQuiet(uc)
 		return nil, err
 	}
@@ -608,7 +614,7 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		packet := u.queued[0]
 		u.queued = u.queued[1:]
 		if u.wantCtrl {
-			xio.ProcessAncillary(packet.oob, u.g)
+			sockopt.ProcessAncillary(packet.oob, u.g)
 		}
 		n := copy(p, packet.data)
 		return xio.ZeroLengthMessageEOF(n, nil, len(p))
@@ -620,12 +626,12 @@ func (u *udpSessionConn) Read(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	if u.wantCtrl {
-		n, oob, _, err := xio.ReadUDPMsgWithBuffer(u.sock, p, true, ancillaryBuffer(&u.oob, true))
+		n, oob, _, err := sockopt.ReadUDPMsgWithBuffer(u.sock, p, true, ancillaryBuffer(&u.oob, true))
 		if err != nil {
 			u.drainRecvErr(err)
 			return n, err
 		}
-		xio.ProcessAncillary(oob, u.g)
+		sockopt.ProcessAncillary(oob, u.g)
 		return xio.ZeroLengthMessageEOF(n, nil, len(p))
 	}
 	n, err := u.sock.Read(p)
@@ -640,14 +646,14 @@ func (u *udpSessionConn) readHandedOff(p []byte) (int, error) {
 		return 0, net.ErrClosed
 	}
 	for {
-		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.sock, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
+		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.sock, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			u.drainRecvErr(err)
 			return n, err
 		}
 		if udpForkAddrIsPeer(udpPeerFromNet(addr), u.peer) {
 			if u.wantCtrl {
-				xio.ProcessAncillary(oob, u.g)
+				sockopt.ProcessAncillary(oob, u.g)
 			}
 			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}
@@ -758,14 +764,14 @@ func (u *udpRecvFromConn) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	for {
-		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.uc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
+		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.uc, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			xio.DrainRecvErrOnError(err, u.recvErr, u.uc, u.g)
 			return n, err
 		}
 		if udpForkAddrIsPeer(udpPeerFromNet(addr), udpPeerFromNet(u.peer)) {
 			if u.wantCtrl {
-				xio.ProcessAncillary(oob, u.g)
+				sockopt.ProcessAncillary(oob, u.g)
 			}
 			return xio.ZeroLengthMessageEOF(n, nil, len(p))
 		}

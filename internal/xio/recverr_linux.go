@@ -8,19 +8,11 @@ import (
 	"net"
 	"syscall"
 
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
 const maxRecvErrQueue = 32
-
-func recvErrSupported() bool { return true }
-
-func applyRecvErrValue(fd int, n int) error {
-	if err := setSockoptInt(fd, unix.IPPROTO_IP, unix.IP_RECVERR, n); err != nil {
-		return fmt.Errorf("ip-recverr: %w", err)
-	}
-	return nil
-}
 
 // DrainRecvErrOnError drains MSG_ERRQUEUE after an I/O error. It does not
 // hold locks across the failed Read or Write.
@@ -95,12 +87,12 @@ func handleIPRecvErrCmsg(data []byte, g *Global) {
 	codeStr := fmt.Sprintf("%d", code)
 	infoStr := fmt.Sprintf("%d", info)
 	dataStr := fmt.Sprintf("%d", eeData)
-	logAncillary(g, "IP_RECVERR", "errno", errnoStr)
-	logAncillary(g, "IP_RECVERR", "origin", originStr)
-	logAncillary(g, "IP_RECVERR", "type", typeStr)
-	logAncillary(g, "IP_RECVERR", "code", codeStr)
-	logAncillary(g, "IP_RECVERR", "info", infoStr)
-	logAncillary(g, "IP_RECVERR", "data", dataStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "errno", errnoStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "origin", originStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "type", typeStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "code", codeStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "info", infoStr)
+	sockopt.LogAncillary(g, "IP_RECVERR", "data", dataStr)
 	SetSessionEnv(g, "IP_RECVERR_ERRNO", errnoStr)
 	SetSessionEnv(g, "IP_RECVERR_ORIGIN", originStr)
 	SetSessionEnv(g, "IP_RECVERR_TYPE", typeStr)

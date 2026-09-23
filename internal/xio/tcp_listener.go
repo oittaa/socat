@@ -35,5 +35,5 @@ func TCPListenAddress(ctx context.Context, s addrconfig.Address, network string,
 
 // ListenTCP binds a prepared address with the requested socket options.
 func ListenTCP(ctx context.Context, s addrconfig.Address, network, addr string) (net.Listener, error) {
-	return ListenStream(ctx, newTCPListenConfig(s), network, addr, s)
+	return ListenStream(ctx, NewTCPListenConfig(s), network, addr, s)
 }

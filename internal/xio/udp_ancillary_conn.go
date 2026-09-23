@@ -1,11 +1,11 @@
 package xio
 
 import (
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
-)
 
-const AncillaryBufferSize = 1024
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
+)
 
 // WrapUDPAncillary returns c unchanged unless recv ancillary options or
 // ip-recverr are enabled. Recv ancillary uses ReadMsgUDP so cmsgs are
@@ -15,8 +15,8 @@ func WrapUDPAncillary(c *net.UDPConn, s addrconfig.Address, g *Global) net.Conn 
 	if c == nil {
 		return nil
 	}
-	wantCtrl := NeedAncillary(s)
-	recvErr := NeedRecvErr(s)
+	wantCtrl := sockopt.NeedAncillary(s)
+	recvErr := sockopt.NeedRecvErr(s)
 	if !wantCtrl && !recvErr {
 		return c
 	}
@@ -28,7 +28,7 @@ type udpAncillaryConn struct {
 	g        *Global
 	wantCtrl bool
 	recvErr  bool
-	oob      [AncillaryBufferSize]byte
+	oob      [sockopt.AncillaryBufferSize]byte
 }
 
 func (c *udpAncillaryConn) Read(p []byte) (int, error) {
@@ -36,9 +36,9 @@ func (c *udpAncillaryConn) Read(p []byte) (int, error) {
 	var err error
 	if c.wantCtrl {
 		var oob []byte
-		n, oob, _, err = ReadUDPMsgWithBuffer(c.UDPConn, p, true, c.oob[:])
+		n, oob, _, err = sockopt.ReadUDPMsgWithBuffer(c.UDPConn, p, true, c.oob[:])
 		if err == nil {
-			ProcessAncillary(oob, c.g)
+			sockopt.ProcessAncillary(oob, c.g)
 		}
 	} else {
 		n, err = c.UDPConn.Read(p)

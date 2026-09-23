@@ -14,14 +14,16 @@ func registerChildSignal(pid int, sig syscall.Signal) error {
 	return registerChildSignalOn(nil, pid, sig)
 }
 
-func resetChildSignalPassForTest() {
+// ResetChildSignalPassForTest clears registered child-signal state.
+func ResetChildSignalPassForTest() {
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
 	processSession = childSignalSession{}
 	liveSessions = map[*childSignalSession]struct{}{}
 }
 
-func childSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
+// ChildSignalPassStateForTest reports pids registered for sig.
+func ChildSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
 	childSignalMu.Lock()
 	defer childSignalMu.Unlock()
 	idx, ok := sigIndex(sig)
@@ -34,8 +36,8 @@ func childSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids 
 }
 
 func TestRegisterChildSignalMaxFour(t *testing.T) {
-	resetChildSignalPassForTest()
-	t.Cleanup(resetChildSignalPassForTest)
+	ResetChildSignalPassForTest()
+	t.Cleanup(ResetChildSignalPassForTest)
 
 	for i := 1; i <= socatMaxPids; i++ {
 		if err := registerChildSignal(1000+i, syscall.SIGHUP); err != nil {

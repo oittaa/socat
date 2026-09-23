@@ -7,13 +7,15 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"math"
 	"net"
 	"os"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
@@ -47,7 +49,7 @@ func listenVSOCK(_ context.Context, port uint32, s addrconfig.Address, g *xio.Gl
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhasePrebind); err != nil {
 		_ = unix.Close(fd)
 		return nil, err
 	}
@@ -103,7 +105,7 @@ func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, req.config, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, req.config, sockopt.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

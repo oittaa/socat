@@ -35,7 +35,7 @@ func fileStream(f *os.File, closeFIFO bool) relay.Stream {
 		W: f,
 		C: f,
 		CloseW: func() error {
-			err := shutdownWriteFile(f)
+			err := ShutdownWriteFile(f)
 			if err == nil {
 				return nil
 			}
@@ -57,7 +57,7 @@ func fileStream(f *os.File, closeFIFO bool) relay.Stream {
 
 // shutdownWriteFile calls shutdown(SHUT_WR) without File.Fd().
 // Fd() detaches Windows IOCP and disables SetDeadline.
-func shutdownWriteFile(f *os.File) error {
+func ShutdownWriteFile(f *os.File) error {
 	sc, err := f.SyscallConn()
 	if err != nil {
 		return err
@@ -74,7 +74,7 @@ func shutdownWriteFile(f *os.File) error {
 // dgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
 // marks the write-side shutdown without closing the read side; full Close at
 // transfer cancellation eventually releases the FD and stops the child.
-func dgramPairStream(f *os.File) relay.Stream {
+func DgramPairStream(f *os.File) relay.Stream {
 	var once sync.Once
 	closeF := func() { once.Do(func() { _ = f.Close() }) }
 	return relay.FDStream{
@@ -94,7 +94,7 @@ func (c closerFunc) Close() error { return c() }
 
 // closeOnce releases files on the first Close. A later Close does not
 // close them again.
-func closeOnce(files ...*os.File) io.Closer {
+func CloseOnce(files ...*os.File) io.Closer {
 	var once sync.Once
 	return closerFunc(func() error {
 		once.Do(func() {
@@ -106,12 +106,12 @@ func closeOnce(files ...*os.File) io.Closer {
 	})
 }
 
-func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
+func PtyExecStream(f *os.File, r io.Reader) relay.Stream {
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
 		R: r,
 		W: w,
-		C: closeOnce(f),
+		C: CloseOnce(f),
 		CloseW: func() error {
 			w.closeWrite()
 			return nil
@@ -121,7 +121,7 @@ func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
 
 // PtyStreamConfigured wraps a PTY master using prepared terminal settings.
 func PtyStreamConfigured(f *os.File, config addrconfig.Terminal) (relay.Stream, error) {
-	r, err := configuredPTYMasterReader(f, config)
+	r, err := ConfiguredPTYMasterReader(f, config)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +137,7 @@ func PtyStreamConfigured(f *os.File, config addrconfig.Terminal) (relay.Stream, 
 	}, nil
 }
 
-func configuredPTYMasterReader(f *os.File, config addrconfig.Terminal) (io.Reader, error) {
+func ConfiguredPTYMasterReader(f *os.File, config addrconfig.Terminal) (io.Reader, error) {
 	var delay time.Duration
 	if config.SitoutEIO.Set {
 		delay = config.SitoutEIO.Value
@@ -167,6 +167,14 @@ func (h *halfCloseWriter) closeWrite() {
 	h.mu.Lock()
 	h.done = true
 	h.mu.Unlock()
+}
+
+// CloseWrite rejects later Writes without closing the underlying file.
+func (h *halfCloseWriter) CloseWrite() { h.closeWrite() }
+
+// NewHalfCloseWriter wraps w so Shutdown can stop writes without closing w.
+func NewHalfCloseWriter(w io.Writer) *halfCloseWriter {
+	return &halfCloseWriter{w: w}
 }
 
 // SyscallConn exposes the underlying *os.File so one-way EXEC/PTY streams

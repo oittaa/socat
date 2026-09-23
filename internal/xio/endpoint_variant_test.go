@@ -28,7 +28,7 @@ func TestSetChildrenShutupOnlyOnParents(t *testing.T) {
 		t.Fatalf("accept ChildrenShutup=%d", accept.ChildrenShutup())
 	}
 
-	nofork := newDeferredNoFork("nofork", addrconfig.Address{})
+	nofork := NewDeferredNoFork("nofork", addrconfig.Address{})
 	nofork.SetChildrenShutup(5)
 	if nofork.ChildrenShutup() != 0 {
 		t.Fatalf("nofork ChildrenShutup=%d", nofork.ChildrenShutup())

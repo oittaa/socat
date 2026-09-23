@@ -136,11 +136,11 @@ func runConnectFork(ctx context.Context, lo *Opened, right preparedChannel, rMod
 }
 
 func waitForkChild(ctx context.Context, maxChildren int, opened *Opened) {
-	if maxChildren <= 0 || opened == nil || opened.childDone() == nil {
+	if maxChildren <= 0 || opened == nil || opened.ChildDone() == nil {
 		return
 	}
 	select {
-	case <-opened.childDone():
+	case <-opened.ChildDone():
 	case <-ctx.Done():
 	}
 }

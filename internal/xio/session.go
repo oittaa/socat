@@ -93,6 +93,23 @@ func (g *Global) SessionVar(name string) string {
 	return g.Peer.SessionVars[name]
 }
 
+// SetSessionVar records a per-session output variable. Nil receivers do nothing.
+func (g *Global) SetSessionVar(name, value string) { SetSessionEnv(g, name, value) }
+
+// Infof logs at info. Nil receivers and a nil logger do nothing.
+func (g *Global) Infof(format string, args ...any) {
+	if g != nil {
+		g.Log.Infof(format, args...)
+	}
+}
+
+// Noticef logs at notice. Nil receivers and a nil logger do nothing.
+func (g *Global) Noticef(format string, args ...any) {
+	if g != nil {
+		g.Log.Noticef(format, args...)
+	}
+}
+
 // SetSessionEnv records a per-session output variable without its executable
 // prefix. It is exported for address implementations such as POSIXMQ.
 func SetSessionEnv(g *Global, name, value string) {
@@ -166,7 +183,7 @@ func sortedKeys(values map[string]string) []string {
 // childEnviron copies the process environment and overlays this session's
 // SOCAT_* keys (last key wins). Used for EXEC/SYSTEM/SHELL so fork children
 // do not share process-wide Setenv.
-func childEnviron(g *Global) []string {
+func ChildEnviron(g *Global) []string {
 	extra := sessionEnv(g)
 	if len(extra) == 0 {
 		return os.Environ()

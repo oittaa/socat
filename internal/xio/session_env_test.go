@@ -26,7 +26,7 @@ func TestChildEnvironOverlaysSession(t *testing.T) {
 	g.Peer.SockPort = "1"
 	g.Peer.PeerAddr = "10.0.0.2"
 	g.Peer.PeerPort = "2"
-	got := environMap(childEnviron(g))
+	got := environMap(ChildEnviron(g))
 	if got["SOCAT_PEERADDR"] != "10.0.0.2" {
 		t.Fatalf("SOCAT_PEERADDR=%q", got["SOCAT_PEERADDR"])
 	}

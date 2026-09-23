@@ -3,12 +3,13 @@ package fileopen
 import (
 	"context"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"time"
 
-	"github.com/oittaa/socat/internal/xio"
-
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/execopen"
+	"github.com/oittaa/socat/internal/xio/termios"
 )
 
 // openPTY implements PTY: allocate a pseudo-terminal, optionally
@@ -19,7 +20,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 	if len(s.Params) > 0 {
 		return nil, addrconfig.WrongParameterCount(s.Type, len(s.Params), 0, 0, s.Type)
 	}
-	master, slave, err := xio.OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		return nil, fmt.Errorf("PTY: %w", err)
 	}
@@ -32,18 +33,18 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 		g.Log.Noticef("PTY is %s", slaveName)
 	}
 
-	if err := xio.ApplyConfiguredTermios(int(slave.Fd()), s.Terminal); err != nil {
+	if err := termios.ApplyConfiguredTermios(int(slave.Fd()), s.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredTermios(int(master.Fd()), s.Terminal); err != nil {
+	if err := termios.ApplyConfiguredTermios(int(master.Fd()), s.Terminal); err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
 		return nil, err
 	}
 
-	unlink, err := xio.CreateConfiguredPtySlaveLink(s, slaveName)
+	unlink, err := execopen.CreateConfiguredPtySlaveLink(s, slaveName)
 	if err != nil {
 		logx.CloseQuiet(master)
 		logx.CloseQuiet(slave)
@@ -94,7 +95,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 		if s.Terminal.WaitInterval.Set {
 			interval = s.Terminal.WaitInterval.Value
 		}
-		if err := xio.WaitPTYSlave(int(master.Fd()), interval); err != nil {
+		if err := termios.WaitPTYSlave(int(master.Fd()), interval); err != nil {
 			unlink()
 			logx.CloseQuiet(master)
 			return nil, err
