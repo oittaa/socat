@@ -91,6 +91,30 @@ func rfc9147KeyUpdateFlag(plaintext []byte) (byte, bool) {
 	return flag, true
 }
 
+func TestSentKeyUpdateACKErrorDoesNotStick(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	client, _, _ := driveSessions(t, a, b, false, false)
+	now := time.Unix(2000, 0)
+	if err := client.queueAcknowledgement(recordNumber{3, 1}, now); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	client.send = func([]byte) error {
+		n++
+		if n > 1 {
+			return errors.New("ack send failed")
+		}
+		return nil
+	}
+	if err := client.requestKeyUpdate(false, now); err == nil || n != 2 {
+		t.Fatalf("key update: %v after %d sends", err, n)
+	}
+	client.send = func([]byte) error { return nil }
+	if err := client.tick(now.Add(time.Second)); err != nil {
+		t.Fatalf("tick after a sent KeyUpdate and failed ACK: %v", err)
+	}
+}
+
 func TestKeyUpdateSendErrorDoesNotStick(t *testing.T) {
 	a, b := handshakeConfigs(t)
 	client, _, _ := driveSessions(t, a, b, false, false)

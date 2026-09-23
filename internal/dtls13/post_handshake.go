@@ -127,12 +127,18 @@ func (s *session) advancePost(now time.Time) error {
 		if s.keyUpdate.requestPeer && !s.keyUpdate.awaitingPeer {
 			request = 1
 		}
-		if err := s.startPost(msgKeyUpdate, []byte{request}, now); err != nil {
+		err := s.startPost(msgKeyUpdate, []byte{request}, now)
+		f := s.post[msgKeyUpdate]
+		if err != nil && (f == nil || len(f.sent) == 0) {
 			return err
 		}
+		// A sent KeyUpdate is in progress even when the following ACK fails.
 		s.keyUpdate.updating, s.keyUpdate.localPending, s.keyUpdate.requestPeer = true, false, false
 		if request == 1 {
 			s.keyUpdate.awaitingPeer = true
+		}
+		if err != nil {
+			return err
 		}
 	}
 	if err := s.respondCIDRequest(now); err != nil {
