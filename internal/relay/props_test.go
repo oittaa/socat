@@ -32,10 +32,10 @@ func TestStreamPropsKeepsFDDirectionsSeparate(t *testing.T) {
 	})
 
 	stream := FDStream{R: bytes.NewReader(nil), W: file, C: file}
-	if got := streamReadFD(stream); got != -1 {
+	if got := StreamReadFD(stream); got != -1 {
 		t.Fatalf("read fd=%d, unexpectedly used the write endpoint", got)
 	}
-	if got := streamWriteFD(stream); got != int(file.Fd()) {
+	if got := StreamWriteFD(stream); got != int(file.Fd()) {
 		t.Fatalf("write fd=%d want %d", got, file.Fd())
 	}
 }
