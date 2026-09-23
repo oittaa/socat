@@ -2,6 +2,7 @@
 package logx
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -104,6 +105,9 @@ func (l *Logger) CloseOwnedSyslog() {
 
 // UseSyslog opens a syslog destination and switches this logger to it.
 func (l *Logger) UseSyslog(tag string, facility Facility) error {
+	if l == nil {
+		return errors.New("nil logger")
+	}
 	w, err := DialSyslog(tag, facility)
 	if err != nil {
 		return err

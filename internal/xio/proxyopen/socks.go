@@ -175,7 +175,7 @@ func openSOCKS5(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio
 		return nil, fmt.Errorf("%s requires socks-server, host, and port", s.Type)
 	}
 	auth := socks5Credentials(s.Proxy)
-	if auth.OfferUserPass && g != nil && g.Log != nil {
+	if auth.OfferUserPass && g != nil {
 		if !s.Proxy.SOCKSUser.Set {
 			g.Log.Warningf("SOCKS5 password without username, falling back to \"anonymous\"")
 		}

@@ -556,7 +556,7 @@ func (s *ttyRestoreStream) UnwrapStream() relay.Stream { return s.Stream }
 // IsEndClose keeps end-close visible. Attach runs after WrapAfterFD, so this
 // wrapper is outside endCloseStream.
 func (s *ttyRestoreStream) IsEndClose() bool {
-	return StreamIsEndClose(s.Stream)
+	return streamIsEndClose(s.Stream)
 }
 
 func (o *Opened) wrapStreamTTYRestore(restore func()) {

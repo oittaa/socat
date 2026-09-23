@@ -42,7 +42,7 @@ func CreateConfiguredPtySlaveLink(config addrconfig.Address, slaveName string) (
 	return func() {
 		once.Do(func() {
 			unreg()
-			UnlinkIfSameFile(path, info)
+			unlinkIfSameFile(path, info)
 		})
 	}, nil
 }

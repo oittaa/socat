@@ -27,11 +27,11 @@ func TestConnectTimeoutIndependentOfHandshakeTimeout(t *testing.T) {
 }
 
 func TestQUICHandshakeIdleTimeoutDisabledDoesNotOverflowWhenDoubled(t *testing.T) {
-	if QUICHandshakeIdleTimeoutDisabled <= 0 {
+	if quicHandshakeIdleTimeoutDisabled <= 0 {
 		t.Fatal("disabled HandshakeIdleTimeout must be nonzero so quic-go does not substitute 5s")
 	}
-	if QUICHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
-		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", QUICHandshakeIdleTimeoutDisabled)
+	if quicHandshakeIdleTimeoutDisabled > time.Duration(math.MaxInt64/2) {
+		t.Fatalf("2*%s would overflow int64; quic-go handshakeTimeout doubles HandshakeIdleTimeout", quicHandshakeIdleTimeoutDisabled)
 	}
 }
 

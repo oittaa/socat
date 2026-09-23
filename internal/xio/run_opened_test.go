@@ -52,7 +52,7 @@ func TestRunOpenedDispatch(t *testing.T) {
 				cancel()
 			}
 			if tc.left {
-				err = RunOpenedPrepared(ctx, opened, PreparedChannel{}, session)
+				err = RunOpenedPrepared(ctx, opened, preparedChannel{}, session)
 			} else {
 				ready, createErr := NewReady("left", relay.FDStream{})
 				if createErr != nil {

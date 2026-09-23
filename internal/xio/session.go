@@ -12,9 +12,9 @@ import (
 	socat "github.com/oittaa/socat"
 )
 
-// RememberAddrs writes this session's SOCAT_* address fields from a live
+// rememberAddrs writes this session's SOCAT_* address fields from a live
 // connection. Also used by -r/-R path expansion ($SERVER0_PEERADDR).
-func RememberAddrs(g *Global, c net.Conn) {
+func rememberAddrs(g *Global, c net.Conn) {
 	if g == nil || c == nil {
 		return
 	}
@@ -242,12 +242,12 @@ func sniffEnvValue(g *Global, name string) (string, bool) {
 func FormatSocatAddr(host string) string {
 	if ip := net.ParseIP(host); ip != nil && ip.To4() == nil {
 		// Expand to full form when possible for test comparisons.
-		return "[" + ExpandIPv6(ip) + "]"
+		return "[" + expandIPv6(ip) + "]"
 	}
 	return host
 }
 
-func ExpandIPv6(ip net.IP) string {
+func expandIPv6(ip net.IP) string {
 	if ip == nil {
 		return ""
 	}

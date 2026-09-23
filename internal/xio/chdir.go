@@ -9,11 +9,11 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// ResolvePreparedPaths implements per-address chdir= without changing the
+// resolvePreparedPaths implements per-address chdir= without changing the
 // process-wide working directory. Filesystem parameters and path-valued
 // settings are made absolute; EXEC/SYSTEM/SHELL receive the directory through
 // exec.Cmd.Dir.
-func ResolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error) {
+func resolvePreparedPaths(config addrconfig.Address) (addrconfig.Address, error) {
 	if !config.Process.Chdir.Set {
 		return config, nil
 	}

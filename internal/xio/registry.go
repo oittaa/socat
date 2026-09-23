@@ -18,7 +18,7 @@ const (
 	GroupRawIP     = optionmeta.GroupRawIP
 	GroupUnix      = optionmeta.GroupUnix
 	GroupSocket    = optionmeta.GroupSocket
-	GroupProcess   = optionmeta.GroupProcess
+	groupProcess   = optionmeta.GroupProcess
 	GroupDTLS      = optionmeta.GroupDTLS
 	GroupTLS       = optionmeta.GroupTLS
 	GroupProxy     = optionmeta.GroupProxy
@@ -30,18 +30,18 @@ const (
 	GroupPOSIXMQ   = optionmeta.GroupPOSIXMQ
 )
 
-// HelpAddr represents a single address entry in help output.
-type HelpAddr struct {
+// helpAddr represents a single address entry in help output.
+type helpAddr struct {
 	Name    string // Registered keyword, e.g. "TCP-CONNECT"
 	Syntax  string
 	Desc    string
 	Aliases []string // Unregistered address aliases; printed at -hhh
 }
 
-// HelpAddrGroup represents a section of address types in help output.
-type HelpAddrGroup struct {
+// helpAddrGroup represents a section of address types in help output.
+type helpAddrGroup struct {
 	Title string
-	Addrs []HelpAddr
+	Addrs []helpAddr
 }
 
 // AddressDesc describes a registered address type.
@@ -53,7 +53,7 @@ type AddressDesc struct {
 	Desc        string        // Help description
 	DynamicDesc func() string // Optional dynamic help description (e.g. UNIX capabilities)
 	Enabled     func() bool   // Optional feature predicate. If nil, considered enabled.
-	Opener      Opener        // Opener function handling this address
+	Opener      opener        // Opener function handling this address
 	OptionCaps  []string      // Address capability tokens for option-scope checks
 	Aliases     []string      // Extra keywords that resolve to this descriptor; -hhh only
 	Kind        addrconfig.AddressKind
@@ -62,12 +62,12 @@ type AddressDesc struct {
 	// Directions is ModeRead, ModeWrite, or ModeRDWR (zero: both).
 	Directions Mode
 	// Params is the accepted positional count. Syntax is help text only.
-	Params ParamCount
+	Params paramCount
 }
 
 type addressRegistry struct {
 	mu           sync.RWMutex
-	openers      map[string]Opener
+	openers      map[string]opener
 	descsByName  map[string]AddressDesc
 	aliases      map[string]string // alias → registered Name
 	addrsByGroup map[string][]AddressDesc
@@ -76,7 +76,7 @@ type addressRegistry struct {
 
 func newAddressRegistry() *addressRegistry {
 	return &addressRegistry{
-		openers:      make(map[string]Opener),
+		openers:      make(map[string]opener),
 		descsByName:  make(map[string]AddressDesc),
 		aliases:      make(map[string]string),
 		addrsByGroup: make(map[string][]AddressDesc),
@@ -92,7 +92,7 @@ var defaultGroupOrder = []string{
 	GroupRawIP,
 	GroupUnix,
 	GroupSocket,
-	GroupProcess,
+	groupProcess,
 	GroupTLS,
 	GroupDTLS,
 	GroupProxy,
@@ -242,13 +242,13 @@ func registrationSnapshot(d AddressDesc) AddressRegistration {
 }
 
 // HelpAddressGroups returns address groups and entries formatted for help output.
-func HelpAddressGroups() []HelpAddrGroup {
+func HelpAddressGroups() []helpAddrGroup {
 	registeredAddresses.mu.RLock()
 	defer registeredAddresses.mu.RUnlock()
 
-	var res []HelpAddrGroup
+	var res []helpAddrGroup
 	for _, g := range registeredAddresses.orderedGroupsLocked() {
-		var list []HelpAddr
+		var list []helpAddr
 		for _, a := range registeredAddresses.addrsByGroup[g] {
 			if a.Enabled != nil && !a.Enabled() {
 				continue
@@ -257,7 +257,7 @@ func HelpAddressGroups() []HelpAddrGroup {
 			if a.DynamicDesc != nil {
 				desc = a.DynamicDesc()
 			}
-			list = append(list, HelpAddr{
+			list = append(list, helpAddr{
 				Name:    a.Name,
 				Syntax:  a.Syntax,
 				Desc:    desc,
@@ -265,7 +265,7 @@ func HelpAddressGroups() []HelpAddrGroup {
 			})
 		}
 		if len(list) > 0 {
-			res = append(res, HelpAddrGroup{
+			res = append(res, helpAddrGroup{
 				Title: g,
 				Addrs: list,
 			})

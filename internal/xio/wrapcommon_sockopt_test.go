@@ -56,7 +56,7 @@ func TestApplyLateSocketOptionsToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyLateSocketOptionsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
+	err = applyLateSocketOptionsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
@@ -67,7 +67,7 @@ func TestApplyFDLifecycleToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyFDLifecycleToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
+	err = applyFDLifecycleToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

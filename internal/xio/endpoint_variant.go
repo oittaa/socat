@@ -172,9 +172,9 @@ func NewRepeatedDial(label string, p RepeatedDial) (*Opened, error) {
 	}), nil
 }
 
-// NewDeferredNoFork returns EXEC/SYSTEM/SHELL,nofork. Run starts the process
+// newDeferredNoFork returns EXEC/SYSTEM/SHELL,nofork. Run starts the process
 // after the peer stream is open.
-func NewDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
+func newDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
 	return newOpened(label, &deferredNoFork{config: cfg})
 }
 

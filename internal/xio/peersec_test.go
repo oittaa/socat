@@ -123,5 +123,5 @@ func TestPeerFilterMappedCIDRAcceptsIPv4Peer(t *testing.T) {
 }
 
 func TestCloseRefusedPeerNil(t *testing.T) {
-	CloseRefusedPeer(nil)
+	closeRefusedPeer(nil)
 }

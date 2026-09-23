@@ -37,7 +37,7 @@ func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (
 		}
 		s := optionSpec.Scope
 		if resolved.scopeError == nil &&
-			(!OptionSupportedOnAddress(reg, s.AddressGroups, s.AddressTypes, s.Caps) ||
+			(!optionSupportedOnAddress(reg, s.AddressGroups, s.AddressTypes, s.Caps) ||
 				s.RestrictTypes && !addressTypeAllowed(desc.Name, s.AddressTypes)) {
 			resolved.scopeError = fmt.Errorf("%s: option %q not supported with this address type", spec.Type, option.Name)
 		}
@@ -46,19 +46,19 @@ func resolveAddressOptions(spec parse.Spec, desc AddressDesc, registered bool) (
 }
 
 func rejectPreparedStaticChecks(config addrconfig.Address) error {
-	if err := RejectUnsupportedIPAncillary(config); err != nil {
+	if err := rejectUnsupportedIPAncillary(config); err != nil {
 		return err
 	}
-	if err := RejectUnsupportedTermios(config); err != nil {
+	if err := rejectUnsupportedTermios(config); err != nil {
 		return err
 	}
-	if err := RejectUnsupportedRecvErr(config); err != nil {
+	if err := rejectUnsupportedRecvErr(config); err != nil {
 		return err
 	}
-	if err := ValidateDescriptorModeOptions(config); err != nil {
+	if err := validateDescriptorModeOptions(config); err != nil {
 		return err
 	}
-	if err := RejectUnsupportedListenBacklog(config); err != nil {
+	if err := rejectUnsupportedListenBacklog(config); err != nil {
 		return err
 	}
 	if err := RejectUnsupportedUnixTightSocklen(config); err != nil {
@@ -116,7 +116,7 @@ func rejectPreparedSocketType(config addrconfig.Address) error {
 	if !config.Network.SocketType.Set {
 		return nil
 	}
-	_, _, err := ConfiguredSocketType(config, config.Type, 0)
+	_, _, err := configuredSocketType(config, config.Type, 0)
 	return err
 }
 
@@ -125,7 +125,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 		if def, ok := optionmeta.Lookup(name); ok {
 			return def, true
 		}
-		if IsTermiosOption(name) {
+		if isTermiosOption(name) {
 			canonical := strings.ToLower(strings.TrimSpace(option.Name))
 			if canonical == "" {
 				canonical = strings.ToLower(strings.TrimSpace(name))
@@ -133,7 +133,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 			return optionmeta.Option{
 				Canonical: canonical,
 				Kind:      addrconfig.TermiosValueKind(canonical),
-				Scope:     optionmeta.AddressScope{Caps: []string{CapTermios}},
+				Scope:     optionmeta.AddressScope{Caps: []string{capTermios}},
 			}, true
 		}
 	}
@@ -141,7 +141,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 }
 
 func optionImplementedForGroup(group string, option optionmeta.Option) bool {
-	if !IPAncillarySupported(group, addrconfig.AncillaryID(option.Canonical)) {
+	if !ipAncillarySupported(group, addrconfig.AncillaryID(option.Canonical)) {
 		return false
 	}
 	groups := option.Scope.ImplGroups

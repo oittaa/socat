@@ -40,7 +40,7 @@ func applyExecPtySession(cmd *exec.Cmd, config addrconfig.Process, g *Global) {
 		return
 	}
 	cmd.SysProcAttr.Setctty = false
-	if wantCtty && g != nil && g.Log != nil {
+	if wantCtty && g != nil {
 		g.Log.Warningf("ctty: TIOCSCTTY skipped; child is not a session leader")
 	}
 }

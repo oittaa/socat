@@ -4,10 +4,10 @@ import (
 	"os"
 )
 
-// UnixModeToFileMode converts Unix 07777 mode bits to os.FileMode.
+// unixModeToFileMode converts Unix 07777 mode bits to os.FileMode.
 // os.FileMode(04755) drops setuid/setgid/sticky; those live in dedicated Mode*
 // bits and must be set explicitly so Chmod/OpenFile can round-trip them.
-func UnixModeToFileMode(m uint32) os.FileMode {
+func unixModeToFileMode(m uint32) os.FileMode {
 	mode := os.FileMode(m & 0o777)
 	if m&0o4000 != 0 {
 		mode |= os.ModeSetuid

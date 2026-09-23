@@ -119,7 +119,7 @@ func openUnixConnect(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 		// Generic UNIX/UNIX-CLIENT/GOPEN probes stream, seqpacket, then dgram.
 		return openUnixDgramClient(req, path, bindPath, false)
 	}
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Noticef("successfully connected to %s", path)
 	}
 	if g != nil {
@@ -257,7 +257,7 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 		life.drop(conn)
 		return nil, err
 	}
-	if req.g != nil && req.g.Log != nil {
+	if req.g != nil {
 		req.g.Log.Noticef("successfully connected to %s", path)
 	}
 	if req.g != nil {

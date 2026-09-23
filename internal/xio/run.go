@@ -26,7 +26,7 @@ func channelModes(opts Options) (lMode, rMode Mode) {
 
 // RunPrepared opens and relays two prepared channels. It retains immutable
 // configuration across accept and fork retry paths.
-func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) error {
+func RunPrepared(ctx context.Context, left, right preparedChannel, g *Global) error {
 	if err := rejectNoForkOnFirstAddress(left); err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) er
 }
 
 // RunOpenedPrepared continues a run with a prepared right channel.
-func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g *Global) error {
+func RunOpenedPrepared(ctx context.Context, lo *Opened, right preparedChannel, g *Global) error {
 	if lo == nil {
 		return fmt.Errorf("xio: nil left")
 	}
@@ -70,14 +70,14 @@ func RunOpenedPrepared(ctx context.Context, lo *Opened, right PreparedChannel, g
 
 var errNoForkOnFirstAddress = errors.New("option nofork is not allowed here")
 
-func rejectNoForkOnFirstAddress(left PreparedChannel) error {
+func rejectNoForkOnFirstAddress(left preparedChannel) error {
 	if preparedNoFork(left) {
 		return errNoForkOnFirstAddress
 	}
 	return nil
 }
 
-func preparedNoFork(ch PreparedChannel) bool {
+func preparedNoFork(ch preparedChannel) bool {
 	if ch.Single != nil && ch.Single.Config.Common.NoFork.Value {
 		return true
 	}
@@ -115,7 +115,7 @@ func streamFromDial(o *Opened, c net.Conn) (relay.Stream, error) {
 
 // runConnectFork is the CONNECT,fork parent loop: dial, spawn child
 // transfer, sleep interval, honour max-children, repeat until ctx cancel.
-func runConnectFork(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
+func runConnectFork(ctx context.Context, lo *Opened, right preparedChannel, rMode Mode, g *Global) error {
 	return runConnectForkLoop(ctx, lo, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		left, err := streamFromDial(lo, c)
 		if err != nil {
@@ -209,7 +209,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 		if !slots.acquire(ctx) {
 			return nil
 		}
-		conn, err := AcceptWithTimeout(ctx, ln, o.AcceptTimeout())
+		conn, err := acceptWithTimeout(ctx, ln, o.AcceptTimeout())
 		if err != nil {
 			slots.release()
 			if errors.Is(err, ErrAcceptTimeout) {
@@ -225,7 +225,7 @@ func (o *Opened) forEachAccepted(ctx context.Context, ln net.Listener, g *Global
 		}
 		if filter := o.PeerFilter(); filter != nil {
 			if ferr := filter(conn); ferr != nil {
-				CloseRefusedPeer(conn)
+				closeRefusedPeer(conn)
 				slots.release()
 				if ctx.Err() != nil {
 					return nil
@@ -250,7 +250,7 @@ func forkChildGlobal(c net.Conn, parent *Opened, g *Global) *Global {
 	if cg == nil {
 		cg = g.ForkSession()
 	}
-	if parent != nil && parent.ChildrenShutup() > 0 && cg != nil && cg.Log != nil {
+	if parent != nil && parent.ChildrenShutup() > 0 && cg != nil {
 		cg.Log = cg.Log.WithShutup(parent.ChildrenShutup())
 	}
 	return cg
@@ -266,7 +266,7 @@ func spawnForkChild(ctx context.Context, c net.Conn, parent *Opened, g *Global, 
 		defer stop()
 		cg := forkChildGlobal(c, parent, g)
 		run(c, cg)
-		if cg != nil && cg.Log != nil {
+		if cg != nil {
 			cg.Log.CloseOwnedSyslog()
 		}
 	}()
@@ -281,7 +281,7 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 	slots := newChildSlots(o.MaxChildren())
 	var children sync.WaitGroup
 	defer children.Wait()
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Noticef("starting connect loop (%s)", o.Label)
 	}
 	for {
@@ -301,14 +301,14 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 			}
 			return err
 		}
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("successfully connected from %s to %s", conn.LocalAddr(), conn.RemoteAddr())
 		}
 		time.Sleep(g.Options().ForkWait)
 		spawnForkChild(ctx, conn, o, g, slots, &children, func(c net.Conn, cg *Global) {
-			RememberAddrs(cg, c)
+			rememberAddrs(cg, c)
 			if err := RememberTLSPeer(cg, c, o.HandshakeTimeout()); err != nil {
-				if cg != nil && cg.Log != nil {
+				if cg != nil {
 					cg.Log.Debugf("connect handshake: %s", err)
 				}
 				return
@@ -425,7 +425,7 @@ func logForkErr(g *Global, err error) {
 	g.Log.Errorf("%s", err)
 }
 
-func runForkListen(ctx context.Context, lo *Opened, right PreparedChannel, rMode Mode, g *Global) error {
+func runForkListen(ctx context.Context, lo *Opened, right preparedChannel, rMode Mode, g *Global) error {
 	ln := lo.Listener()
 	lg := g.Log
 	lg.Noticef("listening on %s", ln.Addr())
@@ -501,7 +501,7 @@ func transferPair(ctx context.Context, lo, ro *Opened, g *Global) error {
 }
 
 func transferStreams(ctx context.Context, left, right relay.Stream, g *Global) error {
-	return transferStreamsOpts(ctx, left, right, g, StreamIsEndClose(left), StreamIsEndClose(right))
+	return transferStreamsOpts(ctx, left, right, g, streamIsEndClose(left), streamIsEndClose(right))
 }
 
 func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Global, noCloseLeft, noCloseRight bool) error {
@@ -527,14 +527,14 @@ func transferStreamsOpts(ctx context.Context, left, right relay.Stream, g *Globa
 	if g.Sniff.RawRight != nil {
 		cfg.RawRight = g.Sniff.RawRight
 	}
-	if g != nil && opts.Statistics && g.Log != nil {
+	if g != nil && opts.Statistics {
 		cfg.OnStats = func(st relay.Stats) {
-			PrintStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
+			printStats(g.Log, st, cfg.LeftToRight, cfg.RightToLeft, true)
 			g.markStatsPrinted()
 		}
 	}
 	// Notice once per side: "socket N (fd M) is at EOF".
-	if g != nil && g.Log != nil {
+	if g != nil {
 		var eofOnce [3]sync.Once // index 1 and 2
 		cfg.OnEOF = func(sock, fd int) {
 			if sock < 1 || sock > 2 {

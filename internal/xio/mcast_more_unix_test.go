@@ -70,7 +70,7 @@ func TestIPv6RecvErrRejectedAtOpenSpecAndDialControl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RejectUnsupportedRecvErr(mustDecodeAddress(t, spec)); err == nil || !strings.Contains(err.Error(), "not supported") {
+	if err := rejectUnsupportedRecvErr(mustDecodeAddress(t, spec)); err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("RejectUnsupportedRecvErr=%v", err)
 	}
 	d := &net.Dialer{Control: DialControl(mustDecodeAddress(t, spec), "udp6", nil)}

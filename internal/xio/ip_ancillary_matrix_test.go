@@ -11,7 +11,7 @@ func TestRejectUnsupportedIPAncillaryWithoutRegistration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RejectUnsupportedIPAncillary(mustDecodeAddress(t, spec)); err != nil {
+	if err := rejectUnsupportedIPAncillary(mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("unregistered type: %v", err)
 	}
 }

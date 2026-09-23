@@ -28,7 +28,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 	// immediately. Keep a slave FD open while waiting for clients.
 	slaveName := slave.Name()
 
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Noticef("PTY is %s", slaveName)
 	}
 

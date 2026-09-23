@@ -99,7 +99,7 @@ func TestApplyGenericSetsockoptToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyGenericSetsockoptToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), SockoptPhaseConnected)
+	err = applyGenericSetsockoptToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), SockoptPhaseConnected)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

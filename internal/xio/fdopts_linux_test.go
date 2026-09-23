@@ -45,7 +45,7 @@ func TestApplyFDOptionsFSImmutableReturnsKernelError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ApplyFDOptions(f, mustDecodeAddress(t, spec))
+	err = applyFDOptions(f, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("unprivileged fs-immutable succeeded")
 	}

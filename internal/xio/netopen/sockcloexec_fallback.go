@@ -2,5 +2,5 @@
 
 package netopen
 
-// SOCK_CLOEXEC is unavailable; newSocket uses CloseOnExec.
+// SOCK_CLOEXEC is unavailable; newSocket uses closeOnExec.
 const sockCloexec = 0

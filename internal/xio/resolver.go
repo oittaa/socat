@@ -11,9 +11,9 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// IPHint is the net.Resolver.LookupIP network for a connect/listen network
+// ipHint is the net.Resolver.LookupIP network for a connect/listen network
 // ("tcp4"/"udp6"/"sctp" → "ip4"/"ip6"/"ip").
-func IPHint(network string) string {
+func ipHint(network string) string {
 	switch {
 	case strings.HasSuffix(network, "4"):
 		return "ip4"
@@ -117,10 +117,10 @@ func MatchLocalPacketAddr(network string, laddr net.Addr) (net.Addr, error) {
 	return &out, nil
 }
 
-// LookupDialIP resolves host for network. Literals keep network. Hostnames
+// lookupDialIP resolves host for network. Literals keep network. Hostnames
 // may switch *6 to *4 after AI_V4MAPPED (README Intentional differences).
 // zone is the IPv6 scope, or empty.
-func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, string, error) {
+func lookupDialIP(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, net.IP, string, error) {
 	if host.IsLiteral() {
 		return network, host.IP(), host.Zone(), nil
 	}
@@ -128,7 +128,7 @@ func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, hos
 	if name == "" {
 		return network, nil, "", nil
 	}
-	ips, err := LookupIP(ctx, s, IPHint(network), name)
+	ips, err := LookupIP(ctx, s, ipHint(network), name)
 	if err != nil {
 		return "", nil, "", err
 	}
@@ -143,7 +143,7 @@ func LookupDialIP(ctx context.Context, s addrconfig.Address, network string, hos
 // QUIC and PROXY HTTP/3 call this before binding UDP so an AI_V4MAPPED result
 // can switch udp6 to udp4. Literals keep network.
 func PacketNetworkForHost(ctx context.Context, s addrconfig.Address, network string, host addrconfig.HostTarget) (string, error) {
-	netw, _, _, err := LookupDialIP(ctx, s, network, host)
+	netw, _, _, err := lookupDialIP(ctx, s, network, host)
 	return netw, err
 }
 
@@ -327,7 +327,7 @@ func ResolveIPTarget(ctx context.Context, s addrconfig.Address, network string, 
 	if ip, zone, ok := scopedLiteral(name); ok {
 		return ip, zone, nil
 	}
-	hint := IPHint(network)
+	hint := ipHint(network)
 	ips, err := LookupIP(ctx, s, hint, name)
 	if err != nil {
 		return nil, "", fmt.Errorf("resolve %s: %w", name, err)
@@ -348,7 +348,7 @@ func ResolveUDPTarget(ctx context.Context, s addrconfig.Address, network string,
 	if host.IsLiteral() {
 		return udpAddrFromHost(network, host, n), nil
 	}
-	_, ip, zone, err := LookupDialIP(ctx, s, network, host)
+	_, ip, zone, err := lookupDialIP(ctx, s, network, host)
 	if err != nil {
 		return nil, err
 	}

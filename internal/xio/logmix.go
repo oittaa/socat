@@ -14,7 +14,7 @@ func (g *Global) beginLogicalSession(left, right relay.Stream) {
 }
 
 func (g *Global) maybeSwitchMixedLog() {
-	if !g.LogMixed || g.Log == nil {
+	if !g.LogMixed {
 		return
 	}
 	g.Log.Infof("switching to syslog")

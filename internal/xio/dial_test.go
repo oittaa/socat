@@ -14,7 +14,7 @@ import (
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func DialTargetFromText(network, host, port string) DialTarget {
+func dialTargetFromText(network, host, port string) DialTarget {
 	return DialTarget{Network: network, Host: addrconfig.HostFromText(host), Port: addrconfig.PortFromText(port)}
 }
 
@@ -83,7 +83,7 @@ func TestDialTCPLowportReturnsConnectErrorWhenBindSucceeds(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = DialTCPAll(ctx, DialTargetFromText("tcp4", "127.0.0.1", "1"), mustDecodeAddress(t, s), nil, time.Second, nil)
+	_, err = DialTCPAll(ctx, dialTargetFromText("tcp4", "127.0.0.1", "1"), mustDecodeAddress(t, s), nil, time.Second, nil)
 	if err == nil {
 		t.Fatal("expected connect error after a successful lowport bind")
 	}
@@ -103,7 +103,7 @@ func TestSourcePortZeroWithLowportDoesNotWalkReservedPorts(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err = DialTCPAll(ctx, DialTargetFromText("tcp4", "127.0.0.1", "1"), config, nil, time.Second, nil)
+	_, err = DialTCPAll(ctx, dialTargetFromText("tcp4", "127.0.0.1", "1"), config, nil, time.Second, nil)
 	if err != nil && strings.Contains(err.Error(), "lowport: cannot bind a port in 640-1023") {
 		t.Fatalf("sourceport=0,lowport walked reserved ports: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestResolveDialAddrsRejectsTCP6IPv4Literals(t *testing.T) {
 	ctx := context.Background()
 	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
 	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
-		_, err := ResolveDialAddrs(ctx, DialTargetFromText("tcp6", host, "9"), config, Options{})
+		_, err := ResolveDialAddrs(ctx, dialTargetFromText("tcp6", host, "9"), config, Options{})
 		if err == nil || !strings.Contains(err.Error(), "not IPv6") {
 			t.Fatalf("%s: err=%v want not IPv6", host, err)
 		}
@@ -146,7 +146,7 @@ func TestDialTCP6IPv4LiteralDoesNotConnect(t *testing.T) {
 	defer cancel()
 	config := mustDecodeAddress(t, parse.Spec{Type: "TCP6"})
 	for _, host := range []string{"127.0.0.1", "[::ffff:127.0.0.1]"} {
-		c, err := DialTCPAll(ctx, DialTargetFromText("tcp6", host, port), config, nil, time.Second, nil)
+		c, err := DialTCPAll(ctx, dialTargetFromText("tcp6", host, port), config, nil, time.Second, nil)
 		if err == nil {
 			_ = c.Close()
 			t.Fatalf("%s: connected over IPv4; want not IPv6", host)

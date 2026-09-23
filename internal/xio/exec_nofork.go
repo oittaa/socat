@@ -222,7 +222,7 @@ func dupNoForkExtra(f *os.File, name string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	CloseOnExec(nfd)
+	closeOnExec(nfd)
 	return os.NewFile(uintptr(nfd), "nofork-"+name), nil
 }
 

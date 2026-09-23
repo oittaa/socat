@@ -4,35 +4,35 @@ import "github.com/oittaa/socat/internal/optionmeta"
 
 // Address capability tokens used for option-scope intersection.
 const (
-	CapFD        = optionmeta.CapFD
-	CapFIFO      = optionmeta.CapFIFO
-	CapCHR       = optionmeta.CapCHR
-	CapBLK       = optionmeta.CapBLK
-	CapREG       = optionmeta.CapREG
-	CapSocket    = optionmeta.CapSocket
-	CapNamed     = optionmeta.CapNamed
-	CapOpen      = optionmeta.CapOpen
-	CapListen    = optionmeta.CapListen
-	CapRange     = optionmeta.CapRange
-	CapChild     = optionmeta.CapChild
-	CapRetry     = optionmeta.CapRetry
-	CapTermios   = optionmeta.CapTermios
-	CapPTY       = optionmeta.CapPTY
-	CapParent    = optionmeta.CapParent
-	CapFork      = optionmeta.CapFork
-	CapExec      = optionmeta.CapExec
-	CapShell     = optionmeta.CapShell
-	CapSockUNIX  = optionmeta.CapSockUNIX
-	CapSockIP4   = optionmeta.CapSockIP4
-	CapSockIP6   = optionmeta.CapSockIP6
-	CapIPTCP     = optionmeta.CapIPTCP
-	CapIPUDP     = optionmeta.CapIPUDP
-	CapIPSCTP    = optionmeta.CapIPSCTP
-	CapOpenSSL   = optionmeta.CapOpenSSL
-	CapHTTP      = optionmeta.CapHTTP
-	CapSocks     = optionmeta.CapSocks
-	CapInterface = optionmeta.CapInterface
-	CapPOSIXMQ   = optionmeta.CapPOSIXMQ
+	capFD        = optionmeta.CapFD
+	capFIFO      = optionmeta.CapFIFO
+	capCHR       = optionmeta.CapCHR
+	capBLK       = optionmeta.CapBLK
+	capREG       = optionmeta.CapREG
+	capSocket    = optionmeta.CapSocket
+	capNamed     = optionmeta.CapNamed
+	capOpen      = optionmeta.CapOpen
+	capListen    = optionmeta.CapListen
+	capRange     = optionmeta.CapRange
+	capChild     = optionmeta.CapChild
+	capRetry     = optionmeta.CapRetry
+	capTermios   = optionmeta.CapTermios
+	capPTY       = optionmeta.CapPTY
+	capParent    = optionmeta.CapParent
+	capFork      = optionmeta.CapFork
+	capExec      = optionmeta.CapExec
+	capShell     = optionmeta.CapShell
+	capSockUNIX  = optionmeta.CapSockUNIX
+	capSockIP4   = optionmeta.CapSockIP4
+	capSockIP6   = optionmeta.CapSockIP6
+	capIPTCP     = optionmeta.CapIPTCP
+	capIPUDP     = optionmeta.CapIPUDP
+	capIPSCTP    = optionmeta.CapIPSCTP
+	capOpenSSL   = optionmeta.CapOpenSSL
+	capHTTP      = optionmeta.CapHTTP
+	capSocks     = optionmeta.CapSocks
+	capInterface = optionmeta.CapInterface
+	capPOSIXMQ   = optionmeta.CapPOSIXMQ
 )
 
 func capset(names ...string) []string {
@@ -42,83 +42,83 @@ func capset(names ...string) []string {
 // Reusable address capability sets. RegisterAddress assigns one of these
 // (or a deliberate one-off) instead of inferring groups from the address name.
 var (
-	CapsFD = capset(CapFD, CapFIFO, CapCHR, CapBLK, CapREG, CapSocket, CapTermios,
-		CapSockUNIX, CapSockIP4, CapSockIP6, CapIPUDP, CapIPTCP, CapIPSCTP)
-	CapsAcceptFD = capset(CapFD, CapSocket, CapSockUNIX, CapSockIP4, CapSockIP6,
-		CapIPUDP, CapIPTCP, CapIPSCTP, CapChild, CapRange, CapRetry)
-	CapsPIPE   = capset(CapFD, CapNamed, CapOpen, CapFIFO)
-	CapsOpen   = capset(CapFD, CapFIFO, CapCHR, CapBLK, CapREG, CapNamed, CapOpen, CapTermios)
-	CapsCreate = capset(CapFD, CapNamed, CapREG)
-	CapsGOPEN  = capset(CapFD, CapFIFO, CapCHR, CapBLK, CapREG, CapNamed, CapOpen, CapTermios, CapSocket, CapSockUNIX)
-	CapsText   = capset(CapFD, CapFIFO)
-	CapsPTY    = capset(CapNamed, CapFD, CapTermios, CapPTY)
-	CapsExec   = capset(CapFD, CapFork, CapExec, CapSocket, CapSockUNIX, CapTermios, CapFIFO, CapPTY, CapParent)
-	CapsSHELL  = capset(CapFD, CapFork, CapExec, CapSocket, CapSockUNIX, CapTermios, CapFIFO, CapPTY, CapParent, CapShell)
+	CapsFD = capset(capFD, capFIFO, capCHR, capBLK, capREG, capSocket, capTermios,
+		capSockUNIX, capSockIP4, capSockIP6, capIPUDP, capIPTCP, capIPSCTP)
+	CapsAcceptFD = capset(capFD, capSocket, capSockUNIX, capSockIP4, capSockIP6,
+		capIPUDP, capIPTCP, capIPSCTP, capChild, capRange, capRetry)
+	CapsPIPE   = capset(capFD, capNamed, capOpen, capFIFO)
+	CapsOpen   = capset(capFD, capFIFO, capCHR, capBLK, capREG, capNamed, capOpen, capTermios)
+	CapsCreate = capset(capFD, capNamed, capREG)
+	CapsGOPEN  = capset(capFD, capFIFO, capCHR, capBLK, capREG, capNamed, capOpen, capTermios, capSocket, capSockUNIX)
+	CapsText   = capset(capFD, capFIFO)
+	CapsPTY    = capset(capNamed, capFD, capTermios, capPTY)
+	capsExec   = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent)
+	capsSHELL  = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent, capShell)
 
-	CapsTCPConnect  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapChild, CapRetry)
-	CapsTCPListen   = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapListen, CapChild, CapRange, CapRetry)
-	CapsTCP4Connect = capset(CapFD, CapSocket, CapSockIP4, CapIPTCP, CapChild, CapRetry)
-	CapsTCP4Listen  = capset(CapFD, CapSocket, CapSockIP4, CapIPTCP, CapListen, CapChild, CapRange, CapRetry)
-	CapsTCP6Connect = capset(CapFD, CapSocket, CapSockIP6, CapIPTCP, CapChild, CapRetry)
-	CapsTCP6Listen  = capset(CapFD, CapSocket, CapSockIP6, CapIPTCP, CapListen, CapChild, CapRange, CapRetry)
+	CapsTCPConnect  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capChild, capRetry)
+	CapsTCPListen   = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capListen, capChild, capRange, capRetry)
+	CapsTCP4Connect = capset(capFD, capSocket, capSockIP4, capIPTCP, capChild, capRetry)
+	CapsTCP4Listen  = capset(capFD, capSocket, capSockIP4, capIPTCP, capListen, capChild, capRange, capRetry)
+	CapsTCP6Connect = capset(capFD, capSocket, capSockIP6, capIPTCP, capChild, capRetry)
+	CapsTCP6Listen  = capset(capFD, capSocket, capSockIP6, capIPTCP, capListen, capChild, capRange, capRetry)
 
-	CapsUDPConnect   = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP)
-	CapsUDPListen    = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapListen, CapChild, CapRange)
-	CapsUDPDatagram  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapRange)
-	CapsUDPRecvfrom  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapChild, CapRange)
-	CapsUDP4Connect  = capset(CapFD, CapSocket, CapSockIP4, CapIPUDP)
-	CapsUDP4Listen   = capset(CapFD, CapSocket, CapSockIP4, CapIPUDP, CapListen, CapChild, CapRange)
-	CapsUDP4Datagram = capset(CapFD, CapSocket, CapSockIP4, CapIPUDP, CapRange)
-	CapsUDP4Recvfrom = capset(CapFD, CapSocket, CapSockIP4, CapIPUDP, CapChild, CapRange)
-	CapsUDP6Connect  = capset(CapFD, CapSocket, CapSockIP6, CapIPUDP)
-	CapsUDP6Listen   = capset(CapFD, CapSocket, CapSockIP6, CapIPUDP, CapListen, CapChild, CapRange)
-	CapsUDP6Datagram = capset(CapFD, CapSocket, CapSockIP6, CapIPUDP, CapRange)
-	CapsUDP6Recvfrom = capset(CapFD, CapSocket, CapSockIP6, CapIPUDP, CapChild, CapRange)
+	CapsUDPConnect   = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP)
+	CapsUDPListen    = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP, capListen, capChild, capRange)
+	CapsUDPDatagram  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP, capRange)
+	CapsUDPRecvfrom  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP, capChild, capRange)
+	CapsUDP4Connect  = capset(capFD, capSocket, capSockIP4, capIPUDP)
+	CapsUDP4Listen   = capset(capFD, capSocket, capSockIP4, capIPUDP, capListen, capChild, capRange)
+	CapsUDP4Datagram = capset(capFD, capSocket, capSockIP4, capIPUDP, capRange)
+	CapsUDP4Recvfrom = capset(capFD, capSocket, capSockIP4, capIPUDP, capChild, capRange)
+	CapsUDP6Connect  = capset(capFD, capSocket, capSockIP6, capIPUDP)
+	CapsUDP6Listen   = capset(capFD, capSocket, capSockIP6, capIPUDP, capListen, capChild, capRange)
+	CapsUDP6Datagram = capset(capFD, capSocket, capSockIP6, capIPUDP, capRange)
+	CapsUDP6Recvfrom = capset(capFD, capSocket, capSockIP6, capIPUDP, capChild, capRange)
 
-	CapsIPSendto    = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6)
-	CapsIPDatagram  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapRange)
-	CapsIPRecvfrom  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapChild, CapRange)
-	CapsIP4Sendto   = capset(CapFD, CapSocket, CapSockIP4)
-	CapsIP4Datagram = capset(CapFD, CapSocket, CapSockIP4, CapRange)
-	CapsIP4Recvfrom = capset(CapFD, CapSocket, CapSockIP4, CapChild, CapRange)
-	CapsIP6Sendto   = capset(CapFD, CapSocket, CapSockIP6)
-	CapsIP6Datagram = capset(CapFD, CapSocket, CapSockIP6, CapRange)
-	CapsIP6Recvfrom = capset(CapFD, CapSocket, CapSockIP6, CapChild, CapRange)
+	CapsIPSendto    = capset(capFD, capSocket, capSockIP4, capSockIP6)
+	CapsIPDatagram  = capset(capFD, capSocket, capSockIP4, capSockIP6, capRange)
+	CapsIPRecvfrom  = capset(capFD, capSocket, capSockIP4, capSockIP6, capChild, capRange)
+	CapsIP4Sendto   = capset(capFD, capSocket, capSockIP4)
+	CapsIP4Datagram = capset(capFD, capSocket, capSockIP4, capRange)
+	CapsIP4Recvfrom = capset(capFD, capSocket, capSockIP4, capChild, capRange)
+	CapsIP6Sendto   = capset(capFD, capSocket, capSockIP6)
+	CapsIP6Datagram = capset(capFD, capSocket, capSockIP6, capRange)
+	CapsIP6Recvfrom = capset(capFD, capSocket, capSockIP6, capChild, capRange)
 
-	CapsUNIXConnect      = capset(CapFD, CapNamed, CapSocket, CapSockUNIX, CapRetry)
-	CapsUNIXListen       = capset(CapFD, CapNamed, CapSocket, CapSockUNIX, CapListen, CapChild, CapRetry)
-	CapsUNIXRecvfrom     = capset(CapFD, CapNamed, CapSocket, CapSockUNIX, CapRetry, CapChild)
-	CapsAbstract         = capset(CapFD, CapSocket, CapSockUNIX, CapRetry)
-	CapsAbstractListen   = capset(CapFD, CapSocket, CapSockUNIX, CapListen, CapChild, CapRetry)
-	CapsAbstractRecvfrom = capset(CapFD, CapSocket, CapSockUNIX, CapRetry, CapChild)
+	CapsUNIXConnect      = capset(capFD, capNamed, capSocket, capSockUNIX, capRetry)
+	CapsUNIXListen       = capset(capFD, capNamed, capSocket, capSockUNIX, capListen, capChild, capRetry)
+	CapsUNIXRecvfrom     = capset(capFD, capNamed, capSocket, capSockUNIX, capRetry, capChild)
+	CapsAbstract         = capset(capFD, capSocket, capSockUNIX, capRetry)
+	CapsAbstractListen   = capset(capFD, capSocket, capSockUNIX, capListen, capChild, capRetry)
+	CapsAbstractRecvfrom = capset(capFD, capSocket, capSockUNIX, capRetry, capChild)
 
-	CapsSocketConnect  = capset(CapFD, CapSocket, CapChild, CapRetry)
-	CapsSocketListen   = capset(CapFD, CapSocket, CapListen, CapRange, CapChild, CapRetry)
-	CapsSocketDatagram = capset(CapFD, CapSocket, CapRange)
-	CapsSocketSendto   = capset(CapFD, CapSocket)
-	CapsSocketRecvfrom = capset(CapFD, CapSocket, CapRange, CapChild)
+	CapsSocketConnect  = capset(capFD, capSocket, capChild, capRetry)
+	CapsSocketListen   = capset(capFD, capSocket, capListen, capRange, capChild, capRetry)
+	CapsSocketDatagram = capset(capFD, capSocket, capRange)
+	CapsSocketSendto   = capset(capFD, capSocket)
+	CapsSocketRecvfrom = capset(capFD, capSocket, capRange, capChild)
 
-	CapsSCTPConnect  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPSCTP, CapChild, CapRetry)
-	CapsSCTPListen   = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPSCTP, CapListen, CapChild, CapRange, CapRetry)
-	CapsSCTP4Connect = capset(CapFD, CapSocket, CapSockIP4, CapIPSCTP, CapChild, CapRetry)
-	CapsSCTP4Listen  = capset(CapFD, CapSocket, CapSockIP4, CapIPSCTP, CapListen, CapChild, CapRange, CapRetry)
-	CapsSCTP6Connect = capset(CapFD, CapSocket, CapSockIP6, CapIPSCTP, CapChild, CapRetry)
-	CapsSCTP6Listen  = capset(CapFD, CapSocket, CapSockIP6, CapIPSCTP, CapListen, CapChild, CapRange, CapRetry)
+	CapsSCTPConnect  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPSCTP, capChild, capRetry)
+	CapsSCTPListen   = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPSCTP, capListen, capChild, capRange, capRetry)
+	CapsSCTP4Connect = capset(capFD, capSocket, capSockIP4, capIPSCTP, capChild, capRetry)
+	CapsSCTP4Listen  = capset(capFD, capSocket, capSockIP4, capIPSCTP, capListen, capChild, capRange, capRetry)
+	CapsSCTP6Connect = capset(capFD, capSocket, capSockIP6, capIPSCTP, capChild, capRetry)
+	CapsSCTP6Listen  = capset(capFD, capSocket, capSockIP6, capIPSCTP, capListen, capChild, capRange, capRetry)
 
-	CapsVSOCKConnect = capset(CapFD, CapSocket, CapChild, CapRetry)
-	CapsVSOCKListen  = capset(CapFD, CapSocket, CapListen, CapChild, CapRetry)
+	CapsVSOCKConnect = capset(capFD, capSocket, capChild, capRetry)
+	CapsVSOCKListen  = capset(capFD, capSocket, capListen, capChild, capRetry)
 
-	CapsTLSConnect       = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapChild, CapOpenSSL, CapRetry)
-	CapsTLSListen        = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
-	CapsSecureUDPConnect = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapChild, CapOpenSSL, CapRetry)
-	CapsSecureUDPListen  = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPUDP, CapListen, CapChild, CapRange, CapOpenSSL, CapRetry)
+	CapsTLSConnect       = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capChild, capOpenSSL, capRetry)
+	CapsTLSListen        = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capListen, capChild, capRange, capOpenSSL, capRetry)
+	CapsSecureUDPConnect = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP, capChild, capOpenSSL, capRetry)
+	CapsSecureUDPListen  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPUDP, capListen, capChild, capRange, capOpenSSL, capRetry)
 
-	CapsProxy = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapHTTP, CapChild, CapRetry)
-	CapsSocks = capset(CapFD, CapSocket, CapSockIP4, CapSockIP6, CapIPTCP, CapSocks, CapChild, CapRetry)
+	CapsProxy = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capHTTP, capChild, capRetry)
+	CapsSocks = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capSocks, capChild, capRetry)
 
-	CapsTUN       = capset(CapFD, CapCHR, CapOpen, CapInterface)
-	CapsINTERFACE = capset(CapFD, CapSocket, CapInterface)
+	CapsTUN       = capset(capFD, capCHR, capOpen, capInterface)
+	CapsINTERFACE = capset(capFD, capSocket, capInterface)
 
-	CapsPOSIXMQ      = capset(CapFD, CapOpen, CapNamed, CapPOSIXMQ, CapRetry)
-	CapsPOSIXMQChild = capset(CapFD, CapOpen, CapNamed, CapPOSIXMQ, CapRetry, CapChild)
+	CapsPOSIXMQ      = capset(capFD, capOpen, capNamed, capPOSIXMQ, capRetry)
+	CapsPOSIXMQChild = capset(capFD, capOpen, capNamed, capPOSIXMQ, capRetry, capChild)
 )

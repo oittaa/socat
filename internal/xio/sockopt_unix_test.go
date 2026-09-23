@@ -146,7 +146,7 @@ func TestApplyListenOptionsDoesNotApplyBroadcastUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyListenOptions(fd, mustDecodeAddress(t, spec), "udp4"); err != nil {
+	if err := applyListenOptions(fd, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatal(err)
 	}
 	if got := unixSockoptInt(t, fd, unix.SO_BROADCAST); got != 0 {

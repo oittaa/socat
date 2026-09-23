@@ -29,7 +29,7 @@ func init() {
 func openAcceptFDNum(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Global, fd int) (*xio.Opened, error) {
 	setInheritedFDCloexec(fd, g)
 	if _, err := unix.Getsockname(fd); err != nil {
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Warningf("getsockname(fd=%d, ...): %s", fd, err)
 		}
 	}
@@ -38,7 +38,7 @@ func openAcceptFDNum(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *x
 	if err != nil {
 		return nil, err
 	}
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Noticef("using file descriptor %d accepting a connection", fd)
 	}
 	return xio.OpenListenSession(ctx, s, g, xio.ListenSession{

@@ -18,7 +18,7 @@ func warnNetNSExperimental(g *Global) {
 	if g != nil && g.Options().Experimental {
 		return
 	}
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Warningf("option \"netns\" is experimental")
 	}
 }
@@ -92,9 +92,9 @@ func dialResolver(ctx context.Context, nsName, network, address string) (net.Con
 	return c, err
 }
 
-// WrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in
+// wrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in
 // the target namespace (OpenDialed does not dial during OpenPreparedSpec).
-func WrapNetNSDial(name string, g *Global, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
+func wrapNetNSDial(name string, g *Global, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
 	if dial == nil {
 		return nil
 	}

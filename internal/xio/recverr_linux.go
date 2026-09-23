@@ -22,20 +22,16 @@ func applyRecvErrValue(fd int, n int) error {
 	return nil
 }
 
-// DrainRecvErrFromConn reads MSG_ERRQUEUE without delivering payload as data.
-func DrainRecvErrFromConn(c syscall.Conn, g *Global) {
-	drainRecvErrFromConn(c, g)
-}
-
 // DrainRecvErrOnError drains MSG_ERRQUEUE after an I/O error. It does not
 // hold locks across the failed Read or Write.
 func DrainRecvErrOnError(err error, enabled bool, c syscall.Conn, g *Global) {
 	if err == nil || !enabled {
 		return
 	}
-	DrainRecvErrFromConn(c, g)
+	drainRecvErrFromConn(c, g)
 }
 
+// drainRecvErrFromConn reads MSG_ERRQUEUE without delivering payload as data.
 func drainRecvErrFromConn(c syscall.Conn, g *Global) {
 	if c == nil {
 		return
@@ -111,7 +107,7 @@ func handleIPRecvErrCmsg(data []byte, g *Global) {
 	SetSessionEnv(g, "IP_RECVERR_CODE", codeStr)
 	SetSessionEnv(g, "IP_RECVERR_INFO", infoStr)
 	SetSessionEnv(g, "IP_RECVERR_DATA", dataStr)
-	if g == nil || g.Log == nil {
+	if g == nil {
 		return
 	}
 	switch origin {

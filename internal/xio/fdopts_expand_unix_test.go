@@ -13,7 +13,7 @@ func TestApplyFDOptionsLseekRejectsPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
-	err = ApplyFDOptions(r, mustDecodeAddress(t, mustSpec(t, "FD:3,lseek=0")))
+	err = applyFDOptions(r, mustDecodeAddress(t, mustSpec(t, "FD:3,lseek=0")))
 	if err == nil {
 		t.Fatal("lseek on a pipe succeeded")
 	}

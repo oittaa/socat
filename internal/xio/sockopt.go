@@ -50,10 +50,10 @@ func applyPreparedLateSocketOptions(fd int, config addrconfig.Address) error {
 	return nil
 }
 
-// ApplyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
+// applyLateSocketOptionsToConn applies so-sndbuf-late / so-rcvbuf-late
 // on a connected or accepted socket, after connect/accept and before
 // SSL/PROXY handshake.
-func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error {
+func applyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error {
 	if conn == nil {
 		return nil
 	}
@@ -75,10 +75,10 @@ func ApplyLateSocketOptionsToConn(conn syscall.Conn, s addrconfig.Address) error
 	return err
 }
 
-// ApplyLateSocketOptionsToPacketConn applies late buffers on a UDP
+// applyLateSocketOptionsToPacketConn applies late buffers on a UDP
 // PacketConn (QUIC transport, ListenPacket). Rejects enabled late options
 // when the conn does not expose a socket fd.
-func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
+func applyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}

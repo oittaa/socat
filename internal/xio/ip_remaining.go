@@ -59,11 +59,11 @@ func preparedRawIPProtocolNumber(config addrconfig.Address) (int, bool) {
 	return config.Network.SocketProtocol.Value, true
 }
 
-// RejectUnsupportedRemainingIPv4 fails fast for get-only ip-mtu /
+// rejectUnsupportedRemainingIPv4 fails fast for get-only ip-mtu /
 // ip-pktoptions and for ip-router-alert combinations that are not
 // implemented (IPv6, non-raw addresses, IPPROTO_RAW). Linux IP_MTU and
 // IP_PKTOPTIONS are get-only; they are not advertised as setters.
-func RejectUnsupportedRemainingIPv4(config addrconfig.Address) error {
+func rejectUnsupportedRemainingIPv4(config addrconfig.Address) error {
 	for _, action := range config.Network.Actions {
 		switch action.Kind {
 		case addrconfig.SocketActionGetOnly:

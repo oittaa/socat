@@ -41,7 +41,7 @@ func WithNetNS(name string, g *Global, fn func() error) (err error) {
 	}
 
 	nspath := "/run/netns/" + name
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Infof("switching to net namespace \"%s\"", name)
 	}
 	nsfd, err := unix.Open(nspath, unix.O_RDONLY|unix.O_CLOEXEC, 0)

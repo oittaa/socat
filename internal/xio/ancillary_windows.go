@@ -30,7 +30,7 @@ func ControlMessageBytes(oob []byte, oobn, _ int) []byte {
 	return oob[:oobn]
 }
 
-func applyPreparedIPRecv(_ int, e IPAncillaryEntry, _ int, family ipFamily) error {
+func applyPreparedIPRecv(_ int, e ipAncillaryEntry, _ int, family ipFamily) error {
 	return rejectIPAncillaryApply(e, family)
 }
 

@@ -127,20 +127,20 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		if !xio.WantIPv4(dest.Network, ip) {
 			af = 10
 		}
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("opening connection to AF=%d %s", af, net.JoinHostPort(xio.FormatIPForNetwork(dest.Network, ip), fmt.Sprintf("%d", portNum)))
 		}
 		laddr, skip, err := xio.BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Warningf("bind: %s", err)
 			}
 			continue
 		}
 		if skip {
 			lastErr = fmt.Errorf("no bind address with matching address family (%d)", af)
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Warningf("%s", lastErr)
 			}
 			continue
@@ -161,7 +161,7 @@ func dialSCTPAll(ctx context.Context, dest xio.DialTarget, s addrconfig.Address,
 		}, laddr, raddr)
 		if err != nil {
 			lastErr = err
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Noticef("connect AF=%d %s: %s", af, raddr.String(), err)
 			}
 			continue
@@ -230,7 +230,7 @@ func bindSCTPLowport(fd, family int, laddr *net.TCPAddr, g *xio.Global) (int, er
 		zone = laddr.Zone
 	}
 	return xio.FirstAvailableLowport(func(port int) error {
-		if g != nil && g.Log != nil {
+		if g != nil {
 			af := 2
 			if family == unix.AF_INET6 {
 				af = 10

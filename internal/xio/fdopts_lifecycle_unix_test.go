@@ -44,7 +44,7 @@ func TestApplyFDOptionsAppendSetsOAPPEND(t *testing.T) {
 	if fcntlFlags(t, f)&unix.O_APPEND != 0 {
 		t.Fatal("new file already has O_APPEND")
 	}
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,append"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,append"))); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
@@ -58,7 +58,7 @@ func TestApplyFDOptionsOAppendAlias(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,o-append"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,o-append"))); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
@@ -76,7 +76,7 @@ func TestApplyFDOptionsAppendZeroClearsOAPPEND(t *testing.T) {
 	if fcntlFlags(t, f)&unix.O_APPEND == 0 {
 		t.Fatal("expected O_APPEND from open")
 	}
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,append=0"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,append=0"))); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFlags(t, f)&unix.O_APPEND != 0 {
@@ -93,7 +93,7 @@ func TestApplyFDOptionsFtruncateShortensFile(t *testing.T) {
 	if _, err := f.Write([]byte("abcdefghij")); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,ftruncate=4"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,ftruncate=4"))); err != nil {
 		t.Fatal(err)
 	}
 	st, err := f.Stat()
@@ -114,7 +114,7 @@ func TestApplyFDOptionsTruncateAlias(t *testing.T) {
 	if _, err := f.Write([]byte("xyz")); err != nil {
 		t.Fatal(err)
 	}
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,truncate=1"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,truncate=1"))); err != nil {
 		t.Fatal(err)
 	}
 	st, err := f.Stat()
@@ -132,7 +132,7 @@ func TestApplyFDOptionsFtruncateRejectsPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
-	err = ApplyFDOptions(r, mustDecodeAddress(t, mustSpec(t, "FD:3,ftruncate=0")))
+	err = applyFDOptions(r, mustDecodeAddress(t, mustSpec(t, "FD:3,ftruncate=0")))
 	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("error=%v want not a regular file", err)
 	}
@@ -144,7 +144,7 @@ func TestApplyFDOptionsPermChmodsFD(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,perm=04700"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,perm=04700"))); err != nil {
 		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
 			t.Skipf("fchmod not permitted: %v", err)
 		}
@@ -166,7 +166,7 @@ func TestApplyFDOptionsUserGroupSameIDs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = f.Close() })
 	spec := mustSpec(t, "FD:3,user="+strconv.Itoa(os.Getuid())+",group="+strconv.Itoa(os.Getgid()))
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, spec)); err != nil {
 		if strings.Contains(err.Error(), "operation not permitted") || strings.Contains(err.Error(), "permission denied") {
 			t.Skipf("fchown not permitted: %v", err)
 		}
@@ -181,7 +181,7 @@ func TestWrapAfterFDDoesNotReapplyLifecycle(t *testing.T) {
 	}
 	defer func() { _ = f.Close() }()
 	config := mustDecodeAddress(t, mustSpec(t, "FD:3,seek-cur=1"))
-	if err := ApplyFDOptions(f, config); err != nil {
+	if err := applyFDOptions(f, config); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := WrapAfterFD(config, FileStream(f)); err != nil {
@@ -317,13 +317,13 @@ func TestApplyFDOptionsCloexecOccurrenceOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = f.Close() })
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,cloexec,cloexec=0"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,cloexec,cloexec=0"))); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFD(t, f)&unix.FD_CLOEXEC != 0 {
 		t.Fatal("cloexec then cloexec=0 left FD_CLOEXEC set")
 	}
-	if err := ApplyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,cloexec=0,cloexec=1"))); err != nil {
+	if err := applyFDOptions(f, mustDecodeAddress(t, mustSpec(t, "FD:3,cloexec=0,cloexec=1"))); err != nil {
 		t.Fatal(err)
 	}
 	if fcntlFD(t, f)&unix.FD_CLOEXEC == 0 {
@@ -370,7 +370,7 @@ func TestSetupStreamCloexecRejectsStreamWithoutDescriptor(t *testing.T) {
 }
 
 func TestApplyFDLifecycleToPacketConnCloexecRejectsNonSocket(t *testing.T) {
-	err := ApplyFDLifecycleToPacketConn(stubPacketConn{}, mustDecodeAddress(t, mustSpec(t, "QUIC-LISTEN:0,cloexec")))
+	err := applyFDLifecycleToPacketConn(stubPacketConn{}, mustDecodeAddress(t, mustSpec(t, "QUIC-LISTEN:0,cloexec")))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

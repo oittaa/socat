@@ -159,7 +159,7 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (pos
 func posixMQUnlinkAndFlush(name string, config addrconfig.Address, g *xio.Global) error {
 	if config.File.UnlinkEarly.Value {
 		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Infof("mq_unlink(%q): %s", name, e)
 			}
 		}
@@ -205,7 +205,7 @@ func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, confi
 	if msgsize < 1 {
 		msgsize = 8192
 	}
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Infof("POSIXMQ queue %q attrs: { flags=%d, maxmsg=%d, msgsize=%d, curmsgs=%d }",
 			p.name, got.Flags, got.Maxmsg, got.Msgsize, got.Curmsgs)
 	}

@@ -69,7 +69,7 @@ func openTUN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Gl
 		return nil, fmt.Errorf("ioctl(TUNSETIFF, %q): %w", name, err)
 	}
 	ifname := ifr.Name()
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Noticef("TUN: new device %q", ifname)
 	}
 
@@ -312,7 +312,7 @@ func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 	// Ignore locally originated packets (INTERFACE_IGNOREOUTGOING).
 	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_IGNORE_OUTGOING, 1); err != nil {
 		// Non-fatal: older kernels; filter in userspace below.
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Warningf("setsockopt(PACKET_IGNORE_OUTGOING): %s", err)
 		}
 	}

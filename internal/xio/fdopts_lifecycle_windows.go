@@ -251,8 +251,8 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	return errors.Join(ctrlErr, optionErr)
 }
 
-// ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
-func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
+// applyFDLifecycleToPacketConn applies descriptor lifecycle on a PacketConn.
+func applyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}

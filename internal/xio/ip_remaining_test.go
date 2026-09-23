@@ -22,7 +22,7 @@ func TestRejectUnsupportedGetOnlyIPv4(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s))
+		err = rejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s))
 		if err == nil || !strings.Contains(err.Error(), "get-only") {
 			t.Errorf("%s: err=%v want get-only", spec, err)
 		}
@@ -34,7 +34,7 @@ func TestGetOnlyIPv4DoesNotMatchMTUDiscover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s)); err != nil {
+	if err := rejectUnsupportedRemainingIPv4(mustDecodeAddress(t, s)); err != nil {
 		t.Fatalf("ip-mtu-discover: %v", err)
 	}
 }
@@ -46,7 +46,7 @@ func TestRejectUnsupportedGetOnlyRecognizesSpellings(t *testing.T) {
 		{Name: "other", Spelling: " IP-MTU "},
 	}
 	for _, o := range opts {
-		err := RejectUnsupportedRemainingIPv4(mustDecodeAddress(t, parse.Spec{Type: "TCP", Options: []parse.Option{o}}))
+		err := rejectUnsupportedRemainingIPv4(mustDecodeAddress(t, parse.Spec{Type: "TCP", Options: []parse.Option{o}}))
 		if err == nil || !strings.Contains(err.Error(), "get-only") {
 			t.Errorf("%+v: err=%v want get-only", o, err)
 		}

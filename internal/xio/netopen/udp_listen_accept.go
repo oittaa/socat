@@ -234,7 +234,7 @@ func (a *udpForkAccept) noteDialFailure(addr *udpPeer, packet udpForkPacket, con
 		if consumed {
 			a.l.prependPending(packet)
 		}
-		if a.l.g != nil && a.l.g.Log != nil {
+		if a.l.g != nil {
 			a.l.g.Log.Noticef("UDP fork session dial: %s; retrying opener", dialErr)
 		}
 		return acceptAgain()
@@ -255,7 +255,7 @@ func (a *udpForkAccept) noteDialFailure(addr *udpPeer, packet udpForkPacket, con
 			})
 		}
 	}
-	if a.l.g != nil && a.l.g.Log != nil {
+	if a.l.g != nil {
 		a.l.g.Log.Noticef("UDP fork session dial: %s; dropping opener after %d attempts", dialErr, a.failedDialAttempts)
 	}
 	a.failedDialPeer = nil
@@ -275,7 +275,7 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *udpPeer, packet
 	}
 	if !ok {
 		logx.CloseQuiet(conn)
-		if a.l.g != nil && a.l.g.Log != nil {
+		if a.l.g != nil {
 			a.l.g.Log.Noticef("UDP fork opener disappeared before session handoff")
 		}
 		return udpForkReceive{again: true}
@@ -288,7 +288,7 @@ func (a *udpForkAccept) consumePeekedOpener(conn net.Conn, addr *udpPeer, packet
 	if !udpForkAddrIsPeer(packet.peer, addr) {
 		logx.CloseQuiet(conn)
 		a.l.appendPending(packet)
-		if a.l.g != nil && a.l.g.Log != nil {
+		if a.l.g != nil {
 			a.l.g.Log.Noticef("UDP fork opener changed from %s to %s; preserving received packet", addr, packet.peer)
 		}
 		return udpForkReceive{again: true}
@@ -312,7 +312,7 @@ func (a *udpForkAccept) drainForChild(child *udpSessionConn) {
 		n, queuedOOB, peer, ok, drainErr := readQueuedUDPForkPacket(a.pc, a.buf, a.wantCtrl, a.oob[:])
 		if drainErr != nil {
 			xio.DrainRecvErrOnError(drainErr, a.recvErr, a.pc, a.l.g)
-			if a.l.g != nil && a.l.g.Log != nil {
+			if a.l.g != nil {
 				a.l.g.Log.Noticef("UDP fork listener queue drain: %s", drainErr)
 			}
 			break

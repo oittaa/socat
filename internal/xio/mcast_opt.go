@@ -29,9 +29,9 @@ func NeedRecvErr(s addrconfig.Address) bool {
 	return set && n != 0
 }
 
-// RejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for
+// rejectUnsupportedRecvErr fails fast for ipv6-recverr everywhere and for
 // ip-recverr on platforms that do not implement IP_RECVERR.
-func RejectUnsupportedRecvErr(s addrconfig.Address) error {
+func rejectUnsupportedRecvErr(s addrconfig.Address) error {
 	typ := s.Type
 	for _, action := range s.Network.Actions {
 		if action.Kind != addrconfig.SocketActionRecvErr {

@@ -44,16 +44,16 @@ func applyPreparedAncillary(fd int, action addrconfig.SocketAction, family *ipFa
 		resolved = *family
 	}
 	switch {
-	case e.Kind&IPAncillarySend != 0:
+	case e.Kind&ipAncillarySend != 0:
 		return applyPreparedIPSend(fd, e, action, resolved)
-	case e.Kind&IPAncillaryRecv != 0:
+	case e.Kind&ipAncillaryRecv != 0:
 		return applyPreparedIPRecv(fd, e, action.Number, resolved)
 	default:
 		return nil
 	}
 }
 
-func applyPreparedIPSend(fd int, e IPAncillaryEntry, action addrconfig.SocketAction, family ipFamily) error {
+func applyPreparedIPSend(fd int, e ipAncillaryEntry, action addrconfig.SocketAction, family ipFamily) error {
 	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
 	}

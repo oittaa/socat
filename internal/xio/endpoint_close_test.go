@@ -36,7 +36,7 @@ func (l *closeOnlyListener) Addr() net.Addr { return &net.TCPAddr{} }
 func TestAcceptWithTimeoutWithoutDeadlineSupport(t *testing.T) {
 	ln := newCloseOnlyListener()
 	start := time.Now()
-	_, err := AcceptWithTimeout(context.Background(), ln, 30*time.Millisecond)
+	_, err := acceptWithTimeout(context.Background(), ln, 30*time.Millisecond)
 	if !errors.Is(err, ErrAcceptTimeout) {
 		t.Fatalf("error=%v want ErrAcceptTimeout", err)
 	}
@@ -49,7 +49,7 @@ func TestAcceptWithTimeoutCanceledWithoutTimeout(t *testing.T) {
 	ln := newCloseOnlyListener()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := AcceptWithTimeout(ctx, ln, 0)
+	_, err := acceptWithTimeout(ctx, ln, 0)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want context.Canceled", err)
 	}

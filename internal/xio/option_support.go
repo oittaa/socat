@@ -47,18 +47,18 @@ func goExtraAllows(reg AddressRegistration, goGroups, goTypes []string) bool {
 	return false
 }
 
-// OptionSupportedOnAddress is the registry-level check used by the CLI.
+// optionSupportedOnAddress is the registry-level check used by the CLI.
 // goCaps are the option's required address capabilities from the option
 // definition. Empty goCaps are unrestricted unless goGroups or goTypes bind
 // the option to an extra allow-list (TLS on PROXY, WebSocket path, …).
-func OptionSupportedOnAddress(reg AddressRegistration, goGroups, goTypes, goCaps []string) bool {
+func optionSupportedOnAddress(reg AddressRegistration, goGroups, goTypes, goCaps []string) bool {
 	if optionUnrestricted(goCaps) {
 		if len(goTypes) == 0 && len(goGroups) == 0 {
 			return true
 		}
 		return goExtraAllows(reg, goGroups, goTypes)
 	}
-	if OptionCapsAllowed(reg.OptionCaps, goCaps) {
+	if optionCapsAllowed(reg.OptionCaps, goCaps) {
 		return true
 	}
 	return goExtraAllows(reg, goGroups, goTypes)
