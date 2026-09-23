@@ -555,7 +555,7 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	if err := applyConfiguredOpenTruncate(f, config.File); err != nil {
 		return fail(err)
 	}
-	st, err := xio.WrapAfterFD(config, xio.FileStream(f))
+	st, err := xio.WrapAfterFD(config, xio.OpenFileStream(f))
 	if err != nil {
 		return fail(err)
 	}
