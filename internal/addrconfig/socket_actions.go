@@ -36,14 +36,13 @@ func socketAction(kind optionmeta.Kind, o parse.Option, name, kernel string) (So
 		if name == "ip-freebind" {
 			id, phase = SocketActionFreebind, SocketPhasePrebind
 		}
-		action, _, err := optionalWordIntAction(id, phase, o, name, 1)
-		return action, err
+		return optionalWordIntAction(id, phase, o, name, 1)
 	case optionmeta.KindBuffer:
 		phase := SocketPhasePastSocket
 		if strings.HasSuffix(name, "-late") {
 			phase = SocketPhaseLate
 		}
-		action, _, err := requiredIntAction(SocketActionBuffer, phase, o, name)
+		action, err := requiredIntAction(SocketActionBuffer, phase, o, name)
 		if err == nil {
 			action.Recv = strings.HasPrefix(name, "rcv")
 		}
@@ -55,8 +54,7 @@ func socketAction(kind optionmeta.Kind, o parse.Option, name, kernel string) (So
 		}
 		return SocketAction{Kind: SocketActionBindToDevice, Phase: SocketPhasePastSocket, Text: value}, nil
 	case optionmeta.KindLinger:
-		action, _, err := requiredIntAction(SocketActionLinger, SocketPhasePastSocket, o, name)
-		return action, err
+		return requiredIntAction(SocketActionLinger, SocketPhasePastSocket, o, name)
 	case optionmeta.KindTimeout:
 		value, err := duration(o)
 		if err != nil {
@@ -92,8 +90,7 @@ func socketAction(kind optionmeta.Kind, o parse.Option, name, kernel string) (So
 		}
 		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-recverr"}, nil
 	case optionmeta.KindRouterAlert:
-		action, _, err := optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
-		return action, err
+		return optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
 	case optionmeta.KindGetOnly:
 		id := IPGetOnlyMTU
 		if name == "ip-pktoptions" {
@@ -183,31 +180,31 @@ func ipOptionsAction(o parse.Option, name string) (SocketAction, error) {
 	return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: ancillaryID(name), Text: name, Value: SocketValue{Bytes: data}}, nil
 }
 
-func optionalIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, bool, error) {
+func optionalIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, error) {
 	n, err := optionalSocketInt(o, fallback)
 	if err != nil || n < 0 {
-		return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
 	}
-	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, true, nil
+	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
 
-func optionalWordIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, bool, error) {
+func optionalWordIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, error) {
 	n, err := parseIntOrBoolWord(o, fallback)
 	if err != nil {
-		return SocketAction{}, true, err
+		return SocketAction{}, err
 	}
 	if n < 0 {
-		return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
 	}
-	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, true, nil
+	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
 
-func requiredIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string) (SocketAction, bool, error) {
+func requiredIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string) (SocketAction, error) {
 	n, err := requiredSocketInt(o, name)
 	if err != nil || n < 0 {
-		return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
+		return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
 	}
-	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, true, nil
+	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, nil
 }
 
 func genericSocketAction(o parse.Option, name string, mode sockoptMode) (SocketAction, error) {

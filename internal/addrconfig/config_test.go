@@ -580,6 +580,14 @@ func TestDecodeUnixBacklogAndKeepalive(t *testing.T) {
 	}
 }
 
+func TestLockfileAndEmptyWaitlock(t *testing.T) {
+	spec := mustParseSpec(t, "TCP:host:9,lockfile=/tmp/a,waitlock=")
+	_, err := Decode(spec, tcpConnect)
+	if err == nil || err.Error() != "TCP: only one use of options lockfile and waitlock allowed" {
+		t.Fatalf("error=%v", err)
+	}
+}
+
 func TestDecodeLockfileAndWaitlock(t *testing.T) {
 	got := decodeSpec(t, "TCP:host:9,lockfile=/tmp/a.lock")
 	if !got.File.LockSet || got.File.LockWait || got.File.LockPath != "/tmp/a.lock" {
