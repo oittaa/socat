@@ -3,11 +3,9 @@
 package xio
 
 import (
-	"bytes"
 	"context"
 	"io"
 	"os"
-	"runtime"
 	"testing"
 	"time"
 
@@ -21,11 +19,7 @@ func TestReadbytesEscapeUnblocksWhenPeerEOFs(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = pr.Close(); _ = pw.Close() })
-	dst, err := os.CreateTemp(t.TempDir(), "out")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = dst.Close() })
+	entered := make(chan struct{})
 	spec, err := parse.ParseSpec("STDIO,readbytes=4,escape=27")
 	if err != nil {
 		t.Fatal(err)
@@ -34,21 +28,30 @@ func TestReadbytesEscapeUnblocksWhenPeerEOFs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	left, err := WrapStream(prepared.Config, relay.FDStream{R: pr, W: io.Discard, C: NopCloser{}}, StreamSocketTimeouts)
+	left, err := WrapStream(prepared.Config, relay.FDStream{
+		R: &enteredReader{r: pr, entered: entered},
+		W: io.Discard,
+		C: NopCloser{},
+	}, StreamSocketTimeouts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	release := make(chan struct{})
-	right := relay.FDStream{R: readAfter(release), W: dst, C: NopCloser{}}
+	peerR, peerW := io.Pipe()
+	t.Cleanup(func() { _ = peerR.Close(); _ = peerW.Close() })
 	done := make(chan error, 1)
 	go func() {
-		done <- relay.Transfer(context.Background(), left, right, relay.Config{Linger: 0})
+		done <- relay.Transfer(context.Background(), left, relay.FDStream{
+			R: peerR, W: io.Discard, C: NopCloser{},
+		}, relay.Config{Linger: 0})
 	}()
-	// Release the peer only after the filtered read is blocked.
-	if !waitUntil(transferReadBlocked) {
-		t.Fatal("read never blocked")
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("read never entered")
 	}
-	close(release)
+	if err := peerW.Close(); err != nil {
+		t.Fatal(err)
+	}
 	select {
 	case err := <-done:
 		if err != nil {
@@ -59,28 +62,18 @@ func TestReadbytesEscapeUnblocksWhenPeerEOFs(t *testing.T) {
 	}
 }
 
-func waitUntil(ready func() bool) bool {
-	deadline := time.Now().Add(time.Second)
-	for !ready() {
-		if time.Now().After(deadline) {
-			return false
-		}
-		runtime.Gosched()
+// enteredReader closes entered the first time Read is called, then reads r.
+type enteredReader struct {
+	r       io.Reader
+	entered chan struct{}
+}
+
+func (e *enteredReader) UnwrapReader() io.Reader { return e.r }
+
+func (e *enteredReader) Read(p []byte) (int, error) {
+	if e.entered != nil {
+		close(e.entered)
+		e.entered = nil
 	}
-	return true
-}
-
-type readAfter <-chan struct{}
-
-func (c readAfter) Read([]byte) (int, error) {
-	<-c
-	return 0, io.EOF
-}
-
-func transferReadBlocked() bool {
-	buf := make([]byte, 1<<20)
-	n := runtime.Stack(buf, true)
-	stack := buf[:n]
-	return bytes.Contains(stack, []byte("(*escapeReader).Read")) ||
-		bytes.Contains(stack, []byte("waitReadableAndWritable"))
+	return e.r.Read(p)
 }
