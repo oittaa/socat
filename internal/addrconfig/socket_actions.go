@@ -8,115 +8,179 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
-func socketAction(o parse.Option, name, kernel string) (SocketAction, bool, error) {
-	switch name {
-	case "setsockopt-listen", "setsockopt-socket", "setsockopt", "setsockopt-bin",
-		"setsockopt-int", "setsockopt-string", "setsockopt-connected":
-		action, err := genericSocketAction(o, name)
-		return action, true, err
-	case "broadcast":
-		return optionalWordIntAction(SocketActionBroadcast, SocketPhasePastSocket, o, name, 1)
-	case "sndbuf", "rcvbuf", "sndbuf-late", "rcvbuf-late":
+type sockoptMode uint8
+
+const (
+	sockoptDalan sockoptMode = iota
+	sockoptInt
+	sockoptString
+)
+
+func socketAction(kind optionmeta.Kind, o parse.Option, name, kernel string) (SocketAction, error) {
+	switch kind {
+	case optionmeta.KindSockoptDalan, optionmeta.KindSockoptInt, optionmeta.KindSockoptString:
+		mode := sockoptDalan
+		switch kind {
+		case optionmeta.KindSockoptInt:
+			mode = sockoptInt
+		case optionmeta.KindSockoptString:
+			mode = sockoptString
+		}
+		return genericSocketAction(o, name, mode)
+	case optionmeta.KindWordInt:
+		id, phase := SocketActionBroadcast, SocketPhasePastSocket
+		if name == "ip-freebind" {
+			id, phase = SocketActionFreebind, SocketPhasePrebind
+		}
+		action, _, err := optionalWordIntAction(id, phase, o, name, 1)
+		return action, err
+	case optionmeta.KindBuffer:
 		phase := SocketPhasePastSocket
 		if strings.HasSuffix(name, "-late") {
 			phase = SocketPhaseLate
 		}
-		action, ok, err := requiredIntAction(SocketActionBuffer, phase, o, name)
+		action, _, err := requiredIntAction(SocketActionBuffer, phase, o, name)
 		if err == nil {
 			action.Recv = strings.HasPrefix(name, "rcv")
 		}
-		return action, ok, err
-	case "bindtodevice":
+		return action, err
+	case optionmeta.KindBindDevice:
 		value, err := requiredString(o)
 		if err != nil {
-			return SocketAction{}, true, err
+			return SocketAction{}, err
 		}
-		return SocketAction{Kind: SocketActionBindToDevice, Phase: SocketPhasePastSocket, Text: value}, true, nil
-	case "so-linger":
-		return requiredIntAction(SocketActionLinger, SocketPhasePastSocket, o, name)
-	case "rcvtimeo", "sndtimeo":
+		return SocketAction{Kind: SocketActionBindToDevice, Phase: SocketPhasePastSocket, Text: value}, nil
+	case optionmeta.KindLinger:
+		action, _, err := requiredIntAction(SocketActionLinger, SocketPhasePastSocket, o, name)
+		return action, err
+	case optionmeta.KindTimeout:
 		value, err := duration(o)
 		if err != nil {
-			return SocketAction{}, true, err
+			return SocketAction{}, err
 		}
-		return SocketAction{Kind: SocketActionTimeout, Phase: SocketPhasePastSocket, Text: name, Duration: value, Recv: name == "rcvtimeo"}, true, nil
-	case "ip-add-membership", "ipv6-join-group", "ip-multicast-if", "ip-multicast-loop",
-		"ip-multicast-ttl", "ipv6-multicast-loop":
-		request, err := decodeMulticastRequest(o, multicastKind(name), name)
-		return SocketAction{Kind: SocketActionMulticast, Phase: SocketPhasePastSocket, Multicast: request}, true, err
-	case "ip-add-source-membership", "ipv6-join-source-group":
+		return SocketAction{Kind: SocketActionTimeout, Phase: SocketPhasePastSocket, Text: name, Duration: value, Recv: name == "rcvtimeo"}, nil
+	case optionmeta.KindMcastJoin4, optionmeta.KindMcastJoin6, optionmeta.KindMcastIf, optionmeta.KindMcastLoop4, optionmeta.KindMcastTTL, optionmeta.KindMcastLoop6:
+		request, err := decodeMulticastRequest(o, multicastKindOf(kind), name)
+		return SocketAction{Kind: SocketActionMulticast, Phase: SocketPhasePastSocket, Multicast: request}, err
+	case optionmeta.KindMcastSource4, optionmeta.KindMcastSource6:
 		request, err := decodeSourceMulticastRequest(o, name)
-		return SocketAction{Kind: SocketActionMulticast, Phase: SocketPhasePastSocket, Multicast: request}, true, err
-	case "ip-freebind":
-		return optionalWordIntAction(SocketActionFreebind, SocketPhasePrebind, o, name, 1)
-	case "ip-transparent":
+		return SocketAction{Kind: SocketActionMulticast, Phase: SocketPhasePastSocket, Multicast: request}, err
+	case optionmeta.KindTransparent:
 		v, err := parseBool(o)
 		if err != nil {
-			return SocketAction{}, true, err
+			return SocketAction{}, err
 		}
 		n := 0
 		if v.Value {
 			n = 1
 		}
-		return SocketAction{Kind: SocketActionTransparent, Phase: SocketPhasePrebind, Text: name, Number: n}, true, nil
-	case "ip-mtu-discover", "ipv6-mtu-discover":
+		return SocketAction{Kind: SocketActionTransparent, Phase: SocketPhasePrebind, Text: name, Number: n}, nil
+	case optionmeta.KindMTUDiscover:
 		n, err := requiredSocketInt(o, name)
 		if err != nil || n < 0 || n > 2 {
-			return SocketAction{}, true, fmt.Errorf("%s: invalid value %q", name, o.Value)
+			return SocketAction{}, fmt.Errorf("%s: invalid value %q", name, o.Value)
 		}
-		return SocketAction{Kind: SocketActionMTUDiscovery, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-mtu-discover"}, true, nil
-	case "ip-recverr", "ipv6-recverr":
+		return SocketAction{Kind: SocketActionMTUDiscovery, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-mtu-discover"}, nil
+	case optionmeta.KindRecvErr:
 		n, err := ancillaryOptionInt(o)
 		if err != nil {
-			return SocketAction{}, true, err
+			return SocketAction{}, err
 		}
-		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-recverr"}, true, nil
-	case "ip-router-alert":
-		return optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
-	case "ip-mtu", "ip-pktoptions":
+		return SocketAction{Kind: SocketActionRecvErr, Phase: SocketPhasePastSocket, Text: name, Number: n, IPv6: name == "ipv6-recverr"}, nil
+	case optionmeta.KindRouterAlert:
+		action, _, err := optionalIntAction(SocketActionRouterAlert, SocketPhasePastSocket, o, name, 1)
+		return action, err
+	case optionmeta.KindGetOnly:
 		id := IPGetOnlyMTU
 		if name == "ip-pktoptions" {
 			id = IPGetOnlyPktoptions
 		}
-		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, GetOnly: id, Kernel: kernel, Text: name}, true, nil
-	}
-	if id := namedSocketID(name); id != NamedSocketNone {
-		n, err := optionalNamedSocketInt(o, name)
-		if err != nil {
-			return SocketAction{}, true, err
-		}
-		phase := SocketPhasePastSocket
-		if id == NamedSocketTCPMaxSegLate {
-			phase = SocketPhaseConnected
-		}
-		return SocketAction{Kind: SocketActionNamed, Phase: phase, Named: id, Number: n, Text: name}, true, nil
-	}
-	if ancillaryOption(name) {
-		id := ancillaryID(name)
-		if name == "ip-options" {
-			value, err := requiredString(o)
-			if err != nil {
-				return SocketAction{}, true, err
-			}
-			data, _, err := ParseDalan(value, 'i')
-			if err != nil {
-				return SocketAction{}, true, fmt.Errorf("ip-options: %w", err)
-			}
-			if len(data) > 256 {
-				return SocketAction{}, true, fmt.Errorf("ip-options: value exceeds 256 bytes")
-			}
-			return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: id, Text: name, Value: SocketValue{Bytes: data}}, true, nil
-		}
+		return SocketAction{Kind: SocketActionGetOnly, Phase: SocketPhasePastSocket, GetOnly: id, Kernel: kernel, Text: name}, nil
+	case optionmeta.KindNamedWord, optionmeta.KindNamedInt, optionmeta.KindNamedCInt:
+		return namedSocketAction(kind, o, name)
+	case optionmeta.KindIPOptions:
+		return ipOptionsAction(o, name)
+	case optionmeta.KindAncillary:
 		n, err := ancillaryOptionInt(o)
 		if err != nil {
-			return SocketAction{}, true, err
+			return SocketAction{}, err
 		}
-		return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: id, Text: name, Number: n}, true, nil
+		return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: ancillaryID(name), Text: name, Number: n}, nil
+	default:
+		return SocketAction{}, nil
 	}
-	return SocketAction{}, false, nil
+}
+
+func multicastKindOf(kind optionmeta.Kind) MulticastKind {
+	switch kind {
+	case optionmeta.KindMcastJoin6:
+		return MulticastJoinIPv6
+	case optionmeta.KindMcastIf:
+		return MulticastInterfaceIPv4
+	case optionmeta.KindMcastLoop4:
+		return MulticastLoopIPv4
+	case optionmeta.KindMcastTTL:
+		return MulticastTTLIPv4
+	case optionmeta.KindMcastLoop6:
+		return MulticastLoopIPv6
+	default:
+		return MulticastJoinIPv4
+	}
+}
+
+func namedSocketAction(kind optionmeta.Kind, o parse.Option, name string) (SocketAction, error) {
+	var n int
+	var err error
+	switch kind {
+	case optionmeta.KindNamedWord:
+		n, err = parseIntOrBoolWord(o, 1)
+	case optionmeta.KindNamedCInt:
+		n, err = namedCInt(o, name)
+	default:
+		n, err = optionalSocketInt(o, 1)
+		if err != nil {
+			err = fmt.Errorf("%s: invalid value %q", name, o.Value)
+		}
+	}
+	if err != nil {
+		return SocketAction{}, err
+	}
+	id := namedSocketID(name)
+	phase := SocketPhasePastSocket
+	if id == NamedSocketTCPMaxSegLate {
+		phase = SocketPhaseConnected
+	}
+	return SocketAction{Kind: SocketActionNamed, Phase: phase, Named: id, Number: n, Text: name}, nil
+}
+
+func namedCInt(o parse.Option, name string) (int, error) {
+	if !o.Has {
+		return 1, nil
+	}
+	n, err := classicCInt(o.Value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
+	}
+	return n, nil
+}
+
+func ipOptionsAction(o parse.Option, name string) (SocketAction, error) {
+	value, err := requiredString(o)
+	if err != nil {
+		return SocketAction{}, err
+	}
+	data, _, err := ParseDalan(value, 'i')
+	if err != nil {
+		return SocketAction{}, fmt.Errorf("ip-options: %w", err)
+	}
+	if len(data) > 256 {
+		return SocketAction{}, fmt.Errorf("ip-options: value exceeds 256 bytes")
+	}
+	return SocketAction{Kind: SocketActionAncillary, Phase: SocketPhasePastSocket, Ancillary: ancillaryID(name), Text: name, Value: SocketValue{Bytes: data}}, nil
 }
 
 func optionalIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option, name string, fallback int) (SocketAction, bool, error) {
@@ -146,7 +210,7 @@ func requiredIntAction(kind SocketActionKind, phase SocketPhase, o parse.Option,
 	return SocketAction{Kind: kind, Phase: phase, Text: name, Number: n}, true, nil
 }
 
-func genericSocketAction(o parse.Option, name string) (SocketAction, error) {
+func genericSocketAction(o parse.Option, name string, mode sockoptMode) (SocketAction, error) {
 	if !o.Has || strings.TrimSpace(o.Value) == "" {
 		return SocketAction{}, fmt.Errorf("%s requires level:optname:value", name)
 	}
@@ -170,14 +234,14 @@ func genericSocketAction(o parse.Option, name string) (SocketAction, error) {
 		phase = SocketPhasePastSocket
 	}
 	var value SocketValue
-	switch name {
-	case "setsockopt-int":
+	switch mode {
+	case sockoptInt:
 		n, err := socketIntText(parts[2])
 		if err != nil {
 			return SocketAction{}, fmt.Errorf("%s value: %w", name, err)
 		}
 		value = SocketValue{IsInt: true, Int: n}
-	case "setsockopt-string":
+	case sockoptString:
 		value = SocketValue{Bytes: append([]byte(parts[2]), 0)}
 	default:
 		data, singleInt, err := ParseDalan(parts[2], 'i')
@@ -210,37 +274,6 @@ func optionalSocketInt(o parse.Option, fallback int) (int, error) {
 	return socketIntText(o.Value)
 }
 
-func optionalNamedSocketInt(o parse.Option, name string) (int, error) {
-	if name == "fiosetown" || name == "siocspgrp" {
-		if !o.Has {
-			return 1, nil
-		}
-		n, err := classicCInt(o.Value)
-		if err != nil {
-			return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
-		}
-		return n, nil
-	}
-	if namedSocketAcceptsBoolWord(name) {
-		return parseIntOrBoolWord(o, 1)
-	}
-	n, err := optionalSocketInt(o, 1)
-	if err != nil {
-		return 0, fmt.Errorf("%s: invalid value %q", name, o.Value)
-	}
-	return n, nil
-}
-
-func namedSocketAcceptsBoolWord(name string) bool {
-	switch name {
-	case "so-debug", "so-dontroute", "so-oobinline", "tcp-cork",
-		"sctp-nodelay", "nopush", "tcp-nopush", "noopt", "tcp-noopt":
-		return true
-	default:
-		return false
-	}
-}
-
 func namedSocketID(name string) NamedSocket { return namedSocketByName[name] }
 
 var namedSocketByName = map[string]NamedSocket{
@@ -271,10 +304,6 @@ var namedSocketByName = map[string]NamedSocket{
 	"siocspgrp":        NamedSocketSIOCSPGRP,
 }
 
-func ancillaryOption(name string) bool {
-	return ancillaryID(name) != AncillaryNone
-}
-
 func AncillaryID(name string) AncillaryOption { return ancillaryID(name) }
 
 func ancillaryID(name string) AncillaryOption { return ancillaryByName[name] }
@@ -301,21 +330,6 @@ var ancillaryByName = map[string]AncillaryOption{
 	"ip-hdrincl":        AncillaryIPHdrincl,
 	"ipv6-unicast-hops": AncillaryIPv6UnicastHops,
 	"ipv6-tclass":       AncillaryIPv6Tclass,
-}
-
-func multicastKind(name string) MulticastKind {
-	if kind, ok := multicastKindByName[name]; ok {
-		return kind
-	}
-	return MulticastJoinIPv4
-}
-
-var multicastKindByName = map[string]MulticastKind{
-	"ipv6-join-group":     MulticastJoinIPv6,
-	"ip-multicast-if":     MulticastInterfaceIPv4,
-	"ip-multicast-loop":   MulticastLoopIPv4,
-	"ip-multicast-ttl":    MulticastTTLIPv4,
-	"ipv6-multicast-loop": MulticastLoopIPv6,
 }
 
 func ancillaryOptionInt(o parse.Option) (int, error) {

@@ -132,6 +132,7 @@ func lookupAddressOption(option parse.Option) (optionmeta.Option, bool) {
 			}
 			return optionmeta.Option{
 				Canonical: canonical,
+				Kind:      addrconfig.TermiosValueKind(canonical),
 				Scope:     optionmeta.AddressScope{Caps: []string{CapTermios}},
 			}, true
 		}

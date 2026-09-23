@@ -265,165 +265,7 @@ func finishDecode(d *decoder) error {
 }
 
 func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) error {
-	d.optionIndex++
-	a := &d.Address
-	name := definition.Canonical
-	if definition.Isolation {
-		spelling := o.OriginalSpelling()
-		if spelling == "" {
-			spelling = o.Name
-		}
-		return fmt.Errorf("option %q is not supported (%s)", spelling, optionmeta.IsolationUnsupportedReason)
-	}
-	if handled, err := decodeFileProcess(a, o, name); handled {
-		return err
-	}
-	if handled, err := decodeTerminal(a, o, name); handled {
-		return err
-	}
-	if handled, err := decodeNetworkOption(a, o, name, definition.Kernel); handled {
-		return err
-	}
-	if handled, err := decodeProtocolOption(d, o, definition); handled {
-		return err
-	}
-	switch name {
-	case "fork":
-		return setActive(&a.Common.Fork, o)
-	case "nofork":
-		return setActive(&a.Common.NoFork, o)
-	case "max-children":
-		return setRequiredInt(&a.Common.MaxChildren, o, 0)
-	case "children-shutup":
-		if !o.Has {
-			a.Common.ChildrenShutup = OptionalInt{Set: true, Value: 1}
-			return nil
-		}
-		n, err := requiredInt(o, 0)
-		if err != nil {
-			return err
-		}
-		a.Common.ChildrenShutup = OptionalInt{Set: true, Value: n}
-		return nil
-	case "forever":
-		return setActive(&a.Common.Retry.Forever, o)
-	case "retry":
-		return setRequiredInt(&a.Common.Retry.Count, o, -1)
-	case "interval":
-		d, err := duration(o)
-		if err != nil {
-			return err
-		}
-		a.Common.Retry.Interval = d
-		return nil
-	case "connect-timeout":
-		return decodeDuration(&a.Common.ConnectTimeout, o)
-	case "handshake-timeout":
-		return decodeDuration(&a.Common.HandshakeTimeout, o)
-	case "accept-timeout":
-		return decodeDuration(&a.Common.AcceptTimeout, o)
-	case "readbytes":
-		n, err := sizeT(o)
-		if err != nil {
-			return err
-		}
-		a.Transfer.ReadBytes = OptionalUint64{Set: true, Value: n}
-		return nil
-	case "escape":
-		b, err := escapeByte(o)
-		if err != nil {
-			return err
-		}
-		a.Transfer.Escape = OptionalByte{Set: true, Value: b}
-		return nil
-	case "ignoreeof", "null-eof":
-		v, err := parseBool(o)
-		if err != nil {
-			return err
-		}
-		if name == "ignoreeof" {
-			a.Transfer.IgnoreEOF = v
-		} else {
-			a.Transfer.NullEOF = v
-		}
-		return nil
-	case "end-close":
-		v, err := parseBool(o)
-		a.Transfer.EndClose = v
-		return err
-	case "cr":
-		if o.Has {
-			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-		}
-		d.cr = lineConversion{set: true, active: true, index: d.optionIndex, ending: LineEndingCR}
-		return nil
-	case "crnl":
-		if o.Has {
-			return fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-		}
-		d.crnl = lineConversion{set: true, active: true, index: d.optionIndex, ending: LineEndingCRNL}
-		return nil
-	case "crorlf":
-		v, err := parseBool(o)
-		if err != nil {
-			return err
-		}
-		d.crorlf = lineConversion{set: true, active: v.Value, index: d.optionIndex, ending: LineEndingCROrLF}
-		return nil
-	case "shut-none":
-		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownNone)
-	case "shut-down":
-		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownDown)
-	case "shut-close":
-		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownClose)
-	case "shut-null":
-		return decodeNamedShutdown(&a.Transfer.Shutdown, o, ShutdownNull)
-	case "shut":
-		return decodeShutdown(&a.Transfer.Shutdown, o)
-	case "binary", "text":
-		v, err := parseBool(o)
-		if name == "binary" {
-			a.Common.Binary = v
-		} else {
-			a.Common.Text = v
-		}
-		return err
-	case "netns":
-		v, err := requiredString(o)
-		if err == nil {
-			a.Common.NetNamespace = OptionalString{Set: true, Value: v}
-		}
-		return err
-	case "res-nsaddr":
-		v, err := requiredString(o)
-		if err != nil {
-			return err
-		}
-		ns, err := ParseResNSAddr(v)
-		if err != nil {
-			return err
-		}
-		a.Common.NameServer = ns
-		return nil
-	case "res-usevc", "ai-addrconfig", "ai-passive", "ai-v4mapped", "ai-all":
-		v, err := parseBool(o)
-		switch name {
-		case "res-usevc":
-			a.Common.UseVC = v
-		case "ai-addrconfig":
-			a.Common.AddrConfig = v
-		case "ai-passive":
-			a.Common.Passive = v
-		case "ai-v4mapped":
-			a.Common.V4Mapped = v
-		default:
-			a.Common.AddrInfoAll = v
-		}
-		return err
-	}
-	// Catalogued in-scope options with no family decoder are a documented
-	// no-op. PrepareSpec already rejected unknown and out-of-scope names.
-	return nil
+	return applyOption(d, o, definition)
 }
 
 func resolveLineEnding(d *decoder) {
@@ -450,30 +292,12 @@ func optionDefinition(o parse.Option) optionmeta.Option {
 	return optionmeta.Option{Canonical: strings.ToLower(strings.TrimSpace(o.Name))}
 }
 
-func decodeDuration(dst *OptionalDuration, o parse.Option) error {
-	d, err := duration(o)
-	if err != nil {
-		return err
-	}
-	*dst = OptionalDuration{Set: true, Value: d}
-	return nil
-}
-
 func decodePositiveDuration(dst *OptionalDuration, o parse.Option) error {
 	d, err := positiveKeepDuration(o)
 	if err != nil {
 		return err
 	}
 	*dst = OptionalDuration{Set: true, Value: d}
-	return nil
-}
-
-func setRequiredInt(dst *OptionalInt, o parse.Option, min int) error {
-	n, err := requiredInt(o, min)
-	if err != nil {
-		return err
-	}
-	*dst = OptionalInt{Set: true, Value: n}
 	return nil
 }
 

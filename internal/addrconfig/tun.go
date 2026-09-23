@@ -3,10 +3,7 @@ package addrconfig
 import (
 	"fmt"
 	"net/netip"
-	"strconv"
 	"strings"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 func decodeTUNPositional(a *Address) error {
@@ -32,72 +29,6 @@ func decodeTUNPositional(a *Address) error {
 	}
 	a.Network.TUNAddress, a.Network.TUNAddressSet = prefix, true
 	return nil
-}
-
-func decodeTUNOption(n *Network, o parse.Option, name string) (bool, error) {
-	switch name {
-	case "tun-device", "tun-name":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		if name == "tun-device" {
-			n.TUNDevice = value
-		} else {
-			n.TUNName = value
-		}
-	case "tun-type":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		switch strings.ToLower(value) {
-		case "tun":
-			n.TUNType = TUNTypeTUN
-		case "tap":
-			n.TUNType = TUNTypeTAP
-		default:
-			return true, fmt.Errorf("unknown tun-type %q", value)
-		}
-	case "iff-no-pi":
-		v, err := parseBool(o)
-		if err != nil {
-			return true, err
-		}
-		n.TUNNoPacketInfo = v
-	case "if-mtu":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		mtu, err := strconv.ParseUint(value, 0, 32)
-		if err != nil || mtu == 0 {
-			return true, fmt.Errorf("if-mtu: invalid %q", value)
-		}
-		n.TUNMTU = OptionalUint32{Set: true, Value: uint32(mtu)}
-	case "retrieve-vlan":
-		if o.Has {
-			return true, fmt.Errorf("%s: no value permitted", o.OriginalSpelling())
-		}
-		n.TUNRetrieveVLAN = true
-	default:
-		bit, ok := interfaceFlagBit(name)
-		if !ok {
-			return false, nil
-		}
-		v, err := parseBool(o)
-		if err != nil {
-			return true, err
-		}
-		if v.Value {
-			n.TUNInterfaceSet |= bit
-			n.TUNInterfaceClr &^= bit
-		} else {
-			n.TUNInterfaceClr |= bit
-			n.TUNInterfaceSet &^= bit
-		}
-	}
-	return true, nil
 }
 
 func interfaceFlagBit(name string) (uint16, bool) {
