@@ -11,7 +11,8 @@ import (
 )
 
 func TestUDPForkTCPWrapAllowsPeerAfterOneLookup(t *testing.T) {
-	dns := listenTCPWrapDNS(t)
+	ip := assignedIPv4(t)
+	dns := listenTCPWrapDNS(t, ip)
 	dir := t.TempDir()
 	allow := filepath.Join(dir, "hosts.allow")
 	deny := filepath.Join(dir, "hosts.deny")
@@ -22,17 +23,41 @@ func TestUDPForkTCPWrapAllowsPeerAfterOneLookup(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx, g := testCtx(t), testGlobal()
-	spec := "UDP4-LISTEN:0,reuseaddr,fork,bind=127.0.0.1,hosts-allow=" + allow + ",hosts-deny=" + deny + ",res-nsaddr=" + dns
+	bind := ip.String()
+	spec := "UDP4-LISTEN:0,reuseaddr,fork,bind=" + bind + ",hosts-allow=" + allow + ",hosts-deny=" + deny + ",res-nsaddr=" + dns
 	srv := startForkListenPIPE(t, ctx, g, spec)
-	cli := openClient(t, ctx, g, "UDP4:127.0.0.1:"+tcpPort(t, srv)+",bind=127.0.0.9")
+	cli := openClient(t, ctx, g, "UDP4:"+bind+":"+tcpPort(t, srv)+",bind="+bind)
 	echoLive(t, streamOf(t, cli), []byte("once"))
+}
+
+// assignedIPv4 is an address the kernel already selected for this host.
+// 127.0.0.1 is in the hosts file, so reverse lookup would never reach the
+// test nameserver. Other 127/8 addresses are not assigned on macOS.
+func assignedIPv4(t *testing.T) net.IP {
+	t.Helper()
+	conn, err := net.Dial("udp4", "192.0.2.1:9")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	addr, ok := conn.LocalAddr().(*net.UDPAddr)
+	ip := net.IP(nil)
+	if ok {
+		ip = addr.IP.To4()
+	}
+	if ip == nil || ip.IsLoopback() {
+		t.Fatal("no assigned non-loopback IPv4 address")
+	}
+	return ip
 }
 
 // listenTCPWrapDNS answers the first reverse lookup as peer.example and
 // later ones as other.example. A second tcpwrap check then misses
 // hosts.allow and hits hosts.deny.
-func listenTCPWrapDNS(t *testing.T) string {
+func listenTCPWrapDNS(t *testing.T, peer net.IP) string {
 	t.Helper()
+	var peer4 [4]byte
+	copy(peer4[:], peer.To4())
 	pc, err := net.ListenPacket("udp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +71,7 @@ func listenTCPWrapDNS(t *testing.T) string {
 			if err != nil {
 				return
 			}
-			if resp := tcpwrapDNSReply(append([]byte(nil), buf[:n]...), &ptrs); resp != nil {
+			if resp := tcpwrapDNSReply(append([]byte(nil), buf[:n]...), peer4, &ptrs); resp != nil {
 				_, _ = pc.WriteTo(resp, from)
 			}
 		}
@@ -54,7 +79,7 @@ func listenTCPWrapDNS(t *testing.T) string {
 	return pc.LocalAddr().String()
 }
 
-func tcpwrapDNSReply(query []byte, ptrs *atomic.Int32) []byte {
+func tcpwrapDNSReply(query []byte, peer [4]byte, ptrs *atomic.Int32) []byte {
 	var parser dnsmessage.Parser
 	header, err := parser.Start(query)
 	if err != nil {
@@ -66,7 +91,7 @@ func tcpwrapDNSReply(query []byte, ptrs *atomic.Int32) []byte {
 	}
 	q := questions[0]
 	host := "peer.example."
-	ip := [4]byte{127, 0, 0, 9}
+	ip := peer
 	if q.Type == dnsmessage.TypePTR && ptrs.Add(1) > 1 {
 		host = "other.example."
 	}
