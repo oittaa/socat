@@ -56,7 +56,6 @@ func namespaceWithAddress(t *testing.T, cidr string) string {
 		t.Fatalf("%s is present on the host", ip)
 	}
 	ns := fmt.Sprintf("socat-rebind-%d", os.Getpid())
-	_ = exec.Command("ip", "netns", "del", ns).Run()
 	if out, err := exec.Command("ip", "netns", "add", ns).CombinedOutput(); err != nil {
 		t.Fatalf("ip netns add %s: %v %s", ns, err, out)
 	}
