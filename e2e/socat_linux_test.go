@@ -125,9 +125,14 @@ func TestVersionHasVSOCK(t *testing.T) {
 	}
 }
 
+// vsockE2ELimit bounds VSOCK listen probes. accept-timeout is 50ms and
+// port 0 fails at bind; a coverage-instrumented binary on a busy runner
+// still needs more than two seconds to start and exit.
+const vsockE2ELimit = 15 * time.Second
+
 func TestVSOCKListenAcceptTimeout(t *testing.T) {
 	bin := socatBin(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), vsockE2ELimit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, os.DevNull, "VSOCK-LISTEN:-1,accept-timeout=0.05")
 	out, err := cmd.CombinedOutput()
@@ -141,7 +146,7 @@ func TestVSOCKListenAcceptTimeout(t *testing.T) {
 
 func TestVSOCKListenPortZeroMatchesClassic(t *testing.T) {
 	bin := socatBin(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), vsockE2ELimit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, os.DevNull, "VSOCK-LISTEN:0,accept-timeout=0.05")
 	out, err := cmd.CombinedOutput()
