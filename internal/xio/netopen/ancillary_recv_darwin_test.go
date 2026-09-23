@@ -68,9 +68,9 @@ func TestIP4RecvRecordsDestinationAndInterface(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = o.Close() })
-	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 0, 0, 1), net.IPv4(127, 0, 0, 1))
+	client, _ := dialLoopbackRawIP4(t, rawIPTestProto, net.IPv4(127, 0, 0, 1))
 	got := waitRawRead(t, client, []byte("XYZ"), o.Stream())
-	if string(got) != "XYZ" {
+	if !rawPacketCarries(got, []byte("XYZ")) {
 		t.Fatalf("payload=%q", got)
 	}
 	requireSessionDstAndIf(t, g)

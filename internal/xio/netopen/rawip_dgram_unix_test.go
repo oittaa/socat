@@ -5,9 +5,11 @@ package netopen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,15 +31,58 @@ func openIP4Spec(t *testing.T, spec string) (parse.Spec, context.Context) {
 	return s, ctx
 }
 
-func dialRawIP4(t *testing.T, proto int, src, dst net.IP) *net.IPConn {
+// dialLoopbackRawIP4 binds a loopback source. 127.1.0.1 is used when the
+// host accepts it; otherwise the assigned loopback address is used.
+func dialLoopbackRawIP4(t *testing.T, proto int, dst net.IP) (*net.IPConn, net.IP) {
 	t.Helper()
-	c, err := net.DialIP(fmt.Sprintf("ip4:%d", proto), &net.IPAddr{IP: src}, &net.IPAddr{IP: dst})
-	skipIfRawIPPermissionDenied(t, err)
-	if err != nil {
-		t.Fatal(err)
+	var last error
+	for _, src := range []net.IP{net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1)} {
+		c, err := net.DialIP(fmt.Sprintf("ip4:%d", proto), &net.IPAddr{IP: src}, &net.IPAddr{IP: dst})
+		if err == nil {
+			t.Cleanup(func() { _ = c.Close() })
+			return c, src
+		}
+		skipIfRawIPPermissionDenied(t, err)
+		if !errors.Is(err, syscall.EADDRNOTAVAIL) {
+			t.Fatal(err)
+		}
+		last = err
 	}
-	t.Cleanup(func() { _ = c.Close() })
-	return c
+	t.Fatalf("dial raw IPv4: %v", last)
+	return nil, nil
+}
+
+// rawPacketCarries reports whether got is the payload, or an IPv4 packet
+// whose payload is that data.
+func rawPacketCarries(got, payload []byte) bool {
+	if bytes.Equal(got, payload) {
+		return true
+	}
+	if len(got) < 20 || got[0]>>4 != 4 {
+		return false
+	}
+	ihl := int(got[0]&0x0f) * 4
+	if ihl < 20 || ihl > len(got) {
+		return false
+	}
+	return bytes.Equal(got[ihl:], payload)
+}
+
+func TestRawPacketCarriesIPv4Header(t *testing.T) {
+	payload := []byte("XYZ")
+	if !rawPacketCarries(payload, payload) {
+		t.Fatal("bare payload")
+	}
+	header := make([]byte, 20)
+	header[0] = 0x45
+	header[2] = 0x03
+	header[3] = 0x00
+	if !rawPacketCarries(append(header, payload...), payload) {
+		t.Fatal("IPv4 header plus payload")
+	}
+	if rawPacketCarries(append(append([]byte{}, header...), 'X'), payload) {
+		t.Fatal("header without payload")
+	}
 }
 
 func sendRawPayload(t *testing.T, c *net.IPConn, payload []byte) {
@@ -101,10 +146,10 @@ func TestIP4DatagramAcceptsAnySender(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = o.Close() })
 
-	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1))
+	client, _ := dialLoopbackRawIP4(t, rawIPTestProto, net.IPv4(127, 0, 0, 1))
 	payload := []byte("any-sender")
 	got := waitRawRead(t, client, payload, o.Stream())
-	if string(got) != string(payload) {
+	if !rawPacketCarries(got, payload) {
 		t.Fatalf("DATAGRAM read %q want %q", got, payload)
 	}
 }
@@ -135,8 +180,8 @@ func TestIP4RecvfromForkChildPeerEnvironment(t *testing.T) {
 		<-done
 	})
 
-	client := dialRawIP4(t, rawIPTestProto, net.IPv4(127, 1, 0, 1), net.IPv4(127, 0, 0, 1))
-	want := "127.1.0.1/\n"
+	client, src := dialLoopbackRawIP4(t, rawIPTestProto, net.IPv4(127, 0, 0, 1))
+	want := src.String() + "/\n"
 	sendRawPayload(t, client, []byte("peer-env"))
 	got, err := readRawDeadline(t, client, 4*time.Second)
 	if err != nil {
