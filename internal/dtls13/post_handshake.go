@@ -47,6 +47,9 @@ func (s *session) startPost(typ byte, body []byte, now time.Time) error {
 		// An unsent flight has no deadline, so drop it instead of wedging.
 		if len(f.sent) == 0 {
 			delete(s.post, typ)
+			for range f.messages {
+				s.handshake.sequence--
+			}
 		} else if f.deadline.IsZero() {
 			f.deadline = now.Add(f.interval)
 		}
