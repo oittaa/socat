@@ -30,7 +30,7 @@ func handleIPv4CmsgDarwin(typ int32, data []byte, g *Global) bool {
 		val := net.IP(data[:4]).String()
 		logAncillary(g, "IP_RECVDSTADDR", "dstaddr", val)
 		SetSessionEnv(g, "IP_DSTADDR", val)
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("IP_RECVDSTADDR: %s", val)
 		}
 		return true
@@ -41,7 +41,7 @@ func handleIPv4CmsgDarwin(typ int32, data []byte, g *Global) bool {
 		}
 		logAncillary(g, "IP_RECVIF", "if", name)
 		SetSessionEnv(g, "IP_IF", name)
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("IP_RECVIF: %s", name)
 		}
 		return true

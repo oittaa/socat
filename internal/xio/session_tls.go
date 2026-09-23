@@ -64,8 +64,8 @@ func rememberTLSState(g *Global, st tls.ConnectionState) {
 	}
 	leaf := st.PeerCertificates[0]
 	// Layout: "C = XY, CN = localhost, O = dest-unreach, OU = socat, L = Lunar Base"
-	g.Peer.TLSVars["X509_SUBJECT"] = FormatTLSName(leaf.Subject)
-	g.Peer.TLSVars["X509_ISSUER"] = FormatTLSName(leaf.Issuer)
+	g.Peer.TLSVars["X509_SUBJECT"] = formatTLSName(leaf.Subject)
+	g.Peer.TLSVars["X509_ISSUER"] = formatTLSName(leaf.Issuer)
 	for name, value := range tlsSubjectFields(leaf.Subject) {
 		g.Peer.TLSVars["X509_"+name] = value
 	}
@@ -152,8 +152,8 @@ func tlsSubjectFields(n pkix.Name) map[string]string {
 	return fields
 }
 
-// FormatTLSName matches SOCAT_OPENSSL_X509_SUBJECT / ISSUER layout.
-func FormatTLSName(n pkix.Name) string {
+// formatTLSName matches SOCAT_OPENSSL_X509_SUBJECT / ISSUER layout.
+func formatTLSName(n pkix.Name) string {
 	// Order: C, CN, O, OU, L
 	var parts []string
 	if len(n.Country) > 0 {

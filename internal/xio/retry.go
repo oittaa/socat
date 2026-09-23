@@ -22,7 +22,7 @@ func WithRetry(ctx context.Context, g *Global, policy addrconfig.RetryPolicy, wh
 		if policy.MaxAttempts != 0 && attempt >= policy.MaxAttempts {
 			break
 		}
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("%s: %v; retrying in %s", what, last, policy.Interval)
 		}
 		t := time.NewTimer(policy.Interval)

@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// SocketTimeoutConn applies rcvtimeo/sndtimeo below framed transports
+// socketTimeoutConn applies rcvtimeo/sndtimeo below framed transports
 // such as crypto/tls. Its own deadline expirations are retried internally so a
 // record layer never observes and permanently latches a transient socket
 // timeout. Deadlines explicitly set by the transport remain terminating.
-type SocketTimeoutConn struct {
+type socketTimeoutConn struct {
 	net.Conn
 	readTimeout  time.Duration
 	writeTimeout time.Duration
@@ -23,16 +23,16 @@ type SocketTimeoutConn struct {
 	writeDeadline time.Time
 }
 
-func NewSocketTimeoutConn(conn net.Conn, readTimeout, writeTimeout time.Duration) *SocketTimeoutConn {
-	return &SocketTimeoutConn{Conn: conn, readTimeout: readTimeout, writeTimeout: writeTimeout}
+func NewSocketTimeoutConn(conn net.Conn, readTimeout, writeTimeout time.Duration) *socketTimeoutConn {
+	return &socketTimeoutConn{Conn: conn, readTimeout: readTimeout, writeTimeout: writeTimeout}
 }
 
 // EnableSocketTimeouts starts applying the configured per-operation timeouts.
 // TLS openers call this only after the handshake has completed, leaving the
 // independent handshake timeout authoritative.
-func (c *SocketTimeoutConn) EnableSocketTimeouts() { c.enabled.Store(true) }
+func (c *socketTimeoutConn) EnableSocketTimeouts() { c.enabled.Store(true) }
 
-func (c *SocketTimeoutConn) NetConn() net.Conn { return c.Conn }
+func (c *socketTimeoutConn) NetConn() net.Conn { return c.Conn }
 
 func EnableSocketTimeouts(conn net.Conn) {
 	for conn != nil {
@@ -52,7 +52,7 @@ func EnableSocketTimeouts(conn net.Conn) {
 	}
 }
 
-func (c *SocketTimeoutConn) SetDeadline(deadline time.Time) error {
+func (c *socketTimeoutConn) SetDeadline(deadline time.Time) error {
 	c.mu.Lock()
 	c.readDeadline = deadline
 	c.writeDeadline = deadline
@@ -60,21 +60,21 @@ func (c *SocketTimeoutConn) SetDeadline(deadline time.Time) error {
 	return c.Conn.SetDeadline(deadline)
 }
 
-func (c *SocketTimeoutConn) SetReadDeadline(deadline time.Time) error {
+func (c *socketTimeoutConn) SetReadDeadline(deadline time.Time) error {
 	c.mu.Lock()
 	c.readDeadline = deadline
 	c.mu.Unlock()
 	return c.Conn.SetReadDeadline(deadline)
 }
 
-func (c *SocketTimeoutConn) SetWriteDeadline(deadline time.Time) error {
+func (c *socketTimeoutConn) SetWriteDeadline(deadline time.Time) error {
 	c.mu.Lock()
 	c.writeDeadline = deadline
 	c.mu.Unlock()
 	return c.Conn.SetWriteDeadline(deadline)
 }
 
-func (c *SocketTimeoutConn) Read(p []byte) (int, error) {
+func (c *socketTimeoutConn) Read(p []byte) (int, error) {
 	for {
 		ownDeadline, err := c.armReadDeadline()
 		if err != nil {
@@ -91,7 +91,7 @@ func (c *SocketTimeoutConn) Read(p []byte) (int, error) {
 	}
 }
 
-func (c *SocketTimeoutConn) Write(p []byte) (int, error) {
+func (c *socketTimeoutConn) Write(p []byte) (int, error) {
 	written := 0
 	for written < len(p) {
 		ownDeadline, err := c.armWriteDeadline()
@@ -117,7 +117,7 @@ func (c *SocketTimeoutConn) Write(p []byte) (int, error) {
 	return written, nil
 }
 
-func (c *SocketTimeoutConn) armReadDeadline() (bool, error) {
+func (c *socketTimeoutConn) armReadDeadline() (bool, error) {
 	c.mu.Lock()
 	external := c.readDeadline
 	timeout := c.readTimeout
@@ -130,7 +130,7 @@ func (c *SocketTimeoutConn) armReadDeadline() (bool, error) {
 	return own, c.Conn.SetReadDeadline(deadline)
 }
 
-func (c *SocketTimeoutConn) armWriteDeadline() (bool, error) {
+func (c *socketTimeoutConn) armWriteDeadline() (bool, error) {
 	c.mu.Lock()
 	external := c.writeDeadline
 	timeout := c.writeTimeout
@@ -150,7 +150,7 @@ func earliestSocketDeadline(internal, external time.Time) (time.Time, bool) {
 	return internal, true
 }
 
-func (c *SocketTimeoutConn) retryOwnTimeout(read, ownDeadline bool, err error) bool {
+func (c *socketTimeoutConn) retryOwnTimeout(read, ownDeadline bool, err error) bool {
 	if !ownDeadline || !IsTimeoutErr(err) {
 		return false
 	}

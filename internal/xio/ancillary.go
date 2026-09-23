@@ -20,7 +20,7 @@ func NeedAncillary(s addrconfig.Address) bool {
 	return ancillaryRecvRequested(s)
 }
 
-func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) error {
+func applyPreparedIPRecv(fd int, e ipAncillaryEntry, n int, family ipFamily) error {
 	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
 	}
@@ -113,13 +113,13 @@ func parseCmsgTimeval(data []byte) (sec, usec int64, ok bool) {
 	switch {
 	case len(data) >= 16:
 		var ok1, ok2 bool
-		sec, ok1 = Int64FromUint64(binary.NativeEndian.Uint64(data[0:8]))
-		usec, ok2 = Int64FromUint64(binary.NativeEndian.Uint64(data[8:16]))
+		sec, ok1 = int64FromUint64(binary.NativeEndian.Uint64(data[0:8]))
+		usec, ok2 = int64FromUint64(binary.NativeEndian.Uint64(data[8:16]))
 		if !ok1 {
 			return 0, 0, false
 		}
 		if !ok2 || usec < 0 || usec >= 1_000_000 {
-			u32, ok3 := Int32FromUint32(binary.NativeEndian.Uint32(data[8:12]))
+			u32, ok3 := int32FromUint32(binary.NativeEndian.Uint32(data[8:12]))
 			if !ok3 {
 				return 0, 0, false
 			}
@@ -127,8 +127,8 @@ func parseCmsgTimeval(data []byte) (sec, usec int64, ok bool) {
 		}
 		return sec, usec, true
 	case len(data) >= 8:
-		s32, ok1 := Int32FromUint32(binary.NativeEndian.Uint32(data[0:4]))
-		u32, ok2 := Int32FromUint32(binary.NativeEndian.Uint32(data[4:8]))
+		s32, ok1 := int32FromUint32(binary.NativeEndian.Uint32(data[0:4]))
+		u32, ok2 := int32FromUint32(binary.NativeEndian.Uint32(data[4:8]))
 		if !ok1 || !ok2 {
 			return 0, 0, false
 		}
@@ -142,7 +142,7 @@ func parseInet4Pktinfo(data []byte) (ifindex int, specDst, addr net.IP, ok bool)
 	if len(data) < unix.SizeofInet4Pktinfo {
 		return 0, nil, nil, false
 	}
-	ifi32, ok := Int32FromUint32(binary.NativeEndian.Uint32(data[0:4]))
+	ifi32, ok := int32FromUint32(binary.NativeEndian.Uint32(data[0:4]))
 	if !ok {
 		return 0, nil, nil, false
 	}
@@ -165,7 +165,7 @@ func parseInet6Pktinfo(data []byte) (ifindex int, addr net.IP, ok bool) {
 func cmsgInt(data []byte) int {
 	switch {
 	case len(data) >= 4:
-		v, ok := Int32FromUint32(binary.NativeEndian.Uint32(data[:4]))
+		v, ok := int32FromUint32(binary.NativeEndian.Uint32(data[:4]))
 		if !ok {
 			return 0
 		}
@@ -188,7 +188,7 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TTL", "ttl", val)
 		SetSessionEnv(g, "IP_TTL", val)
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("Ancillary message: ttl=%s", val)
 		}
 		return
@@ -198,7 +198,7 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		val := strconv.Itoa(cmsgInt(data))
 		logAncillary(g, "IP_TOS", "tos", val)
 		SetSessionEnv(g, "IP_TOS", val)
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("Ancillary message: tos=%s", val)
 		}
 		return
@@ -227,7 +227,7 @@ func handleIPv4Cmsg(typ int32, data []byte, g *Global) {
 		SetSessionEnv(g, "IP_IF", ifname)
 		SetSessionEnv(g, "IP_LOCADDR", loc)
 		SetSessionEnv(g, "IP_DSTADDR", dst)
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Noticef("Ancillary message: interface %q, locaddr=%s, dstaddr=%s", ifname, loc, dst)
 		}
 	}
@@ -246,7 +246,7 @@ func handleIPv6Cmsg(typ int32, data []byte, g *Global) {
 		if !ok {
 			return
 		}
-		dst := ExpandIPv6Full(addr)
+		dst := expandIPv6Full(addr)
 		// Full zero-padded form: [0000:0000:...:0001]
 		br := "[" + dst + "]"
 		ifname := ifIndexName(ifi)
@@ -292,7 +292,7 @@ func hexCmsg(data []byte) string {
 }
 
 func logAncillary(g *Global, typ, name, val string) {
-	if g != nil && g.Log != nil {
+	if g != nil {
 		g.Log.Infof("ancillary message: %s: %s=%s", typ, name, val)
 	}
 }
@@ -308,8 +308,8 @@ func ifIndexName(idx int) string {
 	return ifi.Name
 }
 
-// ExpandIPv6Full prints full zero-padded IPv6 (SCM/ENV form).
-func ExpandIPv6Full(ip net.IP) string {
+// expandIPv6Full prints full zero-padded IPv6 (SCM/ENV form).
+func expandIPv6Full(ip net.IP) string {
 	ip = ip.To16()
 	if ip == nil {
 		return ""

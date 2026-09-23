@@ -297,7 +297,7 @@ func bindUDPLowport(ctx context.Context, network string, bind addrconfig.HostTar
 	var conn *net.UDPConn
 	port, err := xio.FirstAvailableLowport(func(port int) error {
 		// test.sh greps: [DE] bind(.*:PORT
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Debugf("bind({AF=2 %s:%d}, 16)", bind.Original(), port)
 		}
 		addr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortNumber(uint16(port))) // #nosec G115 -- lowport range is 640..1023

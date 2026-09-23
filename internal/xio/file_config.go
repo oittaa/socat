@@ -11,7 +11,7 @@ func ConfiguredFileMode(config addrconfig.File, def os.FileMode) os.FileMode {
 	mode := def
 	for _, action := range config.Actions {
 		if action.Kind == addrconfig.FileActionPerm {
-			mode = UnixModeToFileMode(action.Mode)
+			mode = unixModeToFileMode(action.Mode)
 		}
 	}
 	return mode
@@ -54,7 +54,7 @@ func ApplyConfiguredNamedPreopen(path string, config addrconfig.File) error {
 	for _, action := range config.Actions {
 		switch action.Kind {
 		case addrconfig.FileActionPermEarly:
-			if err := os.Chmod(path, UnixModeToFileMode(action.Mode)); err != nil {
+			if err := os.Chmod(path, unixModeToFileMode(action.Mode)); err != nil {
 				return fmt.Errorf("chmod %s: %w", path, err)
 			}
 		case addrconfig.FileActionUserEarly:
@@ -78,10 +78,10 @@ func ApplyConfiguredNamedPreopen(path string, config addrconfig.File) error {
 
 func applyConfiguredNamedPerm(path string, f *os.File, mode uint32) error {
 	if path != "" {
-		return os.Chmod(path, UnixModeToFileMode(mode))
+		return os.Chmod(path, unixModeToFileMode(mode))
 	}
 	if f != nil {
-		return f.Chmod(UnixModeToFileMode(mode))
+		return f.Chmod(unixModeToFileMode(mode))
 	}
 	return nil
 }

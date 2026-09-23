@@ -9,11 +9,11 @@ import (
 
 const defaultHandshakeTimeout = 30 * time.Second
 
-// QUICHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
+// quicHandshakeIdleTimeoutDisabled is HandshakeIdleTimeout when
 // handshake-timeout=0 (disable the bound). quic-go substitutes its default
 // when the field is zero and doubles this timeout internally, so the value
 // must be nonzero and safe to double. One year is effectively unbounded.
-const QUICHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
+const quicHandshakeIdleTimeoutDisabled = 365 * 24 * time.Hour
 
 // HandshakeTimeout bounds protocol negotiation after a connection is
 // established (Go extra; not connect-timeout). handshake-timeout=0
@@ -51,12 +51,12 @@ func CombinedConnectHandshakeTimeout(config addrconfig.Address) time.Duration {
 
 // QUICHandshakeIdleTimeout maps handshake-timeout onto quic-go
 // HandshakeIdleTimeout. handshake-timeout=0 is not passed through as 0
-// (quic-go would substitute 5s); it becomes QUICHandshakeIdleTimeoutDisabled.
+// (quic-go would substitute 5s); it becomes quicHandshakeIdleTimeoutDisabled.
 func QUICHandshakeIdleTimeout(config addrconfig.Address) time.Duration {
 	if d := HandshakeTimeout(config); d > 0 {
 		return d
 	}
-	return QUICHandshakeIdleTimeoutDisabled
+	return quicHandshakeIdleTimeoutDisabled
 }
 
 // WithHandshakeDeadline applies and then clears a whole-connection deadline.

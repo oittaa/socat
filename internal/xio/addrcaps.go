@@ -4,9 +4,9 @@ import "sort"
 
 // Option capability names used by address registrations and CLI validation.
 const (
-	OptCapListen = CapListen
-	OptCapOpen   = CapOpen
-	OptCapRange  = CapRange
+	optCapListen = capListen
+	optCapOpen   = capOpen
+	optCapRange  = capRange
 )
 
 func uniqueCaps(in []string) []string {
@@ -26,9 +26,9 @@ func uniqueCaps(in []string) []string {
 	return out
 }
 
-// OptionCapsAllowed is true when the option is unrestricted or the address
+// optionCapsAllowed is true when the option is unrestricted or the address
 // advertises at least one of the option's required capabilities.
-func OptionCapsAllowed(addrCaps, optionCaps []string) bool {
+func optionCapsAllowed(addrCaps, optionCaps []string) bool {
 	if len(optionCaps) == 0 {
 		return true
 	}

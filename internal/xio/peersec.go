@@ -13,14 +13,14 @@ import (
 	"github.com/oittaa/socat/internal/logx"
 )
 
-// CloseRefusedPeer closes a rejected accept without RST when the peer already
+// closeRefusedPeer closes a rejected accept without RST when the peer already
 // wrote (unread data would otherwise trigger connection reset). Empty client
 // output / exit 0, not "connection reset by peer".
-func CloseRefusedPeer(c net.Conn) {
+func closeRefusedPeer(c net.Conn) {
 	if c == nil {
 		return
 	}
-	// Walk nested NetConn wrappers (TLS → SocketTimeoutConn → TCPConn)
+	// Walk nested NetConn wrappers (TLS → socketTimeoutConn → TCPConn)
 	// so the TCP socket is drained. WebSocket connections stay opaque:
 	// wsNetConn does not implement NetConn().
 	raw := unwrapNetConn(c)

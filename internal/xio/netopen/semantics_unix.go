@@ -7,5 +7,5 @@ import "github.com/oittaa/socat/internal/relay"
 func (*socketDgramStream) IOSemantics() relay.IOSemantics    { return relay.MessageIO }
 func (*socketRecvfromStream) IOSemantics() relay.IOSemantics { return relay.MessageIO }
 
-func (c *socketDgramStream) StreamProps() relay.Props    { return relay.Inspect(c) }
-func (c *socketRecvfromStream) StreamProps() relay.Props { return relay.Inspect(c) }
+func (r *socketDgramStream) StreamProps() relay.Props    { return relay.Inspect(r) }
+func (r *socketRecvfromStream) StreamProps() relay.Props { return relay.Inspect(r) }

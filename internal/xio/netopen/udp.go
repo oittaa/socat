@@ -96,7 +96,7 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 func dialUDPLowport(ctx context.Context, network string, bind addrconfig.HostTarget, remote *net.UDPAddr, s addrconfig.Address, g *xio.Global) (net.Conn, error) {
 	var conn net.Conn
 	_, err := xio.FirstAvailableLowport(func(port int) error {
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Debugf("bind(%s:%d)", bind.Original(), port)
 		}
 		laddr, err := xio.ResolveUDPTarget(ctx, s, network, bind, addrconfig.PortNumber(uint16(port))) // #nosec G115 -- lowport range is 640..1023

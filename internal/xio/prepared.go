@@ -11,43 +11,43 @@ import (
 
 type PreparedAddress struct {
 	Config addrconfig.Address
-	opener Opener
+	opener opener
 }
 
-type PreparedDual struct {
+type preparedDual struct {
 	Left  PreparedAddress
 	Right PreparedAddress
 	Raw   string
 }
 
-type PreparedChannel struct {
+type preparedChannel struct {
 	Single *PreparedAddress
-	Dual   *PreparedDual
+	Dual   *preparedDual
 	Raw    string
 }
 
-func (c PreparedChannel) IsDual() bool { return c.Dual != nil }
+func (c preparedChannel) IsDual() bool { return c.Dual != nil }
 
-func PrepareChannel(ch parse.Channel) (PreparedChannel, error) {
+func PrepareChannel(ch parse.Channel) (preparedChannel, error) {
 	if ch.Single != nil {
 		a, err := PrepareSpec(*ch.Single)
 		if err != nil {
-			return PreparedChannel{}, err
+			return preparedChannel{}, err
 		}
-		return PreparedChannel{Single: &a, Raw: ch.Raw}, nil
+		return preparedChannel{Single: &a, Raw: ch.Raw}, nil
 	}
 	if ch.Dual != nil {
 		left, err := PrepareSpec(ch.Dual.Left)
 		if err != nil {
-			return PreparedChannel{}, fmt.Errorf("dual left: %w", err)
+			return preparedChannel{}, fmt.Errorf("dual left: %w", err)
 		}
 		right, err := PrepareSpec(ch.Dual.Right)
 		if err != nil {
-			return PreparedChannel{}, fmt.Errorf("dual right: %w", err)
+			return preparedChannel{}, fmt.Errorf("dual right: %w", err)
 		}
-		return PreparedChannel{Dual: &PreparedDual{Left: left, Right: right, Raw: ch.Dual.Raw}, Raw: ch.Raw}, nil
+		return preparedChannel{Dual: &preparedDual{Left: left, Right: right, Raw: ch.Dual.Raw}, Raw: ch.Raw}, nil
 	}
-	return PreparedChannel{}, fmt.Errorf("xio: empty channel")
+	return preparedChannel{}, fmt.Errorf("xio: empty channel")
 }
 
 func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
@@ -96,7 +96,7 @@ func PrepareSpec(spec parse.Spec) (PreparedAddress, error) {
 	if options.platformError != nil {
 		return PreparedAddress{}, options.platformError
 	}
-	if err := RejectUnsupportedRemainingIPv4(config); err != nil {
+	if err := rejectUnsupportedRemainingIPv4(config); err != nil {
 		return PreparedAddress{}, err
 	}
 	if !registered || desc.Opener == nil {

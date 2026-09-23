@@ -27,7 +27,7 @@ func TestNewSessionAndForkSessionOptions(t *testing.T) {
 
 func TestForkSessionCopiesPeer(t *testing.T) {
 	g := NewSession(Options{}, nil)
-	g.Peer = Peer{
+	g.Peer = peer{
 		SockAddr:    "10.0.0.1",
 		PeerAddr:    "10.0.0.2",
 		SockPort:    "1",
@@ -67,7 +67,7 @@ func TestForkSessionCopiesLogger(t *testing.T) {
 func TestForkSessionCopiesChild(t *testing.T) {
 	waitErr := errors.New("child wait")
 	g := NewSession(Options{}, nil)
-	g.Child = Child{ExitCode: 3, Err: waitErr}
+	g.Child = child{ExitCode: 3, Err: waitErr}
 	c := g.ForkSession()
 	if c.Child.ExitCode != 3 || c.Child.Err != waitErr {
 		t.Fatal("fork copies child wait status")

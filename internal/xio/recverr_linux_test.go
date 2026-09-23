@@ -22,7 +22,7 @@ func TestDrainRecvErrEmptyQueueLinux(t *testing.T) {
 }
 
 func TestHandleIPRecvErrTruncatedCmsgLinux(t *testing.T) {
-	g := &Global{Log: logx.New(), Peer: Peer{SessionVars: map[string]string{}}}
+	g := &Global{Log: logx.New(), Peer: peer{SessionVars: map[string]string{}}}
 	handleIPRecvErrCmsg([]byte{1, 2, 3}, g)
 	if len(g.Peer.SessionVars) != 0 {
 		t.Fatalf("truncated cmsg set env %v", g.Peer.SessionVars)

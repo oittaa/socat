@@ -25,11 +25,11 @@ type acceptResult struct {
 	err  error
 }
 
-// AcceptWithTimeout accepts one connection and closes the listener when the
+// acceptWithTimeout accepts one connection and closes the listener when the
 // timeout expires or ctx is done. Closing is intentional: accept-timeout
 // terminates the listen address, and it also makes the wait work for wrapped
 // listeners such as TLS and QUIC that do not expose SetDeadline.
-func AcceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
+func acceptWithTimeout(ctx context.Context, ln net.Listener, timeout time.Duration) (net.Conn, error) {
 	return acceptUntil(ctx, ln, timeout, func() { _ = ln.Close() })
 }
 
@@ -128,10 +128,10 @@ type Options struct {
 	Progname     string // -lp value; default "socat"
 }
 
-// Peer is per-connection identity for SOCAT_* env and sniff paths.
-// ForkSession copies the strings and clones the maps. RememberAddrs
+// peer is per-connection identity for SOCAT_* env and sniff paths.
+// ForkSession copies the strings and clones the maps. rememberAddrs
 // overwrites the address strings on this session only.
-type Peer struct {
+type peer struct {
 	SockAddr string
 	PeerAddr string
 	SockPort string
@@ -144,22 +144,22 @@ type Peer struct {
 	SessionVars map[string]string
 }
 
-// Child is the last EXEC/SYSTEM wait status on this session.
+// child is the last EXEC/SYSTEM wait status on this session.
 // ForkSession copies the value (listen parents are typically zero).
-type Child struct {
+type child struct {
 	ExitCode int
 	Err      error
 }
 
-// Sniff is this session's -r/-R dump files. ForkSession does not share the
+// sniff is this session's -r/-R dump files. ForkSession does not share the
 // parent's *os.File pointers. openSniffFiles closes this session's files
 // and opens new ones from Options path templates so the session owns them.
-type Sniff struct {
+type sniff struct {
 	RawLeft  *os.File
 	RawRight *os.File
 }
 
-func (s *Sniff) closeFiles() {
+func (s *sniff) closeFiles() {
 	if s == nil {
 		return
 	}
@@ -178,9 +178,9 @@ func (s *Sniff) closeFiles() {
 // files), Child (copied wait status).
 type Global struct {
 	options *Options
-	Peer    Peer
-	Child   Child
-	Sniff   Sniff
+	Peer    peer
+	Child   child
+	Sniff   sniff
 	// ForkChild is set on LISTEN/CONNECT,fork session goroutines. FD,end-close
 	// then closes only the per-session duplicate, like a fork child's copy of
 	// the inherited descriptor.
@@ -242,12 +242,12 @@ func cloneLogger(log *logx.Logger) *logx.Logger {
 	return log.Clone()
 }
 
-func copyPeer(from *Global) Peer {
+func copyPeer(from *Global) peer {
 	if from == nil {
-		return Peer{}
+		return peer{}
 	}
 	// Field-by-field so SessionVars is only read under cloneSessionVars.
-	return Peer{
+	return peer{
 		SockAddr:    from.Peer.SockAddr,
 		PeerAddr:    from.Peer.PeerAddr,
 		SockPort:    from.Peer.SockPort,
@@ -271,7 +271,7 @@ func ownSessionSync(g *Global) {
 // Copy: Peer (maps cloned), Child, LogMixed.
 // Clone: Log.
 // Own: Sniff (empty), a new sessionMu, and a new empty childSignals table.
-// Passing *g without ForkSession is not safe: RememberAddrs writes Peer.
+// Passing *g without ForkSession is not safe: rememberAddrs writes Peer.
 func (g *Global) ForkSession() *Global {
 	if g == nil {
 		child := &Global{
@@ -326,7 +326,7 @@ func (g *Global) markStatsPrinted() {
 }
 
 // Opened is a live address endpoint. Construct it with NewReady, NewReadySplit,
-// NewAcceptParent, NewRepeatedDial, or NewDeferredNoFork. Variant data lives
+// NewAcceptParent, NewRepeatedDial, or newDeferredNoFork. Variant data lives
 // in one private payload; see the ownership table in endpoint_variant.go.
 type Opened struct {
 	Label string
@@ -387,15 +387,15 @@ func (o *Opened) EffectiveStream() relay.Stream {
 	return o.Stream()
 }
 
-// MultiCloser closes two streams.
-type MultiCloser struct{ a, b relay.Stream }
+// multiCloser closes two streams.
+type multiCloser struct{ a, b relay.Stream }
 
 // NewMultiCloser returns a closer for two streams.
-func NewMultiCloser(a, b relay.Stream) MultiCloser {
-	return MultiCloser{a: a, b: b}
+func NewMultiCloser(a, b relay.Stream) multiCloser {
+	return multiCloser{a: a, b: b}
 }
 
-func (m MultiCloser) Close() error {
+func (m multiCloser) Close() error {
 	var err error
 	if m.a != nil {
 		err = m.a.Close()
@@ -414,7 +414,7 @@ func (EOFReader) Read([]byte) (int, error) { return 0, io.EOF }
 
 // OpenPreparedChannel opens a previously prepared channel without repeating
 // registry resolution or common static decoding.
-func OpenPreparedChannel(ctx context.Context, ch PreparedChannel, mode Mode, g *Global) (*Opened, error) {
+func OpenPreparedChannel(ctx context.Context, ch preparedChannel, mode Mode, g *Global) (*Opened, error) {
 	if ch.IsDual() {
 		return openPreparedDual(ctx, ch.Dual, g)
 	}
@@ -424,7 +424,7 @@ func OpenPreparedChannel(ctx context.Context, ch PreparedChannel, mode Mode, g *
 	return OpenPreparedSpec(ctx, *ch.Single, mode, g)
 }
 
-func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened, error) {
+func openPreparedDual(ctx context.Context, d *preparedDual, g *Global) (*Opened, error) {
 	left, err := OpenPreparedSpec(ctx, d.Left, ModeRead, g)
 	if err != nil {
 		return nil, fmt.Errorf("dual read side: %w", err)
@@ -453,7 +453,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 		warnAddressMode(g, mode, d.Directions)
 	}
 	var err error
-	prepared.Config, err = ResolvePreparedPaths(prepared.Config)
+	prepared.Config, err = resolvePreparedPaths(prepared.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +491,7 @@ func OpenPreparedSpec(ctx context.Context, prepared PreparedAddress, mode Mode, 
 }
 
 func warnAddressMode(g *Global, opened, supported Mode) {
-	if g == nil || g.Log == nil {
+	if g == nil {
 		return
 	}
 	openBits, supBits := modeAccBits(opened), modeAccBits(supported)
@@ -523,5 +523,5 @@ func modeAccText(m Mode) string {
 	}
 }
 
-// Opener opens one address type from prepared settings.
-type Opener func(context.Context, addrconfig.Address, Mode, *Global) (*Opened, error)
+// opener opens one address type from prepared settings.
+type opener func(context.Context, addrconfig.Address, Mode, *Global) (*Opened, error)

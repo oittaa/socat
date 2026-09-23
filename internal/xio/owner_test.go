@@ -85,7 +85,7 @@ func TestUnlinkIfSameFileRemovesOriginal(t *testing.T) {
 	if !SnapshotFileIdentity(info) {
 		t.Fatal("could not snapshot identity")
 	}
-	UnlinkIfSameFile(path, info)
+	unlinkIfSameFile(path, info)
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("original survived: %v", err)
 	}

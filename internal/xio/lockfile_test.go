@@ -19,7 +19,7 @@ func TestAcquireLockFileCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := AcquireLockFile(ctx, path, true, time.Hour); !errors.Is(err, context.Canceled) {
+	if _, err := acquireLockFile(ctx, path, true, time.Hour); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want context.Canceled", err)
 	}
 }
@@ -28,7 +28,7 @@ func TestAcquireLockFileDoesNotCreateAfterCancellation(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := AcquireLockFile(ctx, path, true, time.Millisecond); !errors.Is(err, context.Canceled) {
+	if _, err := acquireLockFile(ctx, path, true, time.Millisecond); !errors.Is(err, context.Canceled) {
 		t.Fatalf("error=%v want context.Canceled", err)
 	}
 	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -41,14 +41,14 @@ func TestAcquireLockFileWithoutWaitReportsExistingLock(t *testing.T) {
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AcquireLockFile(context.Background(), path, false, time.Millisecond); err == nil {
+	if _, err := acquireLockFile(context.Background(), path, false, time.Millisecond); err == nil {
 		t.Fatal("existing lock was accepted")
 	}
 }
 
 func TestCreateLockFileWritesPID(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "socat.lock")
-	if _, err := CreateLockFile(path); err != nil {
+	if _, err := createLockFile(path); err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(path)
@@ -90,8 +90,8 @@ func TestHoldLockFileRemovesAcquiredName(t *testing.T) {
 }
 
 func TestLockPollIntervals(t *testing.T) {
-	if AddressWaitLockPollInterval != time.Second {
-		t.Fatalf("address waitlock interval=%v want 1s (classic xiowaitlock)", AddressWaitLockPollInterval)
+	if addressWaitLockPollInterval != time.Second {
+		t.Fatalf("address waitlock interval=%v want 1s (classic xiowaitlock)", addressWaitLockPollInterval)
 	}
 	if CLILockPollInterval != time.Second {
 		t.Fatalf("CLI -W interval=%v want 1s", CLILockPollInterval)

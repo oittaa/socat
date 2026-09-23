@@ -24,7 +24,7 @@
 // PrepareSpec rejects unsupported options (IP ancillary, termios, recverr,
 // remaining IPv4, listen-backlog). OpenPreparedSpec is the common entry
 // after that. It looks up the registered opener, rewrites the type to the
-// catalog name, then ResolvePreparedPaths. lockfile= / waitlock= run next.
+// catalog name, then resolvePreparedPaths. lockfile= / waitlock= run next.
 // If the opener returns an error, OpenPreparedSpec releases
 // that address lock only; it does not close sockets, files, or children the
 // opener already acquired. The opener must clean those up before returning.
@@ -35,7 +35,7 @@
 // What happens inside the opener is not one sequence.
 //
 // Stream listen (TCP, UNIX, TLS-LISTEN, WS-LISTEN, …) creates the socket with
-// ListenControl: ApplyPastSocketPhase then ApplyListenOptions (reuse/v6only
+// ListenControl: ApplyPastSocketPhase then applyListenOptions (reuse/v6only
 // plus setsockopt-listen) before bind. OpenListenSession then compiles the peer
 // filter, then either returns a fork parent or accepts one connection. Accept
 // wait honors context and accept-timeout by aborting the listener. TCP accept

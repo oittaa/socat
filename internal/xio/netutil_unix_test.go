@@ -80,7 +80,7 @@ func TestApplyListenBacklogUnix(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	if err := ApplyListenBacklog(ln, 3); err != nil {
+	if err := applyListenBacklog(ln, 3); err != nil {
 		t.Fatal(err)
 	}
 }

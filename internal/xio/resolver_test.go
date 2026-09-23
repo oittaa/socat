@@ -577,7 +577,7 @@ func TestLookupDialIPAIPassivePrefersIPv6(t *testing.T) {
 	server.setAnswers([]net.IP{net.IPv4(192, 0, 2, 1), net.ParseIP("2001:db8::1")})
 	s := resNSAddrSpec(server.addr)
 	s.Options = append(s.Options, parse.Option{Name: "ai-addrconfig", Value: "0", Has: true}, parse.Option{Name: "ai-passive"})
-	netw, ip, zone, err := LookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", addrconfig.HostFromText("passive-udp.test"))
+	netw, ip, zone, err := lookupDialIP(t.Context(), mustDecodeAddress(t, s), "udp", addrconfig.HostFromText("passive-udp.test"))
 	if err != nil {
 		t.Fatal(err)
 	}

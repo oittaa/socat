@@ -5,13 +5,13 @@ import (
 )
 
 func TestOptionCapsAllowed(t *testing.T) {
-	if !OptionCapsAllowed([]string{OptCapListen}, []string{OptCapListen}) {
+	if !optionCapsAllowed([]string{optCapListen}, []string{optCapListen}) {
 		t.Fatal("listen address should allow listen option")
 	}
-	if OptionCapsAllowed(nil, []string{OptCapListen}) {
+	if optionCapsAllowed(nil, []string{optCapListen}) {
 		t.Fatal("address without listen cap must reject listen options")
 	}
-	if !OptionCapsAllowed([]string{OptCapListen}, nil) {
+	if !optionCapsAllowed([]string{optCapListen}, nil) {
 		t.Fatal("unrestricted option must be allowed")
 	}
 }

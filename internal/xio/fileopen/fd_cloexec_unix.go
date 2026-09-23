@@ -9,7 +9,7 @@ import (
 
 func setInheritedFDCloexec(fd int, g *xio.Global) {
 	if _, err := unix.FcntlInt(uintptr(fd), unix.F_SETFD, unix.FD_CLOEXEC); err != nil {
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Warningf("fcntl(%d, F_SETFD, FD_CLOEXEC): %s", fd, err)
 		}
 	}

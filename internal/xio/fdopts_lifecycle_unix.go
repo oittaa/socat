@@ -358,10 +358,10 @@ func ApplyFDPhaseLifecycleToConn(c syscall.Conn, s addrconfig.Address) error {
 	return errors.Join(ctrlErr, optionErr)
 }
 
-// ApplyFDLifecycleToPacketConn applies descriptor lifecycle on a UDP
+// applyFDLifecycleToPacketConn applies descriptor lifecycle on a UDP
 // PacketConn (QUIC transport) before quic-go wrapping. Rejects enabled
 // options when the conn does not expose a socket.
-func ApplyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
+func applyFDLifecycleToPacketConn(pc net.PacketConn, s addrconfig.Address) error {
 	if pc == nil {
 		return nil
 	}

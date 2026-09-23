@@ -9,9 +9,9 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// ValidateDescriptorModeOptions rejects Cygwin-only options on Unix even
+// validateDescriptorModeOptions rejects Cygwin-only options on Unix even
 // though the shared help table knows their names for Windows builds.
-func ValidateDescriptorModeOptions(s addrconfig.Address) error {
+func validateDescriptorModeOptions(s addrconfig.Address) error {
 	if s.Common.Binary.Set {
 		return fmt.Errorf("%s: option %q is not supported on this platform", s.Type, "binary")
 	}
@@ -27,7 +27,7 @@ func ValidateDescriptorModeOptions(s addrconfig.Address) error {
 }
 
 func applyConfiguredDescriptorMode(config addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	if err := ValidateDescriptorModeOptions(config); err != nil {
+	if err := validateDescriptorModeOptions(config); err != nil {
 		return nil, err
 	}
 	return stream, nil

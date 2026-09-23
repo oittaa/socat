@@ -14,14 +14,14 @@ func (*rawIPRecvFrom) IOSemantics() relay.IOSemantics     { return relay.Message
 func (*rawIPFilteredRecv) IOSemantics() relay.IOSemantics { return relay.MessageIO }
 func (*oneshotForkConn) IOSemantics() relay.IOSemantics   { return relay.MessageIO }
 
-func (c *udpDatagramConn) StreamProps() relay.Props   { return relay.Inspect(c) }
-func (c *udpFilteredRecv) StreamProps() relay.Props   { return relay.Inspect(c) }
-func (c *udpSessionConn) StreamProps() relay.Props    { return relay.Inspect(c) }
-func (c *udpRecvFromConn) StreamProps() relay.Props   { return relay.Inspect(c) }
-func (c *unixRecvStream) StreamProps() relay.Props    { return relay.Inspect(c) }
-func (c *unixgramConn) StreamProps() relay.Props      { return relay.Inspect(c) }
-func (c *rawIPDatagramConn) StreamProps() relay.Props { return relay.Inspect(c) }
-func (c *rawIPConn) StreamProps() relay.Props         { return relay.Inspect(c) }
-func (c *rawIPRecvFrom) StreamProps() relay.Props     { return relay.Inspect(c) }
-func (c *rawIPFilteredRecv) StreamProps() relay.Props { return relay.Inspect(c) }
+func (u *udpDatagramConn) StreamProps() relay.Props   { return relay.Inspect(u) }
+func (u *udpFilteredRecv) StreamProps() relay.Props   { return relay.Inspect(u) }
+func (u *udpSessionConn) StreamProps() relay.Props    { return relay.Inspect(u) }
+func (u *udpRecvFromConn) StreamProps() relay.Props   { return relay.Inspect(u) }
+func (u *unixRecvStream) StreamProps() relay.Props    { return relay.Inspect(u) }
+func (u *unixgramConn) StreamProps() relay.Props      { return relay.Inspect(u) }
+func (r *rawIPDatagramConn) StreamProps() relay.Props { return relay.Inspect(r) }
+func (r *rawIPConn) StreamProps() relay.Props         { return relay.Inspect(r) }
+func (r *rawIPRecvFrom) StreamProps() relay.Props     { return relay.Inspect(r) }
+func (r *rawIPFilteredRecv) StreamProps() relay.Props { return relay.Inspect(r) }
 func (c *oneshotForkConn) StreamProps() relay.Props   { return relay.Inspect(c) }

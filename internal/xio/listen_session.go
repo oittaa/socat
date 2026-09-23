@@ -21,7 +21,7 @@ type ListenSession struct {
 	Label            string
 	WrapDial         func(net.Conn) (relay.Stream, error)
 	HandshakeTimeout time.Duration
-	// AfterAccept runs after RememberAddrs on each accepted connection,
+	// AfterAccept runs after rememberAddrs on each accepted connection,
 	// including fork children. Failure closes only that child.
 	AfterAccept            func(*Global, net.Conn) error
 	ListeningLog           string
@@ -30,8 +30,8 @@ type ListenSession struct {
 	PeerFilter             *PeerFilter
 }
 
-// DefaultWrapDial returns SetupStream around a net.Conn.
-func DefaultWrapDial(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
+// defaultWrapDial returns SetupStream around a net.Conn.
+func defaultWrapDial(s addrconfig.Address) func(net.Conn) (relay.Stream, error) {
 	return func(c net.Conn) (relay.Stream, error) {
 		return SetupStream(s, relay.NetStream{Conn: c})
 	}
@@ -64,7 +64,7 @@ func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, ses
 	}
 	wrap := sess.WrapDial
 	if wrap == nil {
-		wrap = DefaultWrapDial(s)
+		wrap = defaultWrapDial(s)
 	}
 	peerFilter := sess.PeerFilter
 	if peerFilter == nil {
@@ -110,9 +110,9 @@ func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, ses
 }
 
 func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess ListenSession, ln net.Listener, wrap func(net.Conn) (relay.Stream, error), filter func(net.Conn) error, safeCloseLn func() error) (*Opened, error) {
-	if sess.ListeningLog != "" && g != nil && g.Log != nil {
+	if sess.ListeningLog != "" && g != nil {
 		g.Log.Noticef("%s", sess.ListeningLog)
-	} else if g != nil && g.Log != nil {
+	} else if g != nil {
 		g.Log.Noticef("listening on %s", ln.Addr())
 	}
 
@@ -127,7 +127,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 				return nil, ctx.Err()
 			}
 			if errors.Is(err, ErrAcceptTimeout) || IsTimeoutErr(err) {
-				if g != nil && g.Log != nil {
+				if g != nil {
 					g.Log.Warningf("accept: Connection timed out")
 				}
 				return nil, ErrAcceptTimeout
@@ -135,7 +135,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 			return nil, err
 		}
 		if err := filter(c); err != nil {
-			CloseRefusedPeer(c)
+			closeRefusedPeer(c)
 			if ctx != nil && ctx.Err() != nil {
 				_ = safeCloseLn()
 				return nil, ctx.Err()
@@ -151,7 +151,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 	if !sess.KeepListenerForSession {
 		_ = safeCloseLn()
 	}
-	if g != nil && g.Log != nil && conn.RemoteAddr() != nil {
+	if g != nil && conn.RemoteAddr() != nil {
 		g.Log.Noticef("accepted connection from %s", conn.RemoteAddr())
 	}
 	if err := rememberAccepted(g, conn, sess.AfterAccept); err != nil {
@@ -180,7 +180,7 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 // rememberAccepted records generic SOCAT_* address fields, then any
 // listen-specific follow-up such as UNIX peer names or TLS metadata.
 func rememberAccepted(g *Global, c net.Conn, after func(*Global, net.Conn) error) error {
-	RememberAddrs(g, c)
+	rememberAddrs(g, c)
 	if after == nil {
 		return nil
 	}

@@ -298,7 +298,7 @@ func (c *execChild) prepareForked(ctx context.Context) error {
 	// pty/ptmx/openpty are user-selected transports; pipes+pty ignores pipes.
 	c.usePipes = userPipes
 	if c.usePipes && c.usePty {
-		if c.g != nil && c.g.Log != nil {
+		if c.g != nil {
 			c.g.Log.Warningf("options \"pipes\" and \"pty\" must not be specified together; ignoring \"pipes\"")
 		}
 		c.usePipes = false
@@ -386,7 +386,7 @@ func startCmd(ctx context.Context, s addrconfig.Address, mode Mode, g *Global, c
 			return nil, err
 		}
 		config := c.config
-		return NewDeferredNoFork("EXEC-nofork", config), nil
+		return newDeferredNoFork("EXEC-nofork", config), nil
 	}
 	if err := c.prepareForked(ctx); err != nil {
 		return nil, err
@@ -593,7 +593,7 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 		}
 	default:
 		if stype == syscall.SOCK_DGRAM {
-			return DgramPairStream(parent)
+			return dgramPairStream(parent)
 		}
 		return FileStream(parent)
 	}
@@ -701,7 +701,7 @@ func setCloexecAllFrom(from int) {
 	if setCloexecRange(from) {
 		return
 	}
-	// Fallback: snapshot /proc/self/fd then CloseOnExec each.
+	// Fallback: snapshot /proc/self/fd then closeOnExec each.
 	f, err := os.Open("/proc/self/fd")
 	if err == nil {
 		names, _ := f.Readdirnames(-1)
@@ -711,12 +711,12 @@ func setCloexecAllFrom(from int) {
 			if err != nil || fd < from {
 				continue
 			}
-			CloseOnExec(fd)
+			closeOnExec(fd)
 		}
 		return
 	}
 	for fd := from; fd < 1024; fd++ {
-		CloseOnExec(fd)
+		closeOnExec(fd)
 	}
 }
 

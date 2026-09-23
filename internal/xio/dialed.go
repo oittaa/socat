@@ -49,11 +49,11 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	}
 	wrap := d.Wrap
 	if wrap == nil {
-		wrap = DefaultWrapDial(s)
+		wrap = defaultWrapDial(s)
 	}
 	if fork {
 		o, err := NewRepeatedDial(d.Label, RepeatedDial{
-			Dial:        WrapNetNSDial(netNamespaceName(s), g, d.Dial),
+			Dial:        wrapNetNSDial(netNamespaceName(s), g, d.Dial),
 			Interval:    s.Common.Retry.Policy().Interval,
 			MaxChildren: maxChildren,
 			WrapDial:    wrap,
@@ -67,14 +67,14 @@ func OpenDialed(ctx context.Context, s addrconfig.Address, g *Global, d Dialed) 
 	if err != nil {
 		return fail(err)
 	}
-	RememberAddrs(g, conn)
+	rememberAddrs(g, conn)
 	if d.RememberTLS {
 		if err := RememberTLSPeer(g, conn, HandshakeTimeout(s)); err != nil {
 			logx.CloseQuiet(conn)
 			return fail(err)
 		}
 	}
-	if d.LogOK && g != nil && g.Log != nil {
+	if d.LogOK && g != nil {
 		g.Log.Noticef("successfully connected from %s to %s%s", conn.LocalAddr(), conn.RemoteAddr(), d.LogSuffix)
 	}
 	st, err := wrap(conn)

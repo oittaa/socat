@@ -5,9 +5,9 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-// PrintStats writes STATISTICS lines (forced to Info on a clone, plus the
+// printStats writes STATISTICS lines (forced to Info on a clone, plus the
 // experimental warning). Tests grep the substring STATISTICS.
-func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
+func printStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 	if log == nil {
 		return
 	}
@@ -39,32 +39,32 @@ func PrintStats(log *logx.Logger, st relay.Stats, l2r, r2l bool, started bool) {
 func PrintLiveStats(log *logx.Logger) {
 	if ts := relay.LiveTrackers(); len(ts) > 0 {
 		for _, t := range ts {
-			PrintStats(log, t.Snapshot(), t.LeftToRight, t.RightToLeft, true)
+			printStats(log, t.Snapshot(), t.LeftToRight, t.RightToLeft, true)
 		}
 		return
 	}
-	PrintLastStats(log)
+	printLastStats(log)
 }
 
 // PrintExitStats prints --statistics after Run if no session already printed.
 func PrintExitStats(g *Global) {
-	if g == nil || !g.Options().Statistics || g.Log == nil {
+	if g == nil || !g.Options().Statistics {
 		return
 	}
 	if g.statsAlreadyPrinted() {
 		return
 	}
-	PrintLastStats(g.Log)
+	printLastStats(g.Log)
 }
 
-// PrintLastStats is --statistics on exit.
-func PrintLastStats(log *logx.Logger) {
+// printLastStats is --statistics on exit.
+func printLastStats(log *logx.Logger) {
 	t := relay.LastTracker()
 	if t == nil {
-		PrintStats(log, relay.Stats{}, true, true, false)
+		printStats(log, relay.Stats{}, true, true, false)
 		return
 	}
-	PrintStats(log, t.Snapshot(), t.LeftToRight, t.RightToLeft, true)
+	printStats(log, t.Snapshot(), t.LeftToRight, t.RightToLeft, true)
 }
 
 func statDigits(n uint64) int {

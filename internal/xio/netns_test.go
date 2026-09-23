@@ -100,7 +100,7 @@ func TestWrapNetNSDialNoOption(t *testing.T) {
 		called = true
 		return nil, errors.New("dialed")
 	}
-	got := WrapNetNSDial("", nil, inner)
+	got := wrapNetNSDial("", nil, inner)
 	_, err := got(context.Background())
 	if !called || err == nil || err.Error() != "dialed" {
 		t.Fatalf("passthrough failed: called=%v err=%v", called, err)

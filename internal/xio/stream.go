@@ -71,10 +71,10 @@ func shutdownWriteFile(f *os.File) error {
 	return shutErr
 }
 
-// DgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
+// dgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
 // marks the write-side shutdown without closing the read side; full Close at
 // transfer cancellation eventually releases the FD and stops the child.
-func DgramPairStream(f *os.File) relay.Stream {
+func dgramPairStream(f *os.File) relay.Stream {
 	var once sync.Once
 	closeF := func() { once.Do(func() { _ = f.Close() }) }
 	return relay.FDStream{
@@ -448,7 +448,7 @@ type escapeReader struct {
 	// leftover after escape in same Read is discarded (EOF after partial)
 }
 
-func (r *escapeReader) UnwrapReader() io.Reader { return r.r }
+func (e *escapeReader) UnwrapReader() io.Reader { return e.r }
 
 func (e *escapeReader) Read(p []byte) (int, error) {
 	n, err := e.r.Read(p)
@@ -481,7 +481,7 @@ type nullEOFReader struct {
 	r io.Reader
 }
 
-func (r *nullEOFReader) UnwrapReader() io.Reader { return r.r }
+func (n *nullEOFReader) UnwrapReader() io.Reader { return n.r }
 
 func (n *nullEOFReader) Read(p []byte) (int, error) {
 	if len(p) == 0 {
@@ -549,17 +549,17 @@ func applySocketTimeouts(config addrconfig.Address, stream relay.Stream) relay.S
 	return socketTimeoutStream{Stream: stream, readTimeout: readTimeout, writeTimeout: writeTimeout}
 }
 
-// SocketTimeoutLayer selects where read/write timeouts are enforced.
-type SocketTimeoutLayer uint8
+// socketTimeoutLayer selects where read/write timeouts are enforced.
+type socketTimeoutLayer uint8
 
 const (
-	StreamSocketTimeouts SocketTimeoutLayer = iota
+	StreamSocketTimeouts socketTimeoutLayer = iota
 	TransportSocketTimeouts
 )
 
 // WrapStream applies stream transformations after transport setup is complete.
 // TLS enforces timeouts below its record layer; other streams enforce them here.
-func WrapStream(s addrconfig.Address, stream relay.Stream, timeouts SocketTimeoutLayer) (relay.Stream, error) {
+func WrapStream(s addrconfig.Address, stream relay.Stream, timeouts socketTimeoutLayer) (relay.Stream, error) {
 	// O_BINARY/O_TEXT are descriptor-level conversions. Keep the wrapper
 	// inside user-requested cr/crnl, readbytes, escape, and ignoreeof layers,
 	// and do not let zero-copy bypass it.
@@ -601,8 +601,8 @@ func (e endCloseStream) IsEndClose() bool           { return true }
 func (e endCloseStream) UnwrapStream() relay.Stream { return e.Stream }
 func (endCloseStream) closesOnHalfClose() bool      { return false }
 
-// StreamIsEndClose reports whether s (or a wrapper) is end-close.
-func StreamIsEndClose(s relay.Stream) bool {
+// streamIsEndClose reports whether s (or a wrapper) is end-close.
+func streamIsEndClose(s relay.Stream) bool {
 	type endCloser interface{ IsEndClose() bool }
 	if e, ok := s.(endCloser); ok && e.IsEndClose() {
 		return true
@@ -622,7 +622,7 @@ type ignoreEOFReader struct {
 	close    sync.Once
 }
 
-func NewIgnoreEOF(r io.Reader) *ignoreEOFReader {
+func newIgnoreEOF(r io.Reader) *ignoreEOFReader {
 	return &ignoreEOFReader{
 		r:        r,
 		minDelay: time.Millisecond,
@@ -676,7 +676,7 @@ type ignoreEOFStream struct {
 }
 
 func newIgnoreEOFStream(inner relay.Stream) relay.Stream {
-	return &ignoreEOFStream{Stream: inner, reader: NewIgnoreEOF(inner)}
+	return &ignoreEOFStream{Stream: inner, reader: newIgnoreEOF(inner)}
 }
 
 func (s *ignoreEOFStream) Read(p []byte) (int, error) { return s.reader.Read(p) }

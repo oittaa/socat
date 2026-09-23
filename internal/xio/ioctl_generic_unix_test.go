@@ -24,7 +24,7 @@ func TestApplyFDOptionsIoctlIntpFIONREADPipe(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := mustSpec(t, "FD:3,ioctl-intp="+strconv.FormatUint(uint64(fionreadRequest()), 10)+":0")
-	if err := ApplyFDOptions(r, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(r, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("ioctl-intp FIONREAD: %v", err)
 	}
 	buf := make([]byte, 4)
@@ -45,7 +45,7 @@ func TestApplyFDOptionsIoctlIntpFIONREADSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := mustSpec(t, "FD:3,ioctl-intp="+strconv.FormatUint(uint64(fionreadRequest()), 10)+":0")
-	if err := ApplyFDOptions(a, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(a, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("ioctl-intp FIONREAD socket: %v", err)
 	}
 }
@@ -57,7 +57,7 @@ func TestApplyFDOptionsIoctlVoidTIOCEXCLPty(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = master.Close(); _ = slave.Close() })
 	spec := mustSpec(t, "FD:3,ioctl-void="+strconv.FormatUint(uint64(unix.TIOCEXCL), 10))
-	if err := ApplyFDOptions(slave, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(slave, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("ioctl-void TIOCEXCL: %v", err)
 	}
 }
@@ -74,7 +74,7 @@ func TestApplyFDOptionsIoctlBinTIOCGWINSZPty(t *testing.T) {
 	// TIOCGWINSZ writes struct winsize (8 bytes). ioctl-bin is the matching
 	// generic form; skip rather than pass an int pointer of the wrong size.
 	spec := mustSpec(t, "FD:3,ioctl-bin="+strconv.FormatUint(uint64(unix.TIOCGWINSZ), 10)+":x0000000000000000")
-	if err := ApplyFDOptions(slave, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(slave, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatalf("ioctl-bin TIOCGWINSZ: %v", err)
 	}
 }
@@ -118,7 +118,7 @@ func TestApplyFDOptionsIoctlIntApplyErrorWithoutSuccess(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = f.Close() })
 	spec := mustSpec(t, "FD:3,ioctl-int=0:0")
-	err = ApplyFDOptions(f, mustDecodeAddress(t, spec))
+	err = applyFDOptions(f, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("ioctl-int=0:0 unexpectedly succeeded")
 	}
@@ -137,7 +137,7 @@ func TestApplyFDOptionsIoctlAlias(t *testing.T) {
 		t.Fatal("ioctl must fold to ioctl-void")
 	}
 	spec := mustSpec(t, "FD:3,ioctl="+strconv.FormatUint(uint64(unix.TIOCEXCL), 10))
-	err = ApplyFDOptions(r, mustDecodeAddress(t, spec))
+	err = applyFDOptions(r, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("ioctl-void TIOCEXCL on a pipe unexpectedly succeeded")
 	}
@@ -156,7 +156,7 @@ func TestApplyFDOptionsIoctlIntpAliasPath(t *testing.T) {
 		t.Fatal("ioctl must fold to ioctl-void")
 	}
 	spec := mustSpec(t, "FD:3,ioctl-intp="+strconv.FormatUint(uint64(fionreadRequest()), 10)+":0")
-	if err := ApplyFDOptions(r, mustDecodeAddress(t, spec)); err != nil {
+	if err := applyFDOptions(r, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 }

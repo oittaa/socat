@@ -54,7 +54,7 @@ func TestSessionEnvironUsesPrognameAndSocatCompatibilityNames(t *testing.T) {
 }
 
 func TestSniffEnvFromSession(t *testing.T) {
-	g := &Global{Peer: Peer{PeerAddr: "192.0.2.1", PeerPort: "9"}}
+	g := &Global{Peer: peer{PeerAddr: "192.0.2.1", PeerPort: "9"}}
 	v, ok := sniffEnvValue(g, "SOCAT_PEERADDR")
 	if !ok || v != "192.0.2.1" {
 		t.Fatalf("got %q %v", v, ok)

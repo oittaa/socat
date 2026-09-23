@@ -14,7 +14,7 @@ func TestCreateLockFileModeIgnoresUmask(t *testing.T) {
 	path := testutil.UnixSocketPath(t, "umask.lock")
 	old := unix.Umask(0o077)
 	t.Cleanup(func() { unix.Umask(old) })
-	info, err := CreateLockFile(path)
+	info, err := createLockFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -127,7 +127,7 @@ func dialVSOCK(req dialRequest, remote vsockEndpoint) (net.Conn, error) {
 	logVsockCID(req.g)
 	cctx, cancel := req.withTimeout()
 	defer cancel()
-	if req.g != nil && req.g.Log != nil {
+	if req.g != nil {
 		req.g.Log.Noticef("opening connection to AF=%d cid:%d port:%d", args.family, remote.cid, remote.port)
 	}
 	if err := connectVSOCK(cctx, fd, &unix.SockaddrVM{CID: remote.cid, Port: remote.port}); err != nil {

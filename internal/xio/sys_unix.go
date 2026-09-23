@@ -6,7 +6,7 @@ import "golang.org/x/sys/unix"
 
 const oCloexec = unix.O_CLOEXEC
 
-func CloseOnExec(fd int) { unix.CloseOnExec(fd) }
+func closeOnExec(fd int) { unix.CloseOnExec(fd) }
 
 func ShutdownWrite(fd int) error { return unix.Shutdown(fd, unix.SHUT_WR) }
 

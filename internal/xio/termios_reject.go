@@ -5,10 +5,10 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// RejectUnsupportedTermios fails when a spec requests a termios option on a
+// rejectUnsupportedTermios fails when a spec requests a termios option on a
 // platform that does not implement termios (Windows). Same shape as
-// RejectUnsupportedIPAncillary: do not accept the option as a silent no-op.
-func RejectUnsupportedTermios(s addrconfig.Address) error {
+// rejectUnsupportedIPAncillary: do not accept the option as a silent no-op.
+func rejectUnsupportedTermios(s addrconfig.Address) error {
 	if FeatureTERMIOS {
 		return nil
 	}

@@ -12,30 +12,30 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// AddressWaitLockPollInterval is the 1s poll for address waitlock=.
+// addressWaitLockPollInterval is the 1s poll for address waitlock=.
 // Cancellation is still checked before each create.
-const AddressWaitLockPollInterval = time.Second
+const addressWaitLockPollInterval = time.Second
 
 // CLILockPollInterval is the CLI -W retry interval (1s), matching
 // address waitlock=.
 const CLILockPollInterval = time.Second
 
-// DefaultLockPollInterval is the AcquireLockFile fallback when interval <= 0.
-const DefaultLockPollInterval = CLILockPollInterval
+// defaultLockPollInterval is the acquireLockFile fallback when interval <= 0.
+const defaultLockPollInterval = CLILockPollInterval
 
-// lockfileAfterCreateHook runs after a successful CreateLockFile inside
+// lockfileAfterCreateHook runs after a successful createLockFile inside
 // HoldLockFile and before identity verification / signal-cleanup registration.
 // Tests replace the pathname here; production leaves it nil.
 var lockfileAfterCreateHook func(path string)
 
-// AcquireLockFile creates path with O_EXCL (0644, pid\n). If wait is false and
+// acquireLockFile creates path with O_EXCL (0644, pid\n). If wait is false and
 // the name exists, it returns "lockfile %s exists". If wait is true, it polls
 // until the create succeeds or ctx is cancelled. ctx is checked before each
 // create so cancellation cannot create the file. The returned FileInfo is
 // f.Stat() of the created descriptor while it was still open.
-func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) (os.FileInfo, error) {
+func acquireLockFile(ctx context.Context, path string, wait bool, interval time.Duration) (os.FileInfo, error) {
 	if interval <= 0 {
-		interval = DefaultLockPollInterval
+		interval = defaultLockPollInterval
 	}
 	const transientRetryLimit = time.Second
 	contentionObserved := false
@@ -44,7 +44,7 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		info, err := CreateLockFile(path)
+		info, err := createLockFile(path)
 		if err == nil {
 			return info, nil
 		}
@@ -79,12 +79,12 @@ func AcquireLockFile(ctx context.Context, path string, wait bool, interval time.
 	}
 }
 
-// CreateLockFile atomically creates path (O_CREATE|O_EXCL) with mode 0644 and
+// createLockFile atomically creates path (O_CREATE|O_EXCL) with mode 0644 and
 // writes pid\n. OpenFile's mode is umask-masked, so this fchmod(0644)s the
 // still-open descriptor. Identity is f.Stat() while that fd is open; a later
 // Lstat must still name the same object before success is returned.
 // Write/close/chmod failure unlinks only when lstat still names that object.
-func CreateLockFile(path string) (os.FileInfo, error) {
+func createLockFile(path string) (os.FileInfo, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644) // #nosec G302 G304 -- lockfile=/waitlock=/-L/-W path comes from the user; 0644 lockfile mode
 	if err != nil {
 		return nil, err
@@ -121,11 +121,11 @@ func CreateLockFile(path string) (os.FileInfo, error) {
 // HoldLockFile acquires path (waitlock if wait) and returns an identity-safe
 // release used for normal close, failed-open cleanup, and signal-exit unlink.
 // interval is the waitlock poll; lockfile= ignores it. Pass
-// AddressWaitLockPollInterval for address waitlock= and CLILockPollInterval
+// addressWaitLockPollInterval for address waitlock= and CLILockPollInterval
 // for CLI -W. Signal cleanup is registered with the create-time FileInfo,
 // not a second Lstat of whatever currently occupies the name.
 func HoldLockFile(ctx context.Context, path string, wait bool, interval time.Duration) (func(), error) {
-	info, err := AcquireLockFile(ctx, path, wait, interval)
+	info, err := acquireLockFile(ctx, path, wait, interval)
 	if err != nil {
 		return nil, err
 	}
@@ -162,15 +162,15 @@ func verifyLockIdentity(path string, original os.FileInfo) error {
 // Security exception: unlink only when the name still refers to the acquired
 // object. A replacement at the same path is left in place.
 func releaseLockFile(path string, original os.FileInfo) {
-	UnlinkIfSameFile(path, original)
+	unlinkIfSameFile(path, original)
 }
 
-// applyAddressLock applies lockfile=/waitlock= after ResolvePreparedPaths and
+// applyAddressLock applies lockfile=/waitlock= after resolvePreparedPaths and
 // before the opener so a failed open still releases and relative paths follow
 // chdir=.
 func applyAddressLock(ctx context.Context, config addrconfig.Address) (func(), error) {
 	if !config.File.LockSet || config.File.LockPath == "" {
 		return nil, nil
 	}
-	return HoldLockFile(ctx, config.File.LockPath, config.File.LockWait, AddressWaitLockPollInterval)
+	return HoldLockFile(ctx, config.File.LockPath, config.File.LockWait, addressWaitLockPollInterval)
 }

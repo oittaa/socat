@@ -207,7 +207,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			if raw.Lflag&unix.ECHO != 0 || raw.Lflag&unix.ICANON != 0 {
 				t.Fatalf("raw,echo=0 did not clear echo/canonical: %s", formatTermios(raw))
 			}
-			if config.Transfer.EndClose.Value && !StreamIsEndClose(o.Stream()) {
+			if config.Transfer.EndClose.Value && !streamIsEndClose(o.Stream()) {
 				t.Fatal("termios restore wrapper hid end-close")
 			}
 			if tc.half != ptyNoHalfClose {

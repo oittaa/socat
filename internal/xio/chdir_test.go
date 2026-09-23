@@ -20,7 +20,7 @@ func resolveChdirConfig(t *testing.T, spec parse.Spec) addrconfig.Address {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ResolvePreparedPaths(config)
+	got, err := resolvePreparedPaths(config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func decodeAndResolveChdir(t *testing.T, text string, facts addrconfig.Facts) ad
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := ResolvePreparedPaths(config)
+	got, err := resolvePreparedPaths(config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ func TestPrintStatsNotStarted(t *testing.T) {
 	var buf bytes.Buffer
 	log := logx.New()
 	log.SetOutput(&buf)
-	PrintStats(log, relay.Stats{}, true, true, false)
+	printStats(log, relay.Stats{}, true, true, false)
 	if !strings.Contains(buf.String(), "transfer engine not yet started") {
 		t.Fatalf("got %q", buf.String())
 	}
@@ -71,7 +71,7 @@ func TestPrintStatsUnidirectional(t *testing.T) {
 	log := logx.New()
 	log.SetOutput(&buf)
 	log.SetLevel(logx.Warning)
-	PrintStats(log, relay.Stats{BytesLR: 4, BlocksLR: 1}, true, false, true)
+	printStats(log, relay.Stats{BytesLR: 4, BlocksLR: 1}, true, false, true)
 	out := buf.String()
 	if strings.Count(out, "STATISTICS") != 1 {
 		t.Fatalf("want 1 line for -u:\n%s", out)
@@ -86,7 +86,7 @@ func TestPrintStatsDoesNotChangeParentLevel(t *testing.T) {
 	log := logx.New()
 	log.SetOutput(&buf)
 	log.SetLevel(logx.Warning)
-	PrintStats(log, relay.Stats{BytesLR: 1, BlocksLR: 1}, true, false, true)
+	printStats(log, relay.Stats{BytesLR: 1, BlocksLR: 1}, true, false, true)
 	if log.Level() != logx.Warning {
 		t.Fatalf("parent level=%v want Warning", log.Level())
 	}

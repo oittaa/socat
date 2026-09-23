@@ -79,7 +79,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		ip := addr.IP
 		af := afForNetwork(dest.Network, ip)
 		raddr := &net.TCPAddr{IP: ip, Port: portNum, Zone: addr.Zone}
-		if g != nil && g.Log != nil {
+		if g != nil {
 			// "opening connection to AF=2 127.0.0.1:9"
 			g.Log.Noticef("opening connection to AF=%d %s", af, formatTCPAddr(dest.Network, ip, raddr.Port, raddr.Zone))
 		}
@@ -87,14 +87,14 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		laddr, skip, err := BindTCPAddrForRemote(ctx, ip, s, dest.Network)
 		if err != nil {
 			lastErr = err
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Warningf("bind: %s", err)
 			}
 			continue
 		}
 		if skip {
 			lastErr = fmt.Errorf("no bind address with matching address family (%d)", af)
-			if g != nil && g.Log != nil {
+			if g != nil {
 				g.Log.Warningf("%s", lastErr)
 			}
 			continue
@@ -110,7 +110,7 @@ func DialTCPAll(ctx context.Context, dest DialTarget, s addrconfig.Address, g *G
 		}
 		if err != nil {
 			lastErr = err
-			if g != nil && g.Log != nil {
+			if g != nil {
 				// Notice for intermediate failures, Warning for last.
 				g.Log.Noticef("connect AF=%d %s: %s", af, formatTCPAddr(netw, ip, raddr.Port, raddr.Zone), err)
 			}
@@ -235,7 +235,7 @@ func resolveConnectIPs(ctx context.Context, network, host string, s addrconfig.A
 		return []net.IPAddr{{IP: ip}}, nil
 	}
 
-	hint := IPHint(network)
+	hint := ipHint(network)
 	ips, err := LookupIP(ctx, s, hint, host)
 	if err != nil {
 		return nil, err
@@ -398,7 +398,7 @@ func dialTCPLowport(call dialCall, raddr, laddr *net.TCPAddr) (net.Conn, error) 
 	}
 	var conn net.Conn
 	_, err := FirstAvailableLowport(func(port int) error {
-		if call.g != nil && call.g.Log != nil {
+		if call.g != nil {
 			call.g.Log.Debugf("bind({AF=%d %s:%d}, 16)", afForNetwork(call.network, ip), FormatIPForNetwork(call.network, ip), port)
 		}
 		c, err := call.dialTCP(&net.TCPAddr{IP: ip, Port: port, Zone: zone}, raddr)

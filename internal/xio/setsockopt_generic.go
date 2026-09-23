@@ -15,19 +15,19 @@ import (
 // setsockopt-string / setsockopt-connected after connect.
 // Value forms: level:opt:int, level:opt:dalan (decimal 512 is a C int; xHH
 // is bytes), and level:opt:string (including the terminating NUL).
-type SockoptPhase int
+type sockoptPhase int
 
 const (
-	SockoptPhasePrebind SockoptPhase = iota
-	SockoptPhasePastSocket
+	SockoptPhasePrebind sockoptPhase = iota
+	sockoptPhasePastSocket
 	SockoptPhaseConnected
 )
 
-func sockoptWantPhase(phase SockoptPhase) (addrconfig.SocketPhase, bool) {
+func sockoptWantPhase(phase sockoptPhase) (addrconfig.SocketPhase, bool) {
 	switch phase {
 	case SockoptPhasePrebind:
 		return addrconfig.SocketPhasePrebind, true
-	case SockoptPhasePastSocket:
+	case sockoptPhasePastSocket:
 		return addrconfig.SocketPhasePastSocket, true
 	case SockoptPhaseConnected:
 		return addrconfig.SocketPhaseConnected, true
@@ -52,7 +52,7 @@ func applyPreparedGenericPhase(fd int, config addrconfig.Address, phase addrconf
 // phase. Kernel rejection fails the call. Every matching occurrence is
 // applied in original command-line order (aliases are already folded to
 // the canonical Name).
-func ApplyGenericSetsockopt(fd int, s addrconfig.Address, phase SockoptPhase) error {
+func ApplyGenericSetsockopt(fd int, s addrconfig.Address, phase sockoptPhase) error {
 	if phase == SockoptPhaseConnected {
 		return applyPreparedSocketPhase(fd, s, socketApplyConnected, "")
 	}
@@ -75,7 +75,7 @@ func ApplyGenericSetsockoptAll(fd int, s addrconfig.Address) error {
 // RejectGenericSetsockoptPhases fails an address/phase combination before it
 // can be accepted and silently ignored. FD includes post-socket() options
 // but not listen-time or post-connect generic setsockopt.
-func RejectGenericSetsockoptPhases(config addrconfig.Address, address string, phases ...SockoptPhase) error {
+func RejectGenericSetsockoptPhases(config addrconfig.Address, address string, phases ...sockoptPhase) error {
 	for _, action := range config.Network.Actions {
 		phase, name, ok := genericRejectPhase(action)
 		if !ok {
@@ -90,7 +90,7 @@ func RejectGenericSetsockoptPhases(config addrconfig.Address, address string, ph
 	return nil
 }
 
-func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, bool) {
+func genericRejectPhase(action addrconfig.SocketAction) (sockoptPhase, string, bool) {
 	switch action.Kind {
 	case addrconfig.SocketActionGeneric:
 		name := action.Text
@@ -101,7 +101,7 @@ func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, b
 		case addrconfig.SocketPhasePrebind:
 			return SockoptPhasePrebind, name, true
 		case addrconfig.SocketPhasePastSocket:
-			return SockoptPhasePastSocket, name, true
+			return sockoptPhasePastSocket, name, true
 		case addrconfig.SocketPhaseConnected:
 			return SockoptPhaseConnected, name, true
 		}
@@ -117,7 +117,7 @@ func genericRejectPhase(action addrconfig.SocketAction) (SockoptPhase, string, b
 	return 0, "", false
 }
 
-func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) bool {
+func hasGenericSetsockopt(s addrconfig.Address, phase sockoptPhase) bool {
 	want, ok := sockoptWantPhase(phase)
 	if !ok {
 		return false
@@ -136,10 +136,10 @@ func hasGenericSetsockopt(s addrconfig.Address, phase SockoptPhase) bool {
 	return false
 }
 
-// ApplyGenericSetsockoptToConn applies phase options on any syscall.Conn.
+// applyGenericSetsockoptToConn applies phase options on any syscall.Conn.
 // Missing options are a no-op. Present options on a conn that does not
 // expose a socket fail; they are never silently ignored.
-func ApplyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase SockoptPhase) error {
+func applyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase sockoptPhase) error {
 	if conn == nil || !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
@@ -156,7 +156,7 @@ func ApplyGenericSetsockoptToConn(conn syscall.Conn, s addrconfig.Address, phase
 
 // ApplyGenericSetsockoptToNetConn unwraps NetConn() wrappers, then applies
 // phase options. A present option on a non-socket fails.
-func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase SockoptPhase) error {
+func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase sockoptPhase) error {
 	if !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
@@ -168,13 +168,13 @@ func ApplyGenericSetsockoptToNetConn(c net.Conn, s addrconfig.Address, phase Soc
 	if !ok {
 		return fmt.Errorf("setsockopt: connection does not expose a socket")
 	}
-	return ApplyGenericSetsockoptToConn(sc, s, phase)
+	return applyGenericSetsockoptToConn(sc, s, phase)
 }
 
-// ApplyGenericSetsockoptToPacketConn applies phase options on a PacketConn
+// applyGenericSetsockoptToPacketConn applies phase options on a PacketConn
 // (QUIC transport, ListenPacket). Rejects present options when the conn does
 // not expose a socket fd.
-func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address, phase SockoptPhase) error {
+func applyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address, phase sockoptPhase) error {
 	if pc == nil || !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
@@ -182,10 +182,10 @@ func ApplyGenericSetsockoptToPacketConn(pc net.PacketConn, s addrconfig.Address,
 	if !ok {
 		return fmt.Errorf("setsockopt: packet connection does not expose a socket")
 	}
-	return ApplyGenericSetsockoptToConn(sc, s, phase)
+	return applyGenericSetsockoptToConn(sc, s, phase)
 }
 
-func applyGenericSetsockoptToStream(s addrconfig.Address, stream relay.Stream, phase SockoptPhase) error {
+func applyGenericSetsockoptToStream(s addrconfig.Address, stream relay.Stream, phase sockoptPhase) error {
 	if !hasGenericSetsockopt(s, phase) {
 		return nil
 	}
@@ -195,7 +195,7 @@ func applyGenericSetsockoptToStream(s addrconfig.Address, stream relay.Stream, p
 		// syscall.Conn. Those openers apply connected options on the raw fd
 		// or PacketConn before wrapping (same split as late buffers). A
 		// present option on a live socket must still fail in ApplyTCPConnOpts
-		// / ApplyGenericSetsockoptToPacketConn when the conn has no fd.
+		// / applyGenericSetsockoptToPacketConn when the conn has no fd.
 		return nil
 	}
 	for _, raw := range conns {

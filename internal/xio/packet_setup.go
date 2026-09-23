@@ -27,14 +27,14 @@ func ListenPacketWithOptions(ctx context.Context, network string, host addrconfi
 		return nil, err
 	}
 	for _, apply := range []func(net.PacketConn, addrconfig.Address) error{
-		ApplyLateSocketOptionsToPacketConn, ApplyFDLifecycleToPacketConn,
+		applyLateSocketOptionsToPacketConn, applyFDLifecycleToPacketConn,
 	} {
 		if err := apply(pc, s); err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
 		}
 	}
-	if err := ApplyGenericSetsockoptToPacketConn(pc, s, SockoptPhaseConnected); err != nil {
+	if err := applyGenericSetsockoptToPacketConn(pc, s, SockoptPhaseConnected); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func ListenClientPacket(ctx context.Context, network string, host addrconfig.Hos
 	}
 	var pc net.PacketConn
 	_, err := FirstAvailableLowport(func(p int) error {
-		if g != nil && g.Log != nil {
+		if g != nil {
 			g.Log.Debugf("bind(%s:%d)", host.Original(), p)
 		}
 		var err error

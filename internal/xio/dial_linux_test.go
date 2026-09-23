@@ -79,7 +79,7 @@ func TestTCP6LinkLocalZoneRoundTrip(t *testing.T) {
 				}
 				bind = mustDecodeAddress(t, parsed)
 			}
-			c, err := DialTCPAll(t.Context(), DialTargetFromText("tcp6", "["+host+"]", port), bind, nil, 0, nil)
+			c, err := DialTCPAll(t.Context(), dialTargetFromText("tcp6", "["+host+"]", port), bind, nil, 0, nil)
 			if err != nil {
 				t.Fatal(err)
 			}

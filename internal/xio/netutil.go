@@ -126,8 +126,8 @@ func ApplyReuse(fd int, s addrconfig.Address, reuseaddrDefault bool) error {
 	return nil
 }
 
-// ApplyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
-func ApplyReuseAndV6Only(fd int, s addrconfig.Address, network string) error {
+// applyReuseAndV6Only sets listen reuse flags and IPV6_V6ONLY before bind.
+func applyReuseAndV6Only(fd int, s addrconfig.Address, network string) error {
 	if err := ApplyReuse(fd, s, reuseaddrListenDefault(s, network)); err != nil {
 		return err
 	}
@@ -152,19 +152,19 @@ func ApplyReuseAndV6Only(fd int, s addrconfig.Address, network string) error {
 	return nil
 }
 
-// ApplyListenOptions applies socket options that must be set before bind
+// applyListenOptions applies socket options that must be set before bind
 // (reuseaddr/reuseport/ipv6-v6only plus setsockopt-listen).
 // so-broadcast and other post-socket options live in ApplySocketOptions and
 // must run first (DialControl / ListenControl / listenUDP Control).
-func ApplyListenOptions(fd int, s addrconfig.Address, network string) error {
+func applyListenOptions(fd int, s addrconfig.Address, network string) error {
 	// Windows AF_UNIX sockets reject SO_REUSEADDR and can remain unusable
 	// after the failed call. UNIX path reuse is handled by the opener instead.
 	if !strings.HasPrefix(network, "unix") {
-		if err := ApplyReuseAndV6Only(fd, s, network); err != nil {
+		if err := applyReuseAndV6Only(fd, s, network); err != nil {
 			return err
 		}
 	}
-	return ApplyPrebindPhase(fd, s)
+	return applyPrebindPhase(fd, s)
 }
 
 // ApplyPastSocketPhase applies post-socket options immediately after
@@ -175,43 +175,43 @@ func ApplyPastSocketPhase(fd int, s addrconfig.Address, network string) error {
 	return ApplyNetworkSocketOptions(fd, s, network)
 }
 
-// ApplyPrebindPhase applies generic setsockopt-listen and ip-transparent
+// applyPrebindPhase applies generic setsockopt-listen and ip-transparent
 // before bind()/connect(), in command-line order.
-func ApplyPrebindPhase(fd int, s addrconfig.Address) error {
+func applyPrebindPhase(fd int, s addrconfig.Address) error {
 	return applyPreparedSocketPhase(fd, s, socketApplyPrebind, "")
 }
 
 // ApplyPastSocketThenPrebind is the Control-hook order used by net.Dialer
 // and net.ListenConfig: ApplyPastSocketPhase after socket(), then
-// ApplyPrebindPhase, then return so connect()/bind() happens after both.
+// applyPrebindPhase, then return so connect()/bind() happens after both.
 func ApplyPastSocketThenPrebind(fd int, s addrconfig.Address, network string) error {
 	if err := ApplyPastSocketPhase(fd, s, network); err != nil {
 		return err
 	}
-	return ApplyPrebindPhase(fd, s)
+	return applyPrebindPhase(fd, s)
 }
 
 // ListenControl is a net.ListenConfig.Control that applies
-// ApplyPastSocketPhase then ApplyListenOptions before bind().
+// ApplyPastSocketPhase then applyListenOptions before bind().
 func ListenControl(s addrconfig.Address) func(network, address string, c syscall.RawConn) error {
 	return func(network, address string, c syscall.RawConn) error {
 		var optionErr error
 		controlErr := c.Control(func(fd uintptr) {
 			optionErr = ApplyPastSocketPhase(int(fd), s, network)
 			if optionErr == nil {
-				optionErr = ApplyListenOptions(int(fd), s, network)
+				optionErr = applyListenOptions(int(fd), s, network)
 			}
 		})
 		return errors.Join(controlErr, optionErr)
 	}
 }
 
-// NewTCPListenConfig is ListenConfig for TCP/TLS/WS listen.
+// newTCPListenConfig is ListenConfig for TCP/TLS/WS listen.
 // Go 1.21+ may create IPPROTO_MPTCP sockets by default; TCP-LISTEN is
 // IPPROTO_TCP. MPTCP silently no-ops SO_DONTROUTE (setsockopt succeeds,
 // getsockopt stays 0) and rejects TCP_MAXSEG (ENOPROTOOPT), so named
 // post-socket options would not have kernel effect. Stay on TCP.
-func NewTCPListenConfig(s addrconfig.Address) net.ListenConfig {
+func newTCPListenConfig(s addrconfig.Address) net.ListenConfig {
 	lc := net.ListenConfig{Control: ListenControl(s)}
 	lc.SetMultipathTCP(false)
 	return lc
@@ -523,7 +523,7 @@ func ApplyTCPConnOpts(s addrconfig.Address, c net.Conn) error {
 		// connect()/accept(), before TLS/PROXY handshake. WrapOpened
 		// still applies the same options on UNIX/UDP streams; a second
 		// SO_SNDBUF set on this TCP conn is harmless.
-		return ApplyLateSocketOptionsToConn(tc, s)
+		return applyLateSocketOptionsToConn(tc, s)
 	}
 	return ApplyGenericSetsockoptToNetConn(c, s, SockoptPhaseConnected)
 }

@@ -178,7 +178,7 @@ func TestListenControlAppliesDeferAcceptLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lc := NewTCPListenConfig(mustDecodeAddress(t, spec))
+	lc := newTCPListenConfig(mustDecodeAddress(t, spec))
 	ln, err := lc.Listen(context.Background(), "tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
