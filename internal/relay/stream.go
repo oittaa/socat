@@ -145,7 +145,7 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 	usePoll := canPoll()
 	fd := -1
 	if usePoll {
-		fd = streamReadFD(s.inner)
+		fd = StreamReadFD(s.inner)
 		if fd < 0 {
 			usePoll = false
 		}
@@ -332,14 +332,6 @@ func StreamReadFD(s Stream) int {
 // StreamWriteFD returns the underlying write descriptor, or -1.
 func StreamWriteFD(s Stream) int {
 	return PropsOf(s).WriteFD
-}
-
-func streamReadFD(s Stream) int {
-	return StreamReadFD(s)
-}
-
-func streamWriteFD(s Stream) int {
-	return StreamWriteFD(s)
 }
 
 // readDeadlineOf finds SetReadDeadline without Inspect. Cancel pokes

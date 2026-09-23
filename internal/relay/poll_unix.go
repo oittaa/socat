@@ -4,6 +4,7 @@ package relay
 
 import (
 	"context"
+	"errors"
 	"io"
 	"math"
 	"syscall"
@@ -43,7 +44,7 @@ func idleClockSleep() {
 			return
 		}
 		timeoutMs := int((remaining + time.Millisecond - 1) / time.Millisecond)
-		if _, err := poll(nil, timeoutMs); err != syscall.EINTR {
+		if _, err := poll(nil, timeoutMs); !errors.Is(err, syscall.EINTR) {
 			return
 		}
 	}
@@ -62,7 +63,7 @@ func waitPollRead(fd int, timeoutMs int) error {
 	pfds := []unix.PollFd{pfd}
 	n, err := poll(pfds, timeoutMs)
 	if err != nil {
-		if err == syscall.EINTR {
+		if errors.Is(err, syscall.EINTR) {
 			return errPollIdle
 		}
 		return err
@@ -131,7 +132,7 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		}
 		_, err := poll(pfds, pollWaitTimeoutMs) // timeout so we honour ctx
 		if err != nil {
-			if err == syscall.EINTR {
+			if errors.Is(err, syscall.EINTR) {
 				continue
 			}
 			return err
@@ -147,7 +148,7 @@ func waitReadableAndWritable(ctx context.Context, srcFD, dstFD int) error {
 		}
 		confirm := []unix.PollFd{src, dst}
 		if _, err := poll(confirm, 0); err != nil {
-			if err == syscall.EINTR {
+			if errors.Is(err, syscall.EINTR) {
 				continue
 			}
 			return err
@@ -185,7 +186,7 @@ func waitWritable(ctx context.Context, fd int) error {
 		pfds := []unix.PollFd{dst}
 		n, err := poll(pfds, 100)
 		if err != nil {
-			if err == syscall.EINTR {
+			if errors.Is(err, syscall.EINTR) {
 				continue
 			}
 			return err

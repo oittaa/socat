@@ -261,19 +261,19 @@ func Transfer(ctx context.Context, left, right Stream, cfg Config) error {
 	// Poll pipes, terminals, and raw-FD streams only.
 	useExplicitPoll := canPoll() && (streamNeedsExplicitPoll(left) || streamNeedsExplicitPoll(right))
 	if cfg.LeftToRight {
-		lrEOF = streamReadFD(left)
+		lrEOF = StreamReadFD(left)
 	}
 	if cfg.RightToLeft {
-		rlEOF = streamReadFD(right)
+		rlEOF = StreamReadFD(right)
 	}
 	if useExplicitPoll {
 		if cfg.LeftToRight {
-			lrDstFD = streamWriteFD(right)
-			lrSrcFD = streamReadFD(left)
+			lrDstFD = StreamWriteFD(right)
+			lrSrcFD = StreamReadFD(left)
 		}
 		if cfg.RightToLeft {
-			rlDstFD = streamWriteFD(left)
-			rlSrcFD = streamReadFD(right)
+			rlDstFD = StreamWriteFD(left)
+			rlSrcFD = StreamReadFD(right)
 		}
 	}
 	if cfg.LeftToRight && zeroCopyAllowed(cfg, dirLeftToRight, useExplicitPoll) {
@@ -544,7 +544,7 @@ func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirO
 			if isRetryableIOError(er) {
 				continue
 			}
-			if er == io.EOF || isBenignClose(er) {
+			if isBenignClose(er) {
 				return finishSourceEOF(ctx, t, cfg)
 			}
 			return classifyDirError(t.dir, er)
