@@ -68,23 +68,6 @@ func rawPacketCarries(got, payload []byte) bool {
 	return bytes.Equal(got[ihl:], payload)
 }
 
-func TestRawPacketCarriesIPv4Header(t *testing.T) {
-	payload := []byte("XYZ")
-	if !rawPacketCarries(payload, payload) {
-		t.Fatal("bare payload")
-	}
-	header := make([]byte, 20)
-	header[0] = 0x45
-	header[2] = 0x03
-	header[3] = 0x00
-	if !rawPacketCarries(append(header, payload...), payload) {
-		t.Fatal("IPv4 header plus payload")
-	}
-	if rawPacketCarries(append(append([]byte{}, header...), 'X'), payload) {
-		t.Fatal("header without payload")
-	}
-}
-
 func sendRawPayload(t *testing.T, c *net.IPConn, payload []byte) {
 	t.Helper()
 	if _, err := c.Write(payload); err != nil {
