@@ -99,6 +99,9 @@ func openUDPListenFork(ctx context.Context, s addrconfig.Address, g *xio.Global,
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	if bound, ok := pc.LocalAddr().(*net.UDPAddr); ok {
+		laddr = cloneUDPAddr(bound)
+	}
 	base := &udpForkListener{
 		pc:      pc,
 		network: network,
@@ -320,6 +323,10 @@ func (l *udpForkListener) waitIfHandedOff() (net.Conn, error, bool) {
 		l.mu.Unlock()
 		return nil, nil, false
 	}
+	if l.listenClosed {
+		l.mu.Unlock()
+		return nil, net.ErrClosed, true
+	}
 	done := l.exclusiveDone
 	l.mu.Unlock()
 	if done != nil {
@@ -329,7 +336,44 @@ func (l *udpForkListener) waitIfHandedOff() (net.Conn, error, bool) {
 			return nil, l.ctx.Err(), true
 		}
 	}
-	return nil, net.ErrClosed, true
+	// The exclusive session closed the listen socket. Bind it again so fork
+	// keeps accepting; that close is not a listener failure.
+	if err := l.rebindExclusive(); err != nil {
+		return nil, err, true
+	}
+	return nil, nil, false
+}
+
+func (l *udpForkListener) rebindExclusive() error {
+	l.mu.Lock()
+	if l.listenClosed {
+		l.mu.Unlock()
+		return net.ErrClosed
+	}
+	network, addr, config := l.network, cloneUDPAddr(l.laddr), l.config
+	g := l.g
+	l.mu.Unlock()
+	// The first socket was created in netns=. Bind the replacement there too.
+	var pc *net.UDPConn
+	err := xio.WithNetNS(config.Common.NetNamespace.Value, g, func() error {
+		var listenErr error
+		pc, listenErr = listenUDP(network, addr, config)
+		return listenErr
+	})
+	if err != nil {
+		return err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.listenClosed {
+		_ = pc.Close()
+		return net.ErrClosed
+	}
+	l.pc = pc
+	l.handedOff = false
+	l.exclusiveDone = nil
+	l.pending = nil
+	return nil
 }
 
 func (l *udpForkListener) signalExclusiveDone() {
@@ -469,6 +513,7 @@ func (l *udpForkListener) Close() error {
 	l.mu.Lock()
 	l.signalExclusiveDone()
 	if l.handedOff {
+		l.listenClosed = true
 		l.mu.Unlock()
 		// First exclusive session owns the listen socket.
 		return nil
@@ -485,7 +530,12 @@ func (l *udpForkListener) Close() error {
 	}
 	return pc.Close()
 }
-func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+
+func (l *udpForkListener) Addr() net.Addr {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.pc.LocalAddr()
+}
 
 func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
 	if a == nil {
