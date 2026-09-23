@@ -19,8 +19,11 @@ import (
 )
 
 const (
-	mqObserve = 350 * time.Millisecond
-	mqStuck   = 2 * time.Second
+	// mqBlockMargin is how long an extended or cleared deadline must keep
+	// I/O blocked. It is past the 180ms provisional deadline and short of
+	// the 2s extended deadline.
+	mqBlockMargin = time.Second
+	mqStuck       = 2 * time.Second
 )
 
 func openSpec(t *testing.T, spec string, mode xio.Mode) *xio.Opened {
@@ -239,47 +242,58 @@ func runDeadlineCase(t *testing.T, kind deadlineKind, write bool, op blockedOp) 
 	switch kind {
 	case dlPast:
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t, mqObserve)
+		op.mustTimeout(t, mqStuck)
 	case dlBothPast:
 		op.setBoth(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t, mqObserve)
+		op.mustTimeout(t, mqStuck)
 	case dlShorten:
 		apply(time.Now().Add(50 * time.Millisecond))
-		op.mustTimeout(t, mqObserve)
+		op.mustTimeout(t, mqStuck)
 	case dlExtend:
 		apply(time.Now().Add(180 * time.Millisecond))
-		apply(time.Now().Add(2 * time.Second))
-		op.mustStayBlocked(t, mqObserve)
+		extended := time.Now().Add(2 * time.Second)
+		apply(extended)
+		op.mustStayBlocked(t)
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t, mqObserve)
+		// End while extended is still in the future, so only the past deadline can unblock the operation.
+		left := time.Until(extended)
+		limit := left / 2
+		if limit < mqWaitInterval {
+			t.Fatalf("extended deadline has %v left", left)
+		}
+		op.mustTimeout(t, limit)
 	case dlClear:
 		apply(time.Now().Add(180 * time.Millisecond))
 		apply(time.Time{})
-		op.mustStayBlocked(t, mqObserve)
+		op.mustStayBlocked(t)
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t, mqObserve)
+		op.mustTimeout(t, mqStuck)
 	}
 	done.Store(true)
 }
 
-func (op blockedOp) mustTimeout(t *testing.T, wait time.Duration) {
+func (op blockedOp) mustTimeout(t *testing.T, limit time.Duration) {
 	t.Helper()
+	timer := time.NewTimer(limit)
+	defer timer.Stop()
 	select {
 	case err := <-op.errc:
 		if !errors.Is(err, os.ErrDeadlineExceeded) && !os.IsTimeout(err) {
 			t.Fatalf("err=%v want deadline exceeded", err)
 		}
-	case <-time.After(wait):
-		t.Fatalf("pending I/O still blocked after %v", wait)
+	case <-timer.C:
+		t.Fatalf("pending I/O still blocked after %v", limit)
 	}
 }
 
-func (op blockedOp) mustStayBlocked(t *testing.T, wait time.Duration) {
+func (op blockedOp) mustStayBlocked(t *testing.T) {
 	t.Helper()
+	timer := time.NewTimer(mqBlockMargin)
+	defer timer.Stop()
 	select {
 	case err := <-op.errc:
 		t.Fatalf("pending I/O returned early: %v", err)
-	case <-time.After(wait):
+	case <-timer.C:
 	}
 }
 

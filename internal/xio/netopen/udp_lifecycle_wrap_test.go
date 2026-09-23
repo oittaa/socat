@@ -24,7 +24,7 @@ func TestUDPRecvfromForkChildCloseLeavesParentOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := readStreamTimeout(t, st1, 2*time.Second)
+	got, err := readStreamTimeout(t, st1)
 	if err != nil || got != "one" {
 		t.Fatalf("first child got %q err=%v", got, err)
 	}
@@ -54,7 +54,7 @@ func TestUDPRecvfromForkChildCloseLeavesParentOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st2.Close() })
-	got, err = readStreamTimeout(t, st2, 2*time.Second)
+	got, err = readStreamTimeout(t, st2)
 	if err != nil || got != "two" {
 		t.Fatalf("second child got %q err=%v", got, err)
 	}

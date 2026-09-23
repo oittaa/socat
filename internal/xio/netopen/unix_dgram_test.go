@@ -244,11 +244,11 @@ func TestUnixRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 		writeUnixgramTo(t, client, path, nil)
 		writeUnixgramTo(t, client, path, []byte("payload"))
 	})
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if err != nil || got != "payload" {
 		t.Fatalf("got %q err=%v want payload", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("second=%q err=%v want EOF", got, err)
 	}
@@ -258,7 +258,7 @@ func TestUnixRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
 	o, _ := openUnixRecvfromAfter(t, ",null-eof", func(client *net.UnixConn, path string) {
 		writeUnixgramTo(t, client, path, nil)
 	})
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
 	}
@@ -268,14 +268,14 @@ func TestUnixRecvfromNonForkReplyDest(t *testing.T) {
 	o, client := openUnixRecvfromAfter(t, "", func(client *net.UnixConn, path string) {
 		writeUnixgramTo(t, client, path, []byte("ping"))
 	})
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if err != nil || got != "ping" {
 		t.Fatalf("got %q err=%v want ping", got, err)
 	}
 	if _, err := o.Stream().Write([]byte("pong")); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, client, 2*time.Second)
+	got, err = readStreamTimeout(t, client)
 	if err != nil || got != "pong" {
 		t.Fatalf("reply %q err=%v want pong", got, err)
 	}
@@ -290,18 +290,18 @@ func TestUnixRecvfromForkChildReplyCloseIsolation(t *testing.T) {
 	if _, ok := child.(*oneshotForkConn); !ok {
 		t.Fatalf("child %T, want oneshotForkConn", child)
 	}
-	got, err := readStreamTimeout(t, child, 2*time.Second)
+	got, err := readStreamTimeout(t, child)
 	if err != nil || got != "ping" {
 		t.Fatalf("first %q err=%v want ping", got, err)
 	}
-	got, err = readStreamTimeout(t, child, 2*time.Second)
+	got, err = readStreamTimeout(t, child)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("oneshot second=%q err=%v want EOF", got, err)
 	}
 	if _, err := child.Write([]byte("pong")); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, clientA, 2*time.Second)
+	got, err = readStreamTimeout(t, clientA)
 	if err != nil || got != "pong" {
 		t.Fatalf("reply %q err=%v want pong", got, err)
 	}
@@ -314,7 +314,7 @@ func TestUnixRecvfromForkChildReplyCloseIsolation(t *testing.T) {
 	writeUnixgramTo(t, clientB, path, []byte("next"))
 	child2 := waitUDPAccept(t, ch, 2*time.Second, "second unix recvfrom child")
 	t.Cleanup(func() { _ = child2.Close() })
-	got, err = readStreamTimeout(t, child2, 2*time.Second)
+	got, err = readStreamTimeout(t, child2)
 	if err != nil || got != "next" {
 		t.Fatalf("after child close %q err=%v want next", got, err)
 	}
@@ -328,7 +328,7 @@ func TestUnixRecvfromForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 	writeUnixgramTo(t, client, path, []byte("payload"))
 	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom after empty")
 	t.Cleanup(func() { _ = child.Close() })
-	got, err := readStreamTimeout(t, child, 2*time.Second)
+	got, err := readStreamTimeout(t, child)
 	if err != nil || got != "payload" {
 		t.Fatalf("got %q err=%v want payload", got, err)
 	}
@@ -341,7 +341,7 @@ func TestUnixRecvfromForkNullEOFEmptyEndsSession(t *testing.T) {
 	writeUnixgramTo(t, client, path, nil)
 	child := waitUDPAccept(t, ch, 2*time.Second, "unix recvfrom null-eof")
 	t.Cleanup(func() { _ = child.Close() })
-	got, err := readStreamTimeout(t, child, 2*time.Second)
+	got, err := readStreamTimeout(t, child)
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
 	}

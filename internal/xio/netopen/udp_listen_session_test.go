@@ -95,7 +95,7 @@ func TestUDPListenCancelBeforeFirstDatagram(t *testing.T) {
 	}
 }
 
-func readStreamTimeout(t *testing.T, r io.Reader, timeout time.Duration) (string, error) {
+func readStreamTimeout(t *testing.T, r io.Reader) (string, error) {
 	t.Helper()
 	buf := make([]byte, 64)
 	done := make(chan struct {
@@ -112,7 +112,7 @@ func readStreamTimeout(t *testing.T, r io.Reader, timeout time.Duration) (string
 	select {
 	case got := <-done:
 		return string(buf[:got.n]), got.err
-	case <-time.After(timeout):
+	case <-time.After(2 * time.Second):
 		return "", errReadTimeout
 	}
 }
@@ -134,43 +134,32 @@ func waitEmptyUDP(t *testing.T, pc *net.UDPConn, timeout time.Duration) {
 	}
 }
 
-func assertNoUDP(t *testing.T, pc *net.UDPConn, wait time.Duration) {
-	t.Helper()
-	if err := pc.SetReadDeadline(time.Now().Add(wait)); err != nil {
-		t.Fatal(err)
-	}
-	buf := make([]byte, 16)
-	n, _, err := pc.ReadFromUDP(buf)
-	if err == nil {
-		t.Fatalf("unexpected datagram %q", buf[:n])
-	}
-	if !xio.IsTimeoutErr(err) {
-		t.Fatalf("err=%v want timeout", err)
-	}
-}
-
 func TestUDPListenNonForkKeepsSamePeerSession(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("pkt1"))
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if err != nil || got != "pkt1" {
 		t.Fatalf("first=%q err=%v", got, err)
 	}
 	if _, err := client.Write([]byte("pkt2")); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream())
 	if err != nil || got != "pkt2" {
 		t.Fatalf("second=%q err=%v want pkt2", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream(), 80*time.Millisecond)
-	if !errors.Is(err, errReadTimeout) {
-		t.Fatalf("LISTEN returned %q err=%v after two datagrams; want to keep waiting", got, err)
+	// A later datagram is the barrier: the same peer session is still open.
+	if _, err := client.Write([]byte("pkt3")); err != nil {
+		t.Fatal(err)
+	}
+	got, err = readStreamTimeout(t, o.Stream())
+	if err != nil || got != "pkt3" {
+		t.Fatalf("marker=%q err=%v want pkt3", got, err)
 	}
 }
 
 func TestUDPListenDefaultShutNull(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("hi"))
-	if _, err := readStreamTimeout(t, o.Stream(), 2*time.Second); err != nil {
+	if _, err := readStreamTimeout(t, o.Stream()); err != nil {
 		t.Fatal(err)
 	}
 	if err := o.Stream().ShutdownWrite(); err != nil {
@@ -181,13 +170,27 @@ func TestUDPListenDefaultShutNull(t *testing.T) {
 
 func TestUDPListenShutNoneSendsNoDatagram(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,shut-none", []byte("hi"))
-	if _, err := readStreamTimeout(t, o.Stream(), 2*time.Second); err != nil {
+	if _, err := readStreamTimeout(t, o.Stream()); err != nil {
 		t.Fatal(err)
 	}
 	if err := o.Stream().ShutdownWrite(); err != nil {
 		t.Fatal(err)
 	}
-	assertNoUDP(t, client, 150*time.Millisecond)
+	// The marker is the next datagram only when shutdown sent nothing.
+	if _, err := o.Stream().Write([]byte("marker")); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 16)
+	n, _, err := client.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(buf[:n]) != "marker" {
+		t.Fatalf("got %q want marker", buf[:n])
+	}
 }
 
 type shuttingStream interface {
@@ -195,7 +198,7 @@ type shuttingStream interface {
 	ShutdownWrite() error
 }
 
-func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) (shuttingStream, *net.UDPConn) {
+func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) shuttingStream {
 	t.Helper()
 	parsed, err := parse.ParseSpec(spec)
 	if err != nil {
@@ -227,12 +230,12 @@ func openForkUDP4ListenStream(t *testing.T, spec string, first ...[]byte) (shutt
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	return st, client
+	return st
 }
 
 func TestUDPListenNonForkEmptyFirstNullEOF(t *testing.T) {
 	o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1,null-eof", nil)
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("got %q err=%v want EOF", got, err)
 	}
@@ -243,15 +246,15 @@ func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
 	// packet would expose "hello" and fail instead of merely timing out.
 	t.Run("nonfork", func(t *testing.T) {
 		o, _ := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", nil, []byte("hello"))
-		got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+		got, err := readStreamTimeout(t, o.Stream())
 		if !errors.Is(err, io.EOF) || got != "" {
 			t.Fatalf("got %q err=%v want EOF", got, err)
 		}
 	})
 
 	t.Run("fork", func(t *testing.T) {
-		st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", nil, []byte("hello"))
-		got, err := readStreamTimeout(t, st, 2*time.Second)
+		st := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", nil, []byte("hello"))
+		got, err := readStreamTimeout(t, st)
 		if !errors.Is(err, io.EOF) || got != "" {
 			t.Fatalf("got %q err=%v want EOF", got, err)
 		}
@@ -260,22 +263,22 @@ func TestUDPListenEmptyOpenerIsEOF(t *testing.T) {
 
 func TestUDPListenConnectedEmptyDatagramIsEOF(t *testing.T) {
 	o, client := openNonForkUDP4Listen(t, "UDP4-LISTEN:0,bind=127.0.0.1", []byte("hello"))
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if err != nil || got != "hello" {
 		t.Fatalf("first got %q err=%v want hello", got, err)
 	}
 	if _, err := client.Write(nil); err != nil {
 		t.Fatal(err)
 	}
-	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("empty datagram got %q err=%v want EOF", got, err)
 	}
 }
 
 func TestUDPListenForkEmptyFirstNullEOF(t *testing.T) {
-	st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,null-eof", nil)
-	got, err := readStreamTimeout(t, st, 2*time.Second)
+	st := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork,null-eof", nil)
+	got, err := readStreamTimeout(t, st)
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("got %q err=%v want EOF", got, err)
 	}
@@ -284,12 +287,12 @@ func TestUDPListenForkEmptyFirstNullEOF(t *testing.T) {
 func TestUDPListenForkConnectedEmptyDatagramIsEOF(t *testing.T) {
 	// Send the payload and shut-null packet before Accept returns. The fork
 	// handoff must keep both queued on the connected session socket.
-	st, _ := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", []byte("hello"), nil)
-	got, err := readStreamTimeout(t, st, 2*time.Second)
+	st := openForkUDP4ListenStream(t, "UDP4-LISTEN:0,bind=127.0.0.1,reuseaddr,fork", []byte("hello"), nil)
+	got, err := readStreamTimeout(t, st)
 	if err != nil || got != "hello" {
 		t.Fatalf("first got %q err=%v want hello", got, err)
 	}
-	got, err = readStreamTimeout(t, st, 2*time.Second)
+	got, err = readStreamTimeout(t, st)
 	if !errors.Is(err, io.EOF) || got != "" {
 		t.Fatalf("empty datagram got %q err=%v want EOF", got, err)
 	}
@@ -344,11 +347,11 @@ func TestUDPRecvfromNonForkSkipsEmptyUnlessNullEOF(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if err != nil || got != "payload" {
 		t.Fatalf("got %q err=%v want payload", got, err)
 	}
-	got, err = readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err = readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("second=%q err=%v want EOF", got, err)
 	}
@@ -360,7 +363,7 @@ func TestUDPRecvfromNonForkNullEOFEmptyEndsSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	got, err := readStreamTimeout(t, o.Stream(), 2*time.Second)
+	got, err := readStreamTimeout(t, o.Stream())
 	if !errors.Is(err, io.EOF) {
 		t.Fatalf("empty null-eof got %q err=%v want EOF", got, err)
 	}

@@ -5,6 +5,7 @@ package posixmqopen
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -27,7 +28,7 @@ const mqWaitInterval = 200 * time.Millisecond
 var mqTryOnce = time.Unix(0, 1)
 
 func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
-	p, err := parsePOSIXMQ(ctx, s, mode)
+	p, err := parsePOSIXMQ(s, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -47,7 +48,7 @@ func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xi
 	oneshot := p.kind == mqRecv
 	nonblock := p.oflag&unix.O_NONBLOCK != 0
 	if p.fork && p.kind == mqSend {
-		return q.wrapSendFork(ctx, s, p, nonblock)
+		return q.wrapSendFork(s, p, nonblock)
 	}
 	if p.fork && oneshot {
 		return q.wrapRecvFork(ctx, s, p)
@@ -66,7 +67,7 @@ type posixMQParams struct {
 	attr        *mqAttr
 }
 
-func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (posixMQParams, error) {
+func parsePOSIXMQ(s addrconfig.Address, mode xio.Mode) (posixMQParams, error) {
 	name, err := queueName(s)
 	if err != nil {
 		return posixMQParams{}, err
@@ -119,10 +120,10 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (pos
 	if n.MQMaxMessages.Set || n.MQMessageSize.Set {
 		a := mqAttr{}
 		if n.MQMaxMessages.Set {
-			a.Maxmsg = int(n.MQMaxMessages.Value)
+			a.Maxmsg = n.MQMaxMessages.Value
 		}
 		if n.MQMessageSize.Set {
-			a.Msgsize = int(n.MQMessageSize.Value)
+			a.Msgsize = n.MQMessageSize.Value
 		}
 		if a.Maxmsg == 0 {
 			if n, ok := readProcLong("/proc/sys/fs/mqueue/msg_default"); ok {
@@ -154,7 +155,7 @@ func parsePOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode) (pos
 
 func posixMQUnlinkAndFlush(name string, config addrconfig.Address, g *xio.Global) error {
 	if config.File.UnlinkEarly.Value {
-		if e := mqUnlink(name); e != nil && e != unix.ENOENT {
+		if e := mqUnlink(name); e != nil && !errors.Is(e, unix.ENOENT) {
 			if g != nil {
 				g.Log.Infof("mq_unlink(%q): %s", name, e)
 			}
@@ -227,7 +228,7 @@ func posixMQOpenQueue(ctx context.Context, g *xio.Global, p posixMQParams, confi
 	return q, nil
 }
 
-func (q *posixMQQueue) wrapSendFork(ctx context.Context, s addrconfig.Address, p posixMQParams, nonblock bool) (*xio.Opened, error) {
+func (q *posixMQQueue) wrapSendFork(s addrconfig.Address, p posixMQParams, nonblock bool) (*xio.Opened, error) {
 	fd, name, prio, msgsize := q.fd, q.name, p.prio, q.msgsize
 	dial := func(dctx context.Context) (net.Conn, error) {
 		if !nonblock {
@@ -368,7 +369,7 @@ func (q *posixMQQueue) wrapStream(ctx context.Context, s addrconfig.Address, g *
 func flushQueue(name string) error {
 	fd, err := mqOpen(name, unix.O_RDONLY|unix.O_NONBLOCK, 0, nil)
 	if err != nil {
-		if err == unix.ENOENT {
+		if errors.Is(err, unix.ENOENT) {
 			return nil
 		}
 		return fmt.Errorf("mq_open(%q) flush: %w", name, err)
@@ -389,7 +390,7 @@ func flushQueue(name string) error {
 	for {
 		_, err := mqTimedReceive(fd, buf, nil, time.Time{})
 		if err != nil {
-			if err == unix.EAGAIN {
+			if errors.Is(err, unix.EAGAIN) {
 				return nil
 			}
 			return fmt.Errorf("mq_receive flush: %w", err)
@@ -534,7 +535,7 @@ func waitMQ(ctx context.Context, fd int, events int16, notifyFD int, live func()
 		}
 		n, err := unix.Poll(pfds, timeout)
 		if err != nil {
-			if err == unix.EINTR {
+			if errors.Is(err, unix.EINTR) {
 				continue
 			}
 			return err
@@ -592,7 +593,7 @@ func receiveMQ(ctx context.Context, fd int, buf []byte, prio *uint32, nonblock b
 			}
 			return n, nil
 		}
-		if err == unix.EINTR || err == unix.ETIMEDOUT || err == unix.EAGAIN {
+		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.ETIMEDOUT) || errors.Is(err, unix.EAGAIN) {
 			continue
 		}
 		return 0, err
@@ -622,7 +623,7 @@ func sendMQ(ctx context.Context, fd int, msg []byte, prio uint32, nonblock bool,
 			}
 			return nil
 		}
-		if err == unix.EINTR || err == unix.ETIMEDOUT || err == unix.EAGAIN {
+		if errors.Is(err, unix.EINTR) || errors.Is(err, unix.ETIMEDOUT) || errors.Is(err, unix.EAGAIN) {
 			continue
 		}
 		return err
