@@ -48,6 +48,9 @@ func applyKind(d *decoder, o parse.Option, definition optionmeta.Option, kind op
 	case optionmeta.KindNoValueSpell:
 		return applyNoValue(d, o, name, o.OriginalSpelling())
 	case optionmeta.KindString:
+		if (name == "lockfile" || name == "waitlock") && a.File.LockSet {
+			return fmt.Errorf("only one use of options lockfile and waitlock allowed")
+		}
 		value, err := requiredString(o)
 		if err != nil {
 			return err
@@ -483,9 +486,6 @@ func assignRequiredString(a *Address, o parse.Option, name, value string) error 
 	case "chdir":
 		a.Process.Chdir = OptionalString{Set: true, Value: value}
 	case "lockfile", "waitlock":
-		if a.File.LockSet {
-			return fmt.Errorf("only one use of options lockfile and waitlock allowed")
-		}
 		a.File.LockSet, a.File.LockWait, a.File.LockPath = true, name == "waitlock", value
 	case "tcpwrap-etc":
 		a.Network.TCPWrapEtc = OptionalString{Set: true, Value: value}
