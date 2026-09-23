@@ -242,32 +242,39 @@ func runDeadlineCase(t *testing.T, kind deadlineKind, write bool, op blockedOp) 
 	switch kind {
 	case dlPast:
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t)
+		op.mustTimeout(t, mqStuck)
 	case dlBothPast:
 		op.setBoth(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t)
+		op.mustTimeout(t, mqStuck)
 	case dlShorten:
 		apply(time.Now().Add(50 * time.Millisecond))
-		op.mustTimeout(t)
+		op.mustTimeout(t, mqStuck)
 	case dlExtend:
 		apply(time.Now().Add(180 * time.Millisecond))
-		apply(time.Now().Add(2 * time.Second))
+		extended := time.Now().Add(2 * time.Second)
+		apply(extended)
 		op.mustStayBlocked(t)
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t)
+		// End while extended is still in the future, so only the past deadline can unblock the operation.
+		left := time.Until(extended)
+		limit := left / 2
+		if limit < mqWaitInterval {
+			t.Fatalf("extended deadline has %v left", left)
+		}
+		op.mustTimeout(t, limit)
 	case dlClear:
 		apply(time.Now().Add(180 * time.Millisecond))
 		apply(time.Time{})
 		op.mustStayBlocked(t)
 		apply(time.Now().Add(-time.Millisecond))
-		op.mustTimeout(t)
+		op.mustTimeout(t, mqStuck)
 	}
 	done.Store(true)
 }
 
-func (op blockedOp) mustTimeout(t *testing.T) {
+func (op blockedOp) mustTimeout(t *testing.T, limit time.Duration) {
 	t.Helper()
-	timer := time.NewTimer(mqStuck)
+	timer := time.NewTimer(limit)
 	defer timer.Stop()
 	select {
 	case err := <-op.errc:
@@ -275,7 +282,7 @@ func (op blockedOp) mustTimeout(t *testing.T) {
 			t.Fatalf("err=%v want deadline exceeded", err)
 		}
 	case <-timer.C:
-		t.Fatalf("pending I/O still blocked after %v", mqStuck)
+		t.Fatalf("pending I/O still blocked after %v", limit)
 	}
 }
 
