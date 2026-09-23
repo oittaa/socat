@@ -99,6 +99,33 @@ func openExecCleanupCtx(t *testing.T, ctx context.Context, specText string, mode
 	return o
 }
 
+func TestExecPipesCloseLetsChildReadEOF(t *testing.T) {
+	dir := t.TempDir()
+	ready := filepath.Join(dir, "ready")
+	marker := filepath.Join(dir, "eof")
+	script := filepath.Join(dir, "eof.sh")
+	body := "#!/bin/sh\ntrap '' TERM\necho go >\"" + ready + "\"\ncat >/dev/null\necho eof >\"" + marker + "\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	o := openExecCleanup(t, execHoldSpec(script, "pipes"), ModeRDWR, 300*time.Millisecond)
+	t.Cleanup(func() { _ = o.Close() })
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := testutil.Until(ctx, func() (bool, error) {
+		_, err := os.Stat(ready)
+		return err == nil, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("child did not see EOF")
+	}
+}
+
 func TestFinishExecEndCloseZeroKillsChild(t *testing.T) {
 	script, pidPath := writeHoldScript(t)
 	o := openExecCleanup(t, execHoldSpec(script, "end-close=0"), ModeRDWR, 20*time.Millisecond)

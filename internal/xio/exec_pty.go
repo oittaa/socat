@@ -130,7 +130,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
 		stream = relay.FDStream{
 			R:      EOFReader{},
 			W:      w,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(master),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
 		waitChild = true
@@ -149,7 +149,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*Opened, error) {
 		stream = relay.FDStream{
 			R:      r,
 			W:      io.Discard,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(master),
 			CloseW: func() error { return nil },
 		}
 	default:
@@ -219,7 +219,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 		stream := relay.FDStream{
 			R:      EOFReader{},
 			W:      w,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(ptmx),
 			CloseW: func() error { w.closeWrite(); return nil },
 		}
 		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
@@ -271,7 +271,7 @@ func (c *execChild) startPty(ctx context.Context) (*Opened, error) {
 		stream := relay.FDStream{
 			R:      r,
 			W:      io.Discard,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(ptmx),
 			CloseW: func() error { return nil },
 		}
 		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)

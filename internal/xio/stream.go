@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -91,12 +92,26 @@ type closerFunc func() error
 
 func (c closerFunc) Close() error { return c() }
 
+// closeOnce releases files on the first Close. A later Close does not
+// close them again.
+func closeOnce(files ...*os.File) io.Closer {
+	var once sync.Once
+	return closerFunc(func() error {
+		once.Do(func() {
+			for _, f := range files {
+				logx.CloseQuiet(f)
+			}
+		})
+		return nil
+	})
+}
+
 func ptyExecStream(f *os.File, r io.Reader) relay.Stream {
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
 		R: r,
 		W: w,
-		C: NopCloser{},
+		C: closeOnce(f),
 		CloseW: func() error {
 			w.closeWrite()
 			return nil

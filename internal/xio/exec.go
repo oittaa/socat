@@ -503,7 +503,8 @@ func startCmdPipes(config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedire
 	st := relay.FDStream{
 		R: r,
 		W: w,
-		C: NewMultiCloser(nil, nil),
+		// Release both parent ends on Close, before the child is signaled.
+		C: closeOnce(parentFiles...),
 		CloseW: func() error {
 			if stdin != nil {
 				return stdin.Close()
@@ -585,14 +586,14 @@ func execSocketpairParentStream(mode Mode, parent *os.File, stype int) relay.Str
 		return relay.FDStream{
 			R:      EOFReader{},
 			W:      parent,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(parent),
 			CloseW: closeW,
 		}
 	case ModeRead:
 		return relay.FDStream{
 			R:      parent,
 			W:      io.Discard,
-			C:      NewMultiCloser(nil, nil),
+			C:      closeOnce(parent),
 			CloseW: func() error { return nil },
 		}
 	default:
@@ -790,6 +791,11 @@ func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, end
 			return
 		}
 	} else {
+		// Parent descriptors are already closed. SIGTERM, then SIGKILL
+		// if the child is still running when the wait ends.
+		if c.cmd != nil && c.cmd.Process != nil {
+			_ = c.cmd.Process.Signal(syscall.SIGTERM)
+		}
 		waitFor := linger
 		if waitChild {
 			waitFor = time.Second
