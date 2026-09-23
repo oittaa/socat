@@ -351,8 +351,15 @@ func (l *udpForkListener) rebindExclusive() error {
 		return net.ErrClosed
 	}
 	network, addr, config := l.network, cloneUDPAddr(l.laddr), l.config
+	g := l.g
 	l.mu.Unlock()
-	pc, err := listenUDP(network, addr, config)
+	// The first socket was created in netns=. Bind the replacement there too.
+	var pc *net.UDPConn
+	err := xio.WithNetNS(config.Common.NetNamespace.Value, g, func() error {
+		var listenErr error
+		pc, listenErr = listenUDP(network, addr, config)
+		return listenErr
+	})
 	if err != nil {
 		return err
 	}
@@ -523,7 +530,12 @@ func (l *udpForkListener) Close() error {
 	}
 	return pc.Close()
 }
-func (l *udpForkListener) Addr() net.Addr { return l.pc.LocalAddr() }
+
+func (l *udpForkListener) Addr() net.Addr {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.pc.LocalAddr()
+}
 
 func cloneUDPAddr(a *net.UDPAddr) *net.UDPAddr {
 	if a == nil {
