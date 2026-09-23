@@ -26,27 +26,20 @@ func serveHostsAllow(t *testing.T) string {
 	go func() {
 		defer close(exited)
 		payloads := [][]byte{[]byte("socat: 127.0.0.1\n"), []byte("socat: 10.0.0.1\n")}
-		var next windows.Handle
-		var err error
-		next, err = createHostsPipe(path)
+		h, err := createHostsPipe(path)
 		ready <- err
 		if err != nil {
 			return
 		}
 		for i, payload := range payloads {
-			current := next
-			next = 0
-			if i+1 < len(payloads) {
-				next, err = createHostsPipe(path)
-				if err != nil {
-					_ = windows.CloseHandle(current)
-					return
-				}
+			if !writeHostsPipe(path, h, payload, stop) {
+				return
 			}
-			if !writeHostsPipe(current, payload, stop) {
-				if next != 0 {
-					_ = windows.CloseHandle(next)
-				}
+			if i+1 == len(payloads) {
+				return
+			}
+			h, err = createHostsPipe(path)
+			if err != nil {
 				return
 			}
 		}
@@ -80,7 +73,7 @@ func createHostsPipe(path string) (windows.Handle, error) {
 	)
 }
 
-func writeHostsPipe(h windows.Handle, payload []byte, stop <-chan struct{}) bool {
+func writeHostsPipe(path string, h windows.Handle, payload []byte, stop <-chan struct{}) bool {
 	errc := make(chan error, 1)
 	go func() {
 		errc <- windows.ConnectNamedPipe(h, nil)
@@ -89,8 +82,21 @@ func writeHostsPipe(h windows.Handle, payload []byte, stop <-chan struct{}) bool
 	closePipe := func() { closeOnce.Do(func() { _ = windows.CloseHandle(h) }) }
 	select {
 	case <-stop:
-		closePipe()
-		<-errc
+		// CloseHandle waits for ConnectNamedPipe, and that call waits for a
+		// client. A reader completes both. If the open misses, leave the
+		// pending call alone: closing the handle here does not return.
+		client, _ := os.Open(path)
+		if client != nil {
+			<-errc
+			_ = client.Close()
+			closePipe()
+			return false
+		}
+		select {
+		case <-errc:
+			closePipe()
+		default:
+		}
 		return false
 	case err := <-errc:
 		if err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
