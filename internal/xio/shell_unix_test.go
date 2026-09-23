@@ -3,7 +3,6 @@
 package xio
 
 import (
-	"strconv"
 	"testing"
 )
 
@@ -23,45 +22,5 @@ func TestExtraSources(t *testing.T) {
 	in, out = extraSources(ModeWrite, true)
 	if in != "3" || out != "" {
 		t.Fatalf("socket write %s %s", in, out)
-	}
-}
-
-const dashFDRedirectMax = 9
-
-func unusedFDNumbers(avoid ...string) (string, string) {
-	taken := map[string]bool{"0": true, "1": true, "2": true}
-	for _, a := range avoid {
-		if a != "" {
-			taken[a] = true
-		}
-	}
-	found := make([]string, 0, 2)
-	for i := 3; i <= dashFDRedirectMax && len(found) < 2; i++ {
-		s := strconv.Itoa(i)
-		if !taken[s] {
-			found = append(found, s)
-		}
-	}
-	return found[0], found[1]
-}
-
-func TestUnusedFDNumbersAreSingleDigit(t *testing.T) {
-	for a := 3; a <= 9; a++ {
-		for b := 3; b <= 9; b++ {
-			for c := 3; c <= 9; c++ {
-				for d := 3; d <= 9; d++ {
-					x, y := unusedFDNumbers(strconv.Itoa(a), strconv.Itoa(b), strconv.Itoa(c), strconv.Itoa(d))
-					n1, err1 := strconv.Atoi(x)
-					n2, err2 := strconv.Atoi(y)
-					if err1 != nil || err2 != nil || n1 < 3 || n1 > 9 || n2 < 3 || n2 > 9 || n1 == n2 {
-						t.Fatalf("avoid %d,%d,%d,%d -> %q %q", a, b, c, d, x, y)
-					}
-					taken := map[int]bool{0: true, 1: true, 2: true, a: true, b: true, c: true, d: true}
-					if taken[n1] || taken[n2] {
-						t.Fatalf("collision avoid %d,%d,%d,%d -> %d %d", a, b, c, d, n1, n2)
-					}
-				}
-			}
-		}
 	}
 }
