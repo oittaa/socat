@@ -149,29 +149,22 @@ func openUDPListenOnePeer(ctx context.Context, s addrconfig.Address, g *xio.Glob
 	buf := make([]byte, max(g.Options().BlockSize, 8192))
 	wantCtrl := sockopt.NeedAncillary(s)
 	recvErr := sockopt.NeedRecvErr(s)
-	var n int
-	var raddr *net.UDPAddr
 	var oobBuffer [sockopt.AncillaryBufferSize]byte
-	for {
-		rn, oob, a, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UDPAddr, error) {
-			return sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
-		})
-		if err != nil {
-			xio.DrainRecvErrOnError(err, recvErr, pc, g)
-			logx.CloseQuiet(pc)
-			return nil, udpAcceptError(err, timeoutSet)
+	// An empty opener is kept. null-eof is not applied to this listen wait.
+	got := waitOneshotPacket(ctx, g, buf, func(buf []byte) (int, []byte, *net.UDPAddr, error) {
+		return sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+	}, func(addr *net.UDPAddr) error {
+		return peerFilter.AllowAddr(addr, pc.LocalAddr())
+	}, true)
+	if got.err != nil {
+		if got.readFailed {
+			xio.DrainRecvErrOnError(got.err, recvErr, pc, g)
 		}
-		if ferr := peerFilter.AllowAddr(a, pc.LocalAddr()); ferr != nil {
-			if stop := logOrStopPeerFilter(ctx, g, ferr); stop != nil {
-				logx.CloseQuiet(pc)
-				return nil, udpAcceptError(stop, timeoutSet)
-			}
-			continue
-		}
-		n, raddr = rn, a
-		sockopt.ProcessAncillary(oob, g)
-		break
+		logx.CloseQuiet(pc)
+		return nil, udpAcceptError(got.err, timeoutSet)
 	}
+	n, raddr := got.n, got.addr
+	sockopt.ProcessAncillary(got.oob, g)
 	if err := clearUDPAcceptTimeout(pc, timeoutSet); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("accept-timeout: clear deadline: %w", err)

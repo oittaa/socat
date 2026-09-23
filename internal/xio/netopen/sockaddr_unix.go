@@ -125,22 +125,9 @@ func sysConnect(fd int, sa rawSockaddr) error {
 }
 
 func connectInterruptible(ctx context.Context, fd int, sa rawSockaddr) error {
-	errno := connectErrno(fd, sa)
-	for {
-		if errno == 0 {
-			return nil
-		}
-		if errno == unix.EINPROGRESS {
-			return waitUnixConnect(ctx, fd)
-		}
-		if errno != unix.EAGAIN && errno != unix.EWOULDBLOCK {
-			return errno
-		}
-		if err := waitUnixConnectRetry(ctx); err != nil {
-			return err
-		}
-		errno = connectErrno(fd, sa)
-	}
+	return retryNonblockConnect(ctx, fd, func() unix.Errno {
+		return connectErrno(fd, sa)
+	})
 }
 
 func connectErrno(fd int, sa rawSockaddr) unix.Errno {

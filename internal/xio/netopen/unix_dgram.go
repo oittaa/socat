@@ -40,39 +40,45 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, _ xio.Mode, _ *
 	if err != nil {
 		return nil, err
 	}
-	raddr := &net.UnixAddr{Name: remote, Net: "unixgram"}
-
-	var c *net.UnixConn
 	bound := ""
 	if bindPath != "" {
 		bound = unixAddr(bindPath)
-		if err := prepareUnixClientBind(bound, s); err != nil {
+	}
+	return finishUnixgramSend(ctx, s, &net.UnixAddr{Name: remote, Net: "unixgram"}, bound, filterPeer, s.Type+":"+remote)
+}
+
+// finishUnixgramSend binds an optional local name, applies socket options,
+// and returns an unconnected unixgram stream aimed at remote.
+func finishUnixgramSend(ctx context.Context, s addrconfig.Address, remote *net.UnixAddr, bindName string, filterPeer bool, label string) (*xio.Opened, error) {
+	var c *net.UnixConn
+	var err error
+	if bindName != "" {
+		if err = prepareUnixClientBind(bindName, s); err != nil {
 			return nil, err
 		}
-		laddr := &net.UnixAddr{Name: bound, Net: "unixgram"}
-		c, err = listenUnixgramBound(s, laddr, false)
+		c, err = listenUnixgramBound(s, &net.UnixAddr{Name: bindName, Net: "unixgram"}, false)
 	} else {
 		c, err = listenUnixgramUnbound(s)
 	}
 	if err != nil {
 		return nil, err
 	}
-	life := trackUnixBind(bound, s)
+	life := trackUnixBind(bindName, s)
 	if err := applyUnixgramSocketOptions(c, s); err != nil {
 		life.drop(c)
 		return nil, err
 	}
-	if err := xio.ApplyConfiguredNamedAfterBind(bound, s, nil); err != nil {
+	if err := xio.ApplyConfiguredNamedAfterBind(bindName, s, nil); err != nil {
 		life.drop(c)
 		return nil, err
 	}
-	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: filterPeer, ctx: ctx}
+	st := &unixgramConn{UnixConn: c, raddr: remote, filterPeer: filterPeer, ctx: ctx}
 	wrapped, err := xio.WrapOpened(s, st)
 	if err != nil {
 		life.drop(c)
 		return nil, err
 	}
-	o, err := xio.NewReady(s.Type+":"+remote, wrapped)
+	o, err := xio.NewReady(label, wrapped)
 	if err != nil {
 		life.drop(c)
 		return nil, err
@@ -241,20 +247,15 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 
 func waitUnixRecvfromPacket(ctx context.Context, c *net.UnixConn, g *xio.Global, nullEOF bool) ([]byte, *net.UnixAddr, error) {
 	buf := make([]byte, 65536)
-	for {
-		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-			nn, a, e := c.ReadFromUnix(buf)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			return nil, nil, err
-		}
-		if xio.IgnoreEmptyDatagram(n, err, nullEOF) {
-			continue
-		}
-		rememberUnixgramPeer(g, addr)
-		return append([]byte(nil), buf[:n]...), addr, nil
+	got := waitOneshotPacket(ctx, g, buf, func(buf []byte) (int, []byte, *net.UnixAddr, error) {
+		n, addr, err := c.ReadFromUnix(buf)
+		return n, nil, addr, err
+	}, nil, nullEOF)
+	if got.err != nil {
+		return nil, nil, got.err
 	}
+	rememberUnixgramPeer(g, got.addr)
+	return append([]byte(nil), buf[:got.n]...), got.addr, nil
 }
 
 func rememberUnixgramPeer(g *xio.Global, addr *net.UnixAddr) {
@@ -331,32 +332,19 @@ type unixgramListener struct {
 
 func (l *unixgramListener) Accept() (net.Conn, error) {
 	buf := make([]byte, 65536)
-	ctx := l.ctx
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	for {
-		if l.rcvTimeout > 0 {
-			_ = l.c.SetReadDeadline(time.Now().Add(l.rcvTimeout))
+	return recvfromForkAcceptor[*net.UnixAddr]{
+		ctx:             l.ctx,
+		rcvTimeout:      l.rcvTimeout,
+		setReadDeadline: l.c.SetReadDeadline,
+	}.acceptLoop(buf, func(buf []byte) (int, []byte, *net.UnixAddr, error) {
+		n, addr, err := l.c.ReadFromUnix(buf)
+		return n, nil, addr, err
+	}, func(n int, _ []byte, buf []byte, addr *net.UnixAddr) acceptNext {
+		if xio.IgnoreEmptyDatagram(n, nil, l.nullEOF) {
+			return acceptAgain()
 		}
-		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-			nn, a, e := l.c.ReadFromUnix(buf)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			if l.ctx != nil && l.ctx.Err() != nil {
-				return nil, err
-			}
-			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
-				continue
-			}
-			return nil, err
-		}
-		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
-			continue
-		}
-		return l.newUnixOneshotChild(buf[:n], addr), nil
-	}
+		return acceptChild(l.newUnixOneshotChild(buf[:n], addr), nil)
+	})
 }
 
 func (l *unixgramListener) newUnixOneshotChild(data []byte, peer *net.UnixAddr) *oneshotForkConn {
@@ -422,34 +410,11 @@ func openAbstractSendto(ctx context.Context, s addrconfig.Address, _ xio.Mode, _
 	if err != nil {
 		return nil, err
 	}
-	var laddr *net.UnixAddr
+	bindName := ""
 	if bindOpt != "" {
-		laddr = &net.UnixAddr{Name: abstractName(bindOpt), Net: "unixgram"}
+		bindName = abstractName(bindOpt)
 	}
-	raddr := &net.UnixAddr{Name: target, Net: "unixgram"}
-	var c *net.UnixConn
-	if laddr != nil {
-		c, err = listenUnixgramBound(s, laddr, false)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		c, err = listenUnixgramUnbound(s)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := applyUnixgramSocketOptions(c, s); err != nil {
-		logx.CloseQuiet(c)
-		return nil, err
-	}
-	st := &unixgramConn{UnixConn: c, raddr: raddr, filterPeer: true, ctx: ctx}
-	wrapped, err := xio.WrapOpened(s, st)
-	if err != nil {
-		logx.CloseQuiet(c)
-		return nil, err
-	}
-	return xio.NewReady("ABSTRACT-SENDTO:"+s.Network.SocketPath, wrapped)
+	return finishUnixgramSend(ctx, s, &net.UnixAddr{Name: target, Net: "unixgram"}, bindName, true, "ABSTRACT-SENDTO:"+s.Network.SocketPath)
 }
 
 func applyUnixgramSocketOptions(c *net.UnixConn, s addrconfig.Address) error {
@@ -488,31 +453,20 @@ func (u *unixgramConn) Read(p []byte) (int, error) {
 	// RecvOneCtx can return on cancel while ReadFromUnix is still blocked.
 	// Receive into storage owned by that goroutine so an abandoned read
 	// cannot write into a caller buffer the relay has already reused.
-	scratch := make([]byte, len(p))
-	for {
-		n, _, addr, err := xio.RecvOneCtx(ctx, func() (int, []byte, *net.UnixAddr, error) {
-			nn, a, e := u.ReadFromUnix(scratch)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			return n, err
-		}
+	return readScratchFiltered(ctx, p, func(buf []byte) (int, *net.UnixAddr, error) {
+		return u.ReadFromUnix(buf)
+	}, func(addr *net.UnixAddr) (bool, error) {
 		if !u.filterPeer || unixgramAcceptSender(addr, u.raddr) {
-			return copy(p, scratch[:n]), nil
+			return true, nil
 		}
-	}
+		return false, nil
+	})
 }
 
 func (u *unixgramConn) Write(p []byte) (int, error) {
 	return u.WriteToUnix(p, u.raddr)
 }
 func (u *unixgramConn) ShutdownWrite() error { return nil }
-func (u *unixgramConn) SetReadDeadline(t time.Time) error {
-	return u.UnixConn.SetReadDeadline(t)
-}
-func (u *unixgramConn) SetDeadline(t time.Time) error {
-	return u.UnixConn.SetDeadline(t)
-}
 
 func unixgramAcceptSender(got, want *net.UnixAddr) bool {
 	if want == nil {

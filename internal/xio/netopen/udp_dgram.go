@@ -220,23 +220,7 @@ func logOrStopPeerFilter(ctx context.Context, g *xio.Global, err error) error {
 }
 
 func (u *udpDatagramConn) Read(p []byte) (int, error) {
-	for {
-		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.UDPConn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
-		if err != nil {
-			xio.DrainRecvErrOnError(err, u.recvErr, u.UDPConn, u.g)
-			return n, err
-		}
-		if err := u.checkPeer(addr); err != nil {
-			if stop := logOrStopPeerFilter(u.ctx, u.g, err); stop != nil {
-				return 0, stop
-			}
-			continue
-		}
-		if u.wantCtrl {
-			sockopt.ProcessAncillary(oob, u.g)
-		}
-		return n, nil
-	}
+	return readUDPFiltered(u.UDPConn, p, u.wantCtrl, u.recvErr, u.g, u.ctx, &u.oob, u.checkPeer)
 }
 
 func (u *udpDatagramConn) checkPeer(addr *net.UDPAddr) error {
@@ -409,14 +393,6 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 	buf := make([]byte, max(g.Options().BlockSize, 65535))
 	wantCtrl := sockopt.NeedAncillary(s)
 	recvErr := sockopt.NeedRecvErr(s)
-	type res struct {
-		n   int
-		a   *net.UDPAddr
-		oob []byte
-		e   error
-	}
-	var n int
-	var raddr *net.UDPAddr
 	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 	if err != nil {
 		logx.CloseQuiet(pc)
@@ -424,44 +400,28 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 	}
 	nullEOF := s.Transfer.NullEOF.Value
 	var oobBuffer [sockopt.AncillaryBufferSize]byte
-	for {
-		ch := make(chan res, 1)
-		go func() {
-			nn, oob, a, err := sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
-			ch <- res{nn, a, oob, err}
-		}()
-		select {
-		case <-ctx.Done():
-			logx.CloseQuiet(pc)
-			return nil, ctx.Err()
-		case r := <-ch:
-			if r.e != nil {
-				xio.DrainRecvErrOnError(r.e, recvErr, pc, g)
-				logx.CloseQuiet(pc)
-				return nil, udpAcceptError(r.e, false)
-			}
-			if err := peerFilter.AllowAddr(r.a, pc.LocalAddr()); err != nil {
-				if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
-					logx.CloseQuiet(pc)
-					return nil, stop
-				}
-				continue
-			}
-			if xio.IgnoreEmptyDatagram(r.n, r.e, nullEOF) {
-				continue
-			}
-			n, raddr = r.n, r.a
-			// Process before returning so SYSTEM sees SOCAT_* env.
-			sockopt.ProcessAncillary(r.oob, g)
+	got := waitOneshotPacket(ctx, g, buf, func(buf []byte) (int, []byte, *net.UDPAddr, error) {
+		return sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+	}, func(addr *net.UDPAddr) error {
+		return peerFilter.AllowAddr(addr, pc.LocalAddr())
+	}, nullEOF)
+	if got.err != nil {
+		// Cancellation returns before the socket error queue is drained.
+		// A real receive error still drains while the fd is open.
+		if got.readFailed && !recvCanceled(ctx, got.err) {
+			xio.DrainRecvErrOnError(got.err, recvErr, pc, g)
 		}
-		break
+		logx.CloseQuiet(pc)
+		return nil, udpAcceptError(got.err, false)
 	}
+	// Process before returning so SYSTEM sees SOCAT_* env.
+	sockopt.ProcessAncillary(got.oob, g)
 	// Non-fork RECVFROM: one datagram then EOF on further reads
 	// (so RECVFROM|PIPE echo servers exit after one client exchange).
 	st := relay.Stream(&udpRecvFromConn{
 		uc:       pc,
-		peer:     raddr,
-		first:    newFirstPacket(append([]byte(nil), buf[:n]...)),
+		peer:     got.addr,
+		first:    newFirstPacket(append([]byte(nil), buf[:got.n]...)),
 		closeEOF: true,
 		wantCtrl: wantCtrl,
 		recvErr:  recvErr,
@@ -514,23 +474,38 @@ type udpFilteredRecv struct {
 }
 
 func (u *udpFilteredRecv) Read(p []byte) (int, error) {
-	for {
-		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
-		if err != nil {
-			xio.DrainRecvErrOnError(err, u.recvErr, u.conn, u.g)
+	return readUDPFiltered(u.conn, p, u.wantCtrl, u.recvErr, u.g, u.ctx, &u.oob, func(addr *net.UDPAddr) error {
+		return u.filter.AllowAddr(addr, u.conn.LocalAddr())
+	})
+}
+
+func readUDPFiltered(
+	c *net.UDPConn,
+	p []byte,
+	wantCtrl, recvErr bool,
+	g *xio.Global,
+	ctx context.Context,
+	oob *[]byte,
+	allow func(*net.UDPAddr) error,
+) (int, error) {
+	return filteredPacketReader[*net.UDPAddr]{
+		read: func(p []byte) (int, []byte, *net.UDPAddr, error) {
+			return sockopt.ReadUDPMsgWithBuffer(c, p, wantCtrl, ancillaryBuffer(oob, wantCtrl))
+		},
+		accept: func(_ int, _ []byte, addr *net.UDPAddr) (bool, error) {
+			return refusePacket(ctx, g, allow(addr))
+		},
+		onReadErr: func(n int, err error) (int, error) {
+			xio.DrainRecvErrOnError(err, recvErr, c, g)
 			return n, err
-		}
-		if err := u.filter.AllowAddr(addr, u.conn.LocalAddr()); err != nil {
-			if stop := logOrStopPeerFilter(u.ctx, u.g, err); stop != nil {
-				return 0, stop
+		},
+		deliver: func(_ []byte, n int, oob []byte) (int, error) {
+			if wantCtrl {
+				sockopt.ProcessAncillary(oob, g)
 			}
-			continue
-		}
-		if u.wantCtrl {
-			sockopt.ProcessAncillary(oob, u.g)
-		}
-		return n, nil
-	}
+			return n, nil
+		},
+	}.Read(p)
 }
 
 func (u *udpFilteredRecv) Write([]byte) (int, error) { return 0, net.ErrClosed }
