@@ -68,6 +68,32 @@ func rawPacketCarries(got, payload []byte) bool {
 	return bytes.Equal(got[ihl:], payload)
 }
 
+// readRawChildReply reads until a packet ends with want. A loopback socket
+// with the same source and destination also receives the sent packet.
+func readRawChildReply(t *testing.T, client *net.IPConn, sent []byte, want string) []byte {
+	t.Helper()
+	deadline := time.Now().Add(4 * time.Second)
+	var got []byte
+	for {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			t.Fatalf("child reply=%q want %q", got, want)
+		}
+		var err error
+		got, err = readRawDeadline(t, client, remaining)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.HasSuffix(got, []byte(want)) {
+			return got
+		}
+		if rawPacketCarries(got, sent) {
+			continue
+		}
+		t.Fatalf("child reply=%q want %q", got, want)
+	}
+}
+
 func sendRawPayload(t *testing.T, c *net.IPConn, payload []byte) {
 	t.Helper()
 	if _, err := c.Write(payload); err != nil {
@@ -165,14 +191,9 @@ func TestIP4RecvfromForkChildPeerEnvironment(t *testing.T) {
 
 	client, src := dialLoopbackRawIP4(t, rawIPTestProto, net.IPv4(127, 0, 0, 1))
 	want := src.String() + "/\n"
-	sendRawPayload(t, client, []byte("peer-env"))
-	got, err := readRawDeadline(t, client, 4*time.Second)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.HasSuffix(got, []byte(want)) {
-		t.Fatalf("child reply=%q want %q", got, want)
-	}
+	sent := []byte("peer-env")
+	sendRawPayload(t, client, sent)
+	readRawChildReply(t, client, sent, want)
 	if g.Peer.PeerPort != "stale" {
 		t.Fatalf("parent peer port changed: %q", g.Peer.PeerPort)
 	}
