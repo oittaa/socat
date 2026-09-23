@@ -536,6 +536,11 @@ func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirO
 			}
 		}
 		if er != nil {
+			// A cancel poke wakes the read with a timeout. That is shutdown,
+			// not a transfer failure.
+			if err := ctx.Err(); err != nil && IsTimeoutErr(er) {
+				return classifyDirError(t.dir, err)
+			}
 			if isRetryableIOError(er) {
 				continue
 			}

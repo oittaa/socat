@@ -379,6 +379,15 @@ func deadlineOf(s Stream, read bool) func(time.Time) error {
 			cur = v.Conn
 		case RWCStream:
 			cur = v.ReadWriteCloser
+		case interface{ UnwrapReader() io.Reader }:
+			if !read {
+				return nil
+			}
+			next := v.UnwrapReader()
+			if next == nil || any(next) == cur {
+				return nil
+			}
+			cur = next
 		default:
 			return nil
 		}
