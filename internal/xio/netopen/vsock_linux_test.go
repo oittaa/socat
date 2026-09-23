@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
 	"strings"
 	"syscall"
 	"testing"
@@ -74,16 +73,13 @@ func vsockLoopbackUnavailable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, unix.ENODEV) || errors.Is(err, unix.EADDRNOTAVAIL) || errors.Is(err, unix.ENETUNREACH) || errors.Is(err, unix.EOPNOTSUPP) || errors.Is(err, unix.EAFNOSUPPORT) || errors.Is(err, unix.EPROTONOSUPPORT) || errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM) {
-		return true
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, os.ErrDeadlineExceeded) {
+	if errors.Is(err, unix.ENODEV) || errors.Is(err, unix.EADDRNOTAVAIL) || errors.Is(err, unix.ENETUNREACH) || errors.Is(err, unix.EOPNOTSUPP) || errors.Is(err, unix.EAFNOSUPPORT) || errors.Is(err, unix.EPROTONOSUPPORT) || errors.Is(err, unix.EACCES) {
 		return true
 	}
 	var errno syscall.Errno
 	if errors.As(err, &errno) {
 		switch errno {
-		case unix.ENODEV, unix.EADDRNOTAVAIL, unix.ENETUNREACH, unix.EOPNOTSUPP, unix.EACCES, unix.EPERM:
+		case unix.ENODEV, unix.EADDRNOTAVAIL, unix.ENETUNREACH, unix.EOPNOTSUPP, unix.EACCES:
 			return true
 		}
 	}

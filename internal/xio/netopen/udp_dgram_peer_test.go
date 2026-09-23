@@ -181,8 +181,8 @@ func testDatagramRangeFilter(t *testing.T, typ string, listen func(*testing.T) n
 	denied, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,range=10.0.0.0/8")
 	impostor := listen(t)
 	writeTo(t, impostor, "nope", local)
-	if _, err := readDgram(t, denied.Stream(), 200*time.Millisecond); err == nil {
-		t.Fatalf("%s range=10.0.0.0/8 accepted a 127.0.0.1 sender", typ)
+	if _, err := readDgram(t, denied.Stream(), 200*time.Millisecond); !xio.IsTimeoutErr(err) {
+		t.Fatalf("%s range=10.0.0.0/8: err=%v want timeout", typ, err)
 	}
 
 	allowed, localOK := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,range=127.0.0.1/32")
@@ -239,8 +239,8 @@ func testDatagramTCPWrapFilter(t *testing.T, typ string, listen func(*testing.T)
 	st, local := openDgramStream(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,hosts-allow="+allow+",hosts-deny="+deny)
 	impostor := listen(t)
 	writeTo(t, impostor, "wrapped", local)
-	if _, err := readDgram(t, st.Stream(), 200*time.Millisecond); err == nil {
-		t.Fatalf("%s tcpwrap deny ALL accepted a packet", typ)
+	if _, err := readDgram(t, st.Stream(), 200*time.Millisecond); !xio.IsTimeoutErr(err) {
+		t.Fatalf("%s tcpwrap deny ALL: err=%v want timeout", typ, err)
 	}
 }
 
