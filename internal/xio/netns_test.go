@@ -81,11 +81,8 @@ func TestLookupResolverPreferGoWithNetNS(t *testing.T) {
 	}
 	config := addrconfig.Address{Common: addrconfig.Common{NetNamespace: addrconfig.OptionalString{Set: true, Value: "foo"}}}
 	r := LookupResolver(config)
-	if r == nil || !r.PreferGo {
-		t.Fatal("netns= must use PreferGo so DNS stays on the locked thread")
-	}
-	if r.Dial == nil {
-		t.Fatal("netns= must Dial so in-flight DNS reads close on cancel")
+	if r == nil || !r.PreferGo || r.Dial == nil {
+		t.Fatal("netns= must use a Go resolver Dial")
 	}
 }
 
