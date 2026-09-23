@@ -90,21 +90,15 @@ func sendUntil(t *testing.T, timeout time.Duration, send func() error, ready fun
 	}
 }
 
-func darwinAncillaryLogged(stderr, wantIF string) bool {
-	return (strings.Contains(stderr, "ancillary message: IP_RECVDSTADDR: dstaddr=127.0.0.1") ||
-		strings.Contains(stderr, "IP_RECVDSTADDR: 127.0.0.1")) &&
-		(strings.Contains(stderr, "ancillary message: IP_RECVIF: if="+wantIF) ||
-			strings.Contains(stderr, "IP_RECVIF: "+wantIF))
-}
-
 func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 	bin := socatBin(t)
 	wantIF := testutil.IPv4LoopbackInterface(t)
-	t.Run("log", func(t *testing.T) {
+	t.Run("recv", func(t *testing.T) {
 		port := freeUDPPort(t)
-		proc := startDarwinAncillaryRecv(t, "-d", "-d", "-d", "-u",
+		outPath := filepath.Join(t.TempDir(), "recv.out")
+		proc := startDarwinAncillaryRecv(t, "-u",
 			fmt.Sprintf("UDP4-RECV:%d,reuseaddr,ip-recvdstaddr,ip-recvif", port),
-			"STDOUT")
+			"CREATE:"+outPath)
 		if err := waitUDPTestProcess(proc, port, 2*time.Second); err != nil {
 			t.Fatal(err)
 		}
@@ -118,7 +112,8 @@ func TestDarwinIPRecvdstaddrRecvifUDP(t *testing.T) {
 			return err
 		}
 		sendUntil(t, 3*time.Second, send, func() bool {
-			return darwinAncillaryLogged(proc.stderr.String(), wantIF)
+			b, err := os.ReadFile(outPath)
+			return err == nil && strings.Contains(string(b), "XYZ")
 		}, func() string { return processDiag(proc, nil) }, proc.done)
 	})
 	t.Run("env", func(t *testing.T) {

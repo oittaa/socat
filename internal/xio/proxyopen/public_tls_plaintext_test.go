@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
@@ -106,29 +105,7 @@ func TestPROXYHTTP1RejectsCertBeforeDNS(t *testing.T) {
 }
 
 func TestH2cCONNECTRejectsALPN(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	var p http.Protocols
-	p.SetHTTP1(false)
-	p.SetUnencryptedHTTP2(true)
-	srv := &http.Server{Handler: connectEchoHandler(), Protocols: &p}
-	go func() { _ = srv.Serve(ln) }()
-	defer func() { _ = srv.Close() }()
-
-	s, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=2,h2c,alpn=h2,proxyport=" + port)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	o, err := openProxyConnect(ctx, mustAddr(t, s), xio.ModeRDWR, &xio.Global{Log: logx.New()})
-	if o != nil {
-		_ = o.Close()
-	}
-	assertPlaintextHiddenTLSRejected(t, err, "alpn")
+	rejectH2cPlaintextOption(t, "alpn=h2", "alpn")
 }
 
 func TestH2CONNECTCompressNoneStillEchoes(t *testing.T) {

@@ -8,18 +8,18 @@ import (
 	"github.com/oittaa/socat/internal/xio"
 )
 
-func mustAddr(t testing.TB, spec parse.Spec) addrconfig.Address {
-	t.Helper()
+func mustAddr(tb testing.TB, spec parse.Spec) addrconfig.Address {
+	tb.Helper()
 	if spec.Type == "" {
 		config, err := addrconfig.Decode(spec, addrconfig.Facts{})
 		if err != nil {
-			t.Fatal(err)
+			tb.Fatal(err)
 		}
 		return config
 	}
 	prepared, err := xio.PrepareSpec(spec)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return prepared.Config
 }

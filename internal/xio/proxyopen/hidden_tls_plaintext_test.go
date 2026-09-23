@@ -95,6 +95,11 @@ func TestPROXYHTTP1RejectsFIPS(t *testing.T) {
 }
 
 func TestH2cCONNECTRejectsFIPS(t *testing.T) {
+	rejectH2cPlaintextOption(t, "fips=1", "fips")
+}
+
+func rejectH2cPlaintextOption(t *testing.T, option, spelling string) {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +112,7 @@ func TestH2cCONNECTRejectsFIPS(t *testing.T) {
 	go func() { _ = srv.Serve(ln) }()
 	defer func() { _ = srv.Close() }()
 
-	s, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=2,h2c,fips=1,proxyport=" + port)
+	s, err := parse.ParseSpec("PROXY:127.0.0.1:127.0.0.1:9,http-version=2,h2c," + option + ",proxyport=" + port)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +122,7 @@ func TestH2cCONNECTRejectsFIPS(t *testing.T) {
 	if o != nil {
 		_ = o.Close()
 	}
-	assertPlaintextHiddenTLSRejected(t, err, "fips")
+	assertPlaintextHiddenTLSRejected(t, err, spelling)
 }
 
 func TestH2CONNECTRejectsEnabledFIPS(t *testing.T) {
