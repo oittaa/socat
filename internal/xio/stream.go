@@ -19,6 +19,16 @@ import (
 // break fork,max-children, and a terminal stays open until Close. Pipes and
 // FIFOs are closed so the peer sees EOF.
 func FileStream(f *os.File) relay.Stream {
+	return fileStream(f, true)
+}
+
+// OpenFileStream is the single descriptor of OPEN, CREATE, and GOPEN.
+// Half-close leaves a pipe or FIFO open so reading can continue.
+func OpenFileStream(f *os.File) relay.Stream {
+	return fileStream(f, false)
+}
+
+func fileStream(f *os.File, closeFIFO bool) relay.Stream {
 	return relay.FDStream{
 		R: f,
 		W: f,
@@ -32,6 +42,9 @@ func FileStream(f *os.File) relay.Stream {
 			if e == nil {
 				mode := st.Mode()
 				if mode.IsRegular() || mode&os.ModeCharDevice != 0 {
+					return nil
+				}
+				if !closeFIFO && mode&os.ModeNamedPipe != 0 {
 					return nil
 				}
 			}
