@@ -86,9 +86,6 @@ func openExecCleanup(t *testing.T, specText string, mode xio.Mode, linger time.D
 
 func openExecCleanupCtx(t *testing.T, ctx context.Context, specText string, mode xio.Mode, linger time.Duration) *xio.Opened {
 	t.Helper()
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	spec, err := parse.ParseSpec(specText)
 	if err != nil {
 		t.Fatal(err)

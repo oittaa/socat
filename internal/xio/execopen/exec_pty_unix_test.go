@@ -19,9 +19,6 @@ import (
 )
 
 func TestEXECPtyCttyDoesNotImplySetsid(t *testing.T) {
-	if !xio.FeaturePTY {
-		t.Skip("PTY not enabled")
-	}
 	parent, err := unix.Getsid(0)
 	if err != nil {
 		t.Fatal(err)
@@ -39,9 +36,6 @@ func TestEXECPtyCttyDoesNotImplySetsid(t *testing.T) {
 }
 
 func TestEXECPtySetsidCttyTakesControllingTerminal(t *testing.T) {
-	if !xio.FeaturePTY {
-		t.Skip("PTY not enabled")
-	}
 	parent, err := unix.Getsid(0)
 	if err != nil {
 		t.Fatal(err)
@@ -57,9 +51,6 @@ func TestEXECPtySetsidCttyTakesControllingTerminal(t *testing.T) {
 }
 
 func TestEXECPtyLinkPreservesReplacement(t *testing.T) {
-	if !xio.FeaturePTY {
-		t.Skip("PTY not enabled")
-	}
 	link := filepath.Join(t.TempDir(), "exec-pty")
 	bin := buildSidCttyHelper(t)
 	o := openEXECSpec(t, "EXEC:"+bin+",pty,rawer,echo=0,link="+link, xio.ModeRDWR)
@@ -77,9 +68,6 @@ func TestEXECPtyLinkPreservesReplacement(t *testing.T) {
 }
 
 func TestEXECPtyLinkInvalidPathFails(t *testing.T) {
-	if !xio.FeaturePTY {
-		t.Skip("PTY not enabled")
-	}
 	spec, err := parse.ParseSpec("EXEC:/bin/true,pty,link=/no/such/exec-pty-dir/link")
 	if err != nil {
 		t.Fatal(err)

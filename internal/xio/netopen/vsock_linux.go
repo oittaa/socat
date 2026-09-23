@@ -22,10 +22,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() {
-	xio.FeatureVSOCK = true
-}
-
 func listenVSOCK(_ context.Context, port uint32, s addrconfig.Address, g *xio.Global) (net.Listener, error) {
 	cid := uint32(unix.VMADDR_CID_ANY)
 	bind, set, err := parseVsockBindOption(s, false)

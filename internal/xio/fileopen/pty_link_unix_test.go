@@ -13,9 +13,6 @@ import (
 )
 
 func TestPTYLinkStillCreatesSymlink(t *testing.T) {
-	if !xio.FeaturePTY {
-		t.Skip("PTY not enabled")
-	}
 	link := filepath.Join(t.TempDir(), "pty-addr")
 	ch, err := parse.ParseChannel("PTY,echo=0,link=" + link)
 	if err != nil {

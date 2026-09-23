@@ -63,9 +63,6 @@ func TestShellCommandUsesProcessDefaultForInteractive(t *testing.T) {
 }
 
 func TestEmptyQuotedSYSTEMCommandOpens(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	s, err := parse.ParseSpec(`SYSTEM:""`)
 	if err != nil {
 		t.Fatal(err)

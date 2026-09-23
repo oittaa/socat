@@ -59,9 +59,6 @@ func TestUnixRecvStreamEmptyFirstIsEOF(t *testing.T) {
 }
 
 func TestUnixRecvfromForkSetupFailureUnlinksBind(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,max-children=0")
 	if err != nil {
@@ -78,9 +75,6 @@ func TestUnixRecvfromForkSetupFailureUnlinksBind(t *testing.T) {
 }
 
 func TestUnixRecvfromForkSetupFailureUnlinkCloseZeroKeepsPath(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork,max-children=0,unlink-close=0")
 	if err != nil {
@@ -155,13 +149,6 @@ func TestUnixRecvStreamSetupStreamSetsockoptUnix(t *testing.T) {
 	}
 }
 
-func requireUNIXDatagram(t *testing.T) {
-	t.Helper()
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
-}
-
 func waitUnixBindPath(t *testing.T, path string, errc <-chan error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -204,7 +191,6 @@ func writeUnixgramTo(t *testing.T, c *net.UnixConn, path string, payload []byte)
 
 func openUnixRecvfromAfter(t *testing.T, extra string, send func(*net.UnixConn, string)) (*xio.Opened, *net.UnixConn) {
 	t.Helper()
-	requireUNIXDatagram(t)
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early" + extra)
 	if err != nil {
@@ -237,7 +223,6 @@ func openUnixRecvfromAfter(t *testing.T, extra string, send func(*net.UnixConn, 
 
 func openUnixRecvfromFork(t *testing.T, extra string) (*xio.Opened, string) {
 	t.Helper()
-	requireUNIXDatagram(t)
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECVFROM:" + path + ",unlink-early,fork" + extra)
 	if err != nil {

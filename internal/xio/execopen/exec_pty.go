@@ -17,8 +17,6 @@ import (
 	"github.com/oittaa/socat/internal/xio/termios"
 )
 
-func init() { xio.FeaturePTY = true }
-
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
 // EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
 func rejectExecUnsupportedPTYOptions(config addrconfig.Address) error {

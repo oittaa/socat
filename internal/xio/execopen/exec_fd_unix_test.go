@@ -21,9 +21,6 @@ import (
 
 func openEXECSpec(t *testing.T, specText string, mode xio.Mode) *xio.Opened {
 	t.Helper()
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	spec, err := parse.ParseSpec(specText)
 	if err != nil {
 		t.Fatal(err)
@@ -273,9 +270,6 @@ func runPreparedNoFork(t *testing.T, peer relay.Stream, s parse.Spec, g *xio.Glo
 }
 
 func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	peer, _, _, _ := noForkPipePeer(t)
 	s := parseNoForkSpec(t, "EXEC:true,nofork,fdin=3,fdout=4")
 	g := &xio.Global{Log: logx.New()}
@@ -286,9 +280,6 @@ func TestRunExecNoForkTrueWithCustomFDsUnix(t *testing.T) {
 }
 
 func TestRunExecNoForkTargetExit127Unix(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	script := filepath.Join(t.TempDir(), "exit127")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nexit 127\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -303,9 +294,6 @@ func TestRunExecNoForkTargetExit127Unix(t *testing.T) {
 }
 
 func TestRunExecNoForkDashRewritesTargetArgv0Unix(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	bin := buildArgv0Helper(t)
 	peer, _, _, _ := noForkPipePeer(t)
 	got := strings.TrimSpace(captureInheritedStdout(t, func() {
