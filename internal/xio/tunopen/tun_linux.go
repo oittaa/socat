@@ -112,9 +112,10 @@ func openTUN(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Gl
 	}
 	o, err := xio.NewReady("TUN:"+ifname, st)
 	if err != nil {
-		logx.CloseQuiet(ts)
+		_ = ts.Close()
 		return nil, err
 	}
+	// end-close skips the stream close. tunStream.Close is still the only close.
 	o.AddCleanup(func() { _ = ts.Close() })
 	return o, nil
 }
@@ -328,25 +329,26 @@ func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 	}
 
 	f := os.NewFile(uintptr(fd), "interface:"+ifname)
-	st := relay.Stream(&packetRawStream{
+	ps := &packetRawStream{
 		f:            f,
 		fd:           fd,
 		ifindex:      ifi.Index,
 		proto:        proto,
 		retrieveVLAN: retrieveVLAN,
-	})
-	st, err = xio.SetupConnectedStream(s, st)
+	}
+	st, err := xio.SetupConnectedStream(s, ps)
 	if err != nil {
-		logx.CloseQuiet(f)
+		_ = ps.Close()
 		return nil, err
 	}
 	_ = mode
 	o, err := xio.NewReady("INTERFACE:"+ifname, st)
 	if err != nil {
-		logx.CloseQuiet(f)
+		_ = ps.Close()
 		return nil, err
 	}
-	o.AddCleanup(func() { logx.CloseQuiet(f) })
+	// end-close skips the stream close. ps.Close is still the only close.
+	o.AddCleanup(func() { _ = ps.Close() })
 	return o, nil
 }
 
@@ -380,7 +382,7 @@ type packetRawStream struct {
 	ifindex      int
 	proto        uint16
 	retrieveVLAN bool
-	closed       bool
+	closeOnce    sync.Once
 	oob          []byte
 }
 
@@ -484,11 +486,9 @@ func (p *packetRawStream) Write(b []byte) (int, error) {
 }
 
 func (p *packetRawStream) Close() error {
-	if p.closed {
-		return nil
-	}
-	p.closed = true
-	return p.f.Close()
+	var err error
+	p.closeOnce.Do(func() { err = p.f.Close() })
+	return err
 }
 
 func (p *packetRawStream) ShutdownWrite() error {

@@ -71,16 +71,14 @@ func ShutdownWriteFile(f *os.File) error {
 	return shutErr
 }
 
-// dgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
-// marks the write-side shutdown without closing the read side; full Close at
-// transfer cancellation eventually releases the FD and stops the child.
-func DgramPairStream(f *os.File) relay.Stream {
-	var once sync.Once
-	closeF := func() { once.Do(func() { _ = f.Close() }) }
+// DgramPairStream is an AF_UNIX SOCK_DGRAM socketpair end. A zero-length packet
+// marks the write-side shutdown without closing the read side. release is the
+// only closer of f.
+func DgramPairStream(f *os.File, release io.Closer) relay.Stream {
 	return relay.FDStream{
 		R: f,
 		W: f,
-		C: closerFunc(func() error { closeF(); return nil }),
+		C: release,
 		CloseW: func() error {
 			_, err := f.Write(nil)
 			return err
@@ -106,12 +104,14 @@ func CloseOnce(files ...*os.File) io.Closer {
 	})
 }
 
-func PtyExecStream(f *os.File, r io.Reader) relay.Stream {
+// PtyExecStream is a PTY master. Half-close stops writes without closing f.
+// release is the only closer of f.
+func PtyExecStream(f *os.File, r io.Reader, release io.Closer) relay.Stream {
 	w := &halfCloseWriter{w: f}
 	return relay.FDStream{
 		R: r,
 		W: w,
-		C: CloseOnce(f),
+		C: release,
 		CloseW: func() error {
 			w.closeWrite()
 			return nil
