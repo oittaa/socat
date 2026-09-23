@@ -1,6 +1,6 @@
 //go:build linux && (386 || arm || mips || mipsle || ppc)
 
-package xio
+package sockopt
 
 // groupSourceReq is C struct group_source_req on platforms where the two
 // sockaddr_storage values immediately follow the uint32 interface index.

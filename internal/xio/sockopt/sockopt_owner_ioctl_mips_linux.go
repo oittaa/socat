@@ -1,6 +1,6 @@
 //go:build linux && (mips || mipsle || mips64 || mips64le)
 
-package xio
+package sockopt
 
 // Architecture-specific MIPS Linux ioctl numbers
 // (arch/mips/include/uapi/asm/sockios.h), not asm-generic 0x8901.
