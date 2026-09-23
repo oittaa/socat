@@ -47,7 +47,19 @@ func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error
 	if err := unix.SetNonblock(fd, true); err != nil {
 		return err
 	}
-	_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is classicUnixSockaddrLen
+	// AF_UNIX returns EAGAIN when the listen queue is full: connect(2) was
+	// not started, so POLLOUT/SO_ERROR would be a false completion. Retry
+	// until the context deadline (connect-timeout) or cancel.
+	return retryNonblockConnect(ctx, fd, func() unix.Errno {
+		_, _, errno := unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is classicUnixSockaddrLen
+		return errno
+	})
+}
+
+// retryNonblockConnect repeats connect until it finishes, waits out
+// EINPROGRESS, or retries EAGAIN. The descriptor is already nonblocking.
+func retryNonblockConnect(ctx context.Context, fd int, connect func() unix.Errno) error {
+	errno := connect()
 	for {
 		if errno == 0 {
 			return nil
@@ -58,13 +70,10 @@ func unixConnectPath(ctx context.Context, fd int, name string, tight bool) error
 		if errno != unix.EAGAIN && errno != unix.EWOULDBLOCK {
 			return errno
 		}
-		// AF_UNIX returns EAGAIN when the listen queue is full: connect(2) was
-		// not started, so POLLOUT/SO_ERROR would be a false completion. Retry
-		// until the context deadline (connect-timeout) or cancel.
 		if err := waitUnixConnectRetry(ctx); err != nil {
 			return err
 		}
-		_, _, errno = unix.Syscall(unix.SYS_CONNECT, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- connect(2) length is classicUnixSockaddrLen
+		errno = connect()
 	}
 }
 

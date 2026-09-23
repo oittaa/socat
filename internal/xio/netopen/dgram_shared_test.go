@@ -2,6 +2,7 @@ package netopen
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"sync"
@@ -70,6 +71,45 @@ func TestFirstPacketTakeOnce(t *testing.T) {
 	}
 	if _, ok := f.take(); ok {
 		t.Fatal("second take() should miss")
+	}
+}
+
+func TestFilteredPacketReaderSkipsRefusal(t *testing.T) {
+	t.Parallel()
+	reads := 0
+	n, err := (filteredPacketReader[string]{
+		read: func(p []byte) (int, []byte, string, error) {
+			reads++
+			if reads == 1 {
+				copy(p, "no")
+				return 2, nil, "no", nil
+			}
+			copy(p, "yes")
+			return 3, nil, "yes", nil
+		},
+		accept: func(_ int, _ []byte, addr string) (bool, error) {
+			return addr == "yes", nil
+		},
+	}).Read(make([]byte, 4))
+	if err != nil || n != 3 || reads != 2 {
+		t.Fatalf("n=%d err=%v reads=%d", n, err, reads)
+	}
+}
+
+func TestWaitOneshotPacketDropsEmpty(t *testing.T) {
+	t.Parallel()
+	buf := []byte{0, 1}
+	calls := 0
+	got := waitOneshotPacket(context.Background(), nil, buf, func(buf []byte) (int, []byte, int, error) {
+		calls++
+		if calls == 1 {
+			return 0, nil, 7, nil
+		}
+		buf[0] = 9
+		return 1, []byte("oob"), 8, nil
+	}, nil, false)
+	if got.err != nil || got.n != 1 || got.addr != 8 || string(got.oob) != "oob" || buf[0] != 9 || calls != 2 {
+		t.Fatalf("got n=%d addr=%d oob=%q err=%v calls=%d", got.n, got.addr, got.oob, got.err, calls)
 	}
 }
 

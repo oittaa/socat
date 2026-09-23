@@ -242,25 +242,16 @@ func recvSocketFiltered(ctx context.Context, f *os.File, buf []byte, filter *xio
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	for {
-		n, _, from, err := xio.RecvOneCtx(ctx, func() (int, []byte, unix.Sockaddr, error) {
-			nn, a, e := recvfromFile(f, buf)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			return 0, nil, err
-		}
-		if err := filter.AllowAddr(packetAddrFromSockaddr(from), local); err != nil {
-			if stop := logOrStopPeerFilter(ctx, g, err); stop != nil {
-				return 0, nil, stop
-			}
-			continue
-		}
-		if xio.IgnoreEmptyDatagram(n, err, empty.NullEOF) {
-			continue
-		}
-		return n, from, nil
+	got := waitOneshotPacket(ctx, g, buf, func(buf []byte) (int, []byte, unix.Sockaddr, error) {
+		n, from, err := recvfromFile(f, buf)
+		return n, nil, from, err
+	}, func(from unix.Sockaddr) error {
+		return filter.AllowAddr(packetAddrFromSockaddr(from), local)
+	}, empty.NullEOF)
+	if got.err != nil {
+		return 0, nil, got.err
 	}
+	return got.n, got.addr, nil
 }
 
 func socketIPFilterOrError(ctx context.Context, s addrconfig.Address, g *xio.Global, domain int) (*xio.PeerFilter, error) {
@@ -344,32 +335,21 @@ func recvfromFile(f *os.File, p []byte) (int, unix.Sockaddr, error) {
 }
 
 func sendtoFileRaw(f *os.File, p []byte, sa rawSockaddr) (int, error) {
-	sc, err := f.SyscallConn()
-	if err != nil {
-		return 0, err
-	}
-	var n int
-	var writeErr error
-	err = sc.Write(func(fd uintptr) bool {
-		writeErr = sendtoRaw(int(fd), p, sa)
-		if writeErr == unix.EAGAIN || writeErr == unix.EWOULDBLOCK || writeErr == unix.EINTR {
-			return false
-		}
-		if writeErr == nil {
-			n = len(p)
-		}
-		return true
+	return writeFileSyscall(f, p, func(fd int) error {
+		return sendtoRaw(fd, p, sa)
 	})
-	if err != nil {
-		return 0, err
-	}
-	return n, writeErr
 }
 
 func sendtoFileSock(f *os.File, p []byte, to unix.Sockaddr) (int, error) {
 	if to == nil {
 		return 0, fmt.Errorf("no peer")
 	}
+	return writeFileSyscall(f, p, func(fd int) error {
+		return unix.Sendto(fd, p, 0, to)
+	})
+}
+
+func writeFileSyscall(f *os.File, p []byte, write func(fd int) error) (int, error) {
 	sc, err := f.SyscallConn()
 	if err != nil {
 		return 0, err
@@ -377,7 +357,7 @@ func sendtoFileSock(f *os.File, p []byte, to unix.Sockaddr) (int, error) {
 	var n int
 	var writeErr error
 	err = sc.Write(func(fd uintptr) bool {
-		writeErr = unix.Sendto(int(fd), p, 0, to)
+		writeErr = write(int(fd))
 		if writeErr == unix.EAGAIN || writeErr == unix.EWOULDBLOCK || writeErr == unix.EINTR {
 			return false
 		}
@@ -563,31 +543,17 @@ func (r *socketDgramStream) Read(p []byte) (int, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	scratch := make([]byte, len(p))
-	for {
-		n, _, from, err := xio.RecvOneCtx(ctx, func() (int, []byte, unix.Sockaddr, error) {
-			nn, a, e := recvfromFile(r.f, scratch)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			return n, err
-		}
+	return readScratchFiltered(ctx, p, func(buf []byte) (int, unix.Sockaddr, error) {
+		return recvfromFile(r.f, buf)
+	}, func(from unix.Sockaddr) (bool, error) {
 		if r.exactPeer && !sendtoPeerMatches(r.dest, from) {
-			if stop := logOrStopPeerFilter(ctx, r.g, fmt.Errorf("recvfrom(): wrong peer address, ignoring packet")); stop != nil {
-				return 0, stop
-			}
-			continue
+			return refusePacket(ctx, r.g, fmt.Errorf("recvfrom(): wrong peer address, ignoring packet"))
 		}
 		if !r.exactPeer {
-			if err := r.filter.AllowAddr(packetAddrFromSockaddr(from), r.local); err != nil {
-				if stop := logOrStopPeerFilter(ctx, r.g, err); stop != nil {
-					return 0, stop
-				}
-				continue
-			}
+			return refusePacket(ctx, r.g, r.filter.AllowAddr(packetAddrFromSockaddr(from), r.local))
 		}
-		return copy(p, scratch[:n]), nil
-	}
+		return true, nil
+	})
 }
 
 func (r *socketDgramStream) Write(p []byte) (int, error) {
@@ -680,37 +646,28 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	for {
-		if l.rcvTimeout > 0 {
-			_ = l.f.SetReadDeadline(time.Now().Add(l.rcvTimeout))
-		}
-		n, _, from, err := xio.RecvOneCtx(ctx, func() (int, []byte, unix.Sockaddr, error) {
-			nn, a, e := recvfromFile(l.f, buf)
-			return nn, nil, a, e
-		})
-		if err != nil {
-			if l.ctx != nil && l.ctx.Err() != nil {
-				return nil, err
-			}
-			if l.rcvTimeout > 0 && xio.IsTimeoutErr(err) {
-				continue
-			}
-			return nil, err
-		}
-		if xio.IgnoreEmptyDatagram(n, err, l.nullEOF) {
-			continue
+	return recvfromForkAcceptor[unix.Sockaddr]{
+		ctx:             l.ctx,
+		rcvTimeout:      l.rcvTimeout,
+		setReadDeadline: l.f.SetReadDeadline,
+	}.acceptLoop(buf, func(buf []byte) (int, []byte, unix.Sockaddr, error) {
+		n, from, err := recvfromFile(l.f, buf)
+		return n, nil, from, err
+	}, func(n int, _ []byte, buf []byte, from unix.Sockaddr) acceptNext {
+		if xio.IgnoreEmptyDatagram(n, nil, l.nullEOF) {
+			return acceptAgain()
 		}
 		local := filePacketAddr(l.f)
 		if err := l.filter.AllowAddr(packetAddrFromSockaddr(from), local); err != nil {
 			if stop := logOrStopPeerFilter(ctx, l.g, err); stop != nil {
-				return nil, stop
+				return acceptFail(stop)
 			}
-			continue
+			return acceptAgain()
 		}
 		session := l.g.ForkSession()
 		rememberSocketPeer(session, from, local)
 		peer := cloneSockaddr(from)
-		return newOneshotForkConn(
+		return acceptChild(newOneshotForkConn(
 			append([]byte(nil), buf[:n]...),
 			local,
 			packetAddrFromSockaddr(from),
@@ -719,6 +676,6 @@ func (l *socketRecvfromListener) Accept() (net.Conn, error) {
 			l.f.SetWriteDeadline,
 			func(p []byte) (int, error) { return sendtoFileSock(l.f, p, peer) },
 			nil,
-		), nil
-	}
+		), nil)
+	})
 }
