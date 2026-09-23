@@ -5,6 +5,7 @@ package netopen
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -323,7 +324,7 @@ func recvfromFile(f *os.File, p []byte) (int, unix.Sockaddr, error) {
 	var readErr error
 	err = sc.Read(func(fd uintptr) bool {
 		n, from, readErr = unix.Recvfrom(int(fd), p, 0)
-		if readErr == unix.EAGAIN || readErr == unix.EWOULDBLOCK || readErr == unix.EINTR {
+		if errors.Is(readErr, unix.EAGAIN) || errors.Is(readErr, unix.EWOULDBLOCK) || errors.Is(readErr, unix.EINTR) {
 			return false
 		}
 		return true
@@ -358,7 +359,7 @@ func writeFileSyscall(f *os.File, p []byte, write func(fd int) error) (int, erro
 	var writeErr error
 	err = sc.Write(func(fd uintptr) bool {
 		writeErr = write(int(fd))
-		if writeErr == unix.EAGAIN || writeErr == unix.EWOULDBLOCK || writeErr == unix.EINTR {
+		if errors.Is(writeErr, unix.EAGAIN) || errors.Is(writeErr, unix.EWOULDBLOCK) || errors.Is(writeErr, unix.EINTR) {
 			return false
 		}
 		if writeErr == nil {
