@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"testing"
 	"time"
 
@@ -78,6 +79,36 @@ func newWSTestPair(t testing.TB) (net.Conn, net.Conn) {
 
 func closeWSTestConn(conn net.Conn) {
 	_ = conn.Close()
+}
+
+func TestWSReadDeadlineDoesNotCloseConn(t *testing.T) {
+	client, server := newWSTestPair(t)
+	if err := client.SetReadDeadline(time.Now().Add(30 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 4)
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := client.Read(buf)
+		readErr <- err
+	}()
+	select {
+	case err := <-readErr:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("Read = %v, want deadline exceeded", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("read deadline did not fire")
+	}
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := server.Write([]byte("next")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.ReadFull(client, buf); err != nil || string(buf) != "next" {
+		t.Fatalf("after deadline: %q %v", buf, err)
+	}
 }
 
 func TestWSNetConnCloseFrameBecomesEOF(t *testing.T) {
