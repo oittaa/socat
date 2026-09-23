@@ -7,7 +7,7 @@
 // The flow is:
 //   - parse uses ParserCanonical and IsPathValue while reading an address.
 //   - cli uses Lookup to validate names and address scope, and Sections for help.
-//     Static value contracts live in addrconfig.Decode.
+//     Each option's Kind is the grammar addrconfig uses to decode its value once.
 //   - xio openers apply options or reject them. TLS and get-only IP diagnostics
 //     use Lookup; ancillary effects remain in xio/ip_ancillary_matrix.go.
 //

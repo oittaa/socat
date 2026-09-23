@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/oittaa/socat/internal/optionmeta"
 	"github.com/oittaa/socat/internal/parse"
 )
 
@@ -45,121 +46,6 @@ type TerminalAction struct {
 	Row     uint16
 }
 
-func decodeTerminal(a *Address, o parse.Option, name string) (bool, error) {
-	appendAction := func(action TerminalAction) {
-		action.Name = name
-		a.Terminal.Actions = append(a.Terminal.Actions, action)
-	}
-	switch name {
-	case "link":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, fmt.Errorf("link: path required")
-		}
-		a.Terminal.Link = OptionalString{Set: true, Value: value}
-		return true, nil
-	case "pty-wait-slave":
-		return true, setActive(&a.Terminal.WaitSlave, o)
-	case "pty-interval":
-		d, err := duration(o)
-		if err != nil {
-			return true, err
-		}
-		a.Terminal.WaitInterval = OptionalDuration{Set: true, Value: d}
-		return true, nil
-	case "sitout-eio":
-		if !o.Has || strings.TrimSpace(o.Value) == "" {
-			return true, fmt.Errorf("sitout-eio: option requires a value")
-		}
-		d, err := ParseDuration(o.Value)
-		if err != nil || d < 0 {
-			return true, fmt.Errorf("sitout-eio: invalid timeval %q", o.Value)
-		}
-		a.Terminal.SitoutEIO = OptionalDuration{Set: true, Value: d}
-		return true, nil
-	case "ctty":
-		value, err := parseBool(o)
-		if err != nil {
-			return true, err
-		}
-		a.Terminal.CTTY = value
-		a.Process.CTTY = value
-		return true, nil
-	case "raw", "rawer", "cfmakeraw", "sane":
-		if o.Has {
-			return true, fmt.Errorf("%s: no value permitted", o.Name)
-		}
-		appendAction(TerminalAction{Kind: TerminalActionCombo})
-		return true, nil
-	case "termios-setflags":
-		word, flags, err := terminalSetFlags(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(TerminalAction{Kind: TerminalActionSetFlags, Word: word, Flags: flags})
-		return true, nil
-	case "tiocswinsz":
-		col, row, err := terminalWinSize(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(TerminalAction{Kind: TerminalActionWinSize, Col: col, Row: row})
-		return true, nil
-	case "ispeed", "ospeed":
-		value, err := terminalUint(name, o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(TerminalAction{Kind: TerminalActionSpeed, Value: value})
-		return true, nil
-	}
-	if terminalComboName(name) {
-		return false, nil
-	}
-	if terminalCharName(name) {
-		value, err := terminalByte(name, o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(TerminalAction{Kind: TerminalActionChar, Value: uint32(value)})
-		return true, nil
-	}
-	if baud, ok := terminalBaud(name); ok {
-		if o.Has {
-			return true, fmt.Errorf("%s: no value permitted", o.Name)
-		}
-		appendAction(TerminalAction{Kind: TerminalActionSpeed, Value: baud})
-		return true, nil
-	}
-	if terminalFieldName(name) {
-		value, err := terminalUint(name, o)
-		if err != nil {
-			return true, err
-		}
-		if value > 3 {
-			return true, fmt.Errorf("%s: invalid value %d", name, value)
-		}
-		appendAction(TerminalAction{Kind: TerminalActionField, Value: value})
-		return true, nil
-	}
-	if terminalFlagName(name) {
-		if terminalConstantFlagName(name) {
-			if o.Has {
-				return true, fmt.Errorf("%s: no value permitted", o.Name)
-			}
-			appendAction(TerminalAction{Kind: TerminalActionFlag, Enabled: true})
-			return true, nil
-		}
-		value, err := parseBool(o)
-		if err != nil {
-			return true, err
-		}
-		appendAction(TerminalAction{Kind: TerminalActionFlag, Enabled: value.Value})
-		return true, nil
-	}
-	return false, nil
-}
-
 func terminalConstantFlagName(name string) bool {
 	switch name {
 	case "cs5", "cs6", "cs7", "cs8", "nl0", "nl1", "cr0", "cr1", "cr2", "cr3", "tab0", "tab1", "tab2", "tab3", "xtabs", "bs0", "bs1", "vt0", "vt1", "ff0", "ff1":
@@ -182,6 +68,26 @@ func terminalCharName(name string) bool {
 
 func terminalFieldName(name string) bool {
 	return name == "crdly" || name == "tabdly" || name == "csize"
+}
+
+// TermiosValueKind is the grammar for a termios spelling that is not a catalog entry.
+func TermiosValueKind(name string) optionmeta.Kind {
+	if terminalComboName(name) || terminalConstantFlagName(name) {
+		return optionmeta.KindNoValueName
+	}
+	if _, ok := terminalBaud(name); ok {
+		return optionmeta.KindNoValueName
+	}
+	if terminalCharName(name) {
+		return optionmeta.KindTermiosByte
+	}
+	if terminalFieldName(name) {
+		return optionmeta.KindTermiosField
+	}
+	if terminalFlagName(name) {
+		return optionmeta.KindBool
+	}
+	return optionmeta.KindNone
 }
 
 func terminalFlagName(name string) bool {

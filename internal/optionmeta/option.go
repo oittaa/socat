@@ -17,6 +17,12 @@ type Option struct {
 	PublicTLS       bool   // Rejected on plaintext PROXY transports.
 	TLSRejectReason string // Reason crypto/tls cannot apply this option.
 	Kernel          string // Get-only IPv4 option named in rejection diagnostics.
+	// Kind is the grammar that decodes this option's value once.
+	Kind Kind
+	// Min is the inclusive lower bound for KindInt.
+	Min int
+	// Max is the inclusive upper bound for KindMode.
+	Max uint32
 }
 
 // AddressScope describes CLI acceptance, not whether an opener applied an option.

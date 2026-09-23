@@ -46,6 +46,9 @@ func init() {
 	if err := validateCatalog(catalog); err != nil {
 		panic(err)
 	}
+	if err := validateKinds(catalog); err != nil {
+		panic(err)
+	}
 	for i, d := range catalog {
 		for _, name := range d.Names() {
 			bySpelling[name] = i
@@ -68,6 +71,16 @@ func validateCatalog(defs []Option) error {
 			}
 			seen[name] = d.Canonical
 		}
+	}
+	return nil
+}
+
+func validateKinds(defs []Option) error {
+	for _, d := range defs {
+		if d.Isolation || d.Kind != KindNone {
+			continue
+		}
+		return fmt.Errorf("option %q has no value kind", d.Canonical)
 	}
 	return nil
 }

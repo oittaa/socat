@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-
-	"github.com/oittaa/socat/internal/parse"
 )
 
 // HTTPVersion selects a CONNECT transport.
@@ -36,58 +34,6 @@ type Proxy struct {
 	SOCKSPortSet      bool
 	SOCKSUser         OptionalString
 	SOCKSPassword     OptionalString
-}
-
-func decodeProxyOption(a *Address, o parse.Option, name string) (bool, error) {
-	switch name {
-	case "proxyport":
-		port, err := requiredPortTarget(o)
-		if err != nil {
-			return true, err
-		}
-		a.Proxy.Port = port
-		a.Proxy.PortSet = true
-		return true, nil
-	case "http-version":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		version, err := decodeHTTPVersion(value)
-		if err != nil {
-			return true, err
-		}
-		a.Proxy.HTTPVersion = version
-		return true, nil
-	case "h2c":
-		return true, setActive(&a.Proxy.H2C, o)
-	case "ignorecr":
-		return true, setActive(&a.Proxy.IgnoreCR, o)
-	case "proxy-resolve":
-		return true, setActive(&a.Proxy.Resolve, o)
-	case "proxy-authorization":
-		return true, setRequiredString(&a.Proxy.Authorization, o)
-	case "proxy-authorization-file":
-		return true, setRequiredString(&a.Proxy.AuthorizationFile, o)
-	case "socksport":
-		// Empty socksport= keeps the positional server port. A bare socksport is an error.
-		text, err := presentString(o)
-		if err != nil {
-			return true, err
-		}
-		port, err := portTarget(text)
-		if err != nil {
-			return true, err
-		}
-		a.Proxy.SOCKSPort = port
-		a.Proxy.SOCKSPortSet = true
-		return true, nil
-	case "socksuser":
-		return true, setRequiredString(&a.Proxy.SOCKSUser, o)
-	case "sockspass":
-		return true, setRequiredString(&a.Proxy.SOCKSPassword, o)
-	}
-	return false, nil
 }
 
 func decodeHTTPVersion(value string) (HTTPVersion, error) {

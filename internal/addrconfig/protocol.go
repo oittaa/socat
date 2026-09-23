@@ -3,7 +3,6 @@ package addrconfig
 import (
 	"crypto/tls"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/oittaa/socat/internal/optionmeta"
@@ -49,106 +48,6 @@ type TLSUnsupported struct {
 	Index     int
 }
 
-func decodeProtocolOption(d *decoder, o parse.Option, definition optionmeta.Option) (bool, error) {
-	a := &d.Address
-	name := definition.Canonical
-	recordTLSPlaintextName(a, o, definition)
-	if definition.TLSRejectReason != "" {
-		if err := decodeUnsupportedTLSValue(name, o); err != nil {
-			return true, err
-		}
-		recordUnsupportedTLS(d, name, o, definition.TLSRejectReason, !compatibleDisabledTLSOption(name, o))
-		return true, nil
-	}
-	switch name {
-	case "cert":
-		return true, setRequiredString(&a.TLS.Certificate, o)
-	case "key":
-		return true, setRequiredString(&a.TLS.Key, o)
-	case "cafile":
-		return true, setRequiredString(&a.TLS.CAFile, o)
-	case "capath":
-		return true, setRequiredString(&a.TLS.CAPath, o)
-	case "verify":
-		return true, setActive(&a.TLS.Verify, o)
-	case "commonname":
-		if !o.Has {
-			return true, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
-		}
-		a.TLS.CommonName = OptionalString{Set: true, Value: o.Value}
-		return true, nil
-	case "snihost":
-		if !o.Has {
-			return true, fmt.Errorf("option %q requires a value", o.OriginalSpelling())
-		}
-		a.TLS.SNIHost = OptionalString{Set: true, Value: o.Value}
-		return true, nil
-	case "nosni":
-		return true, setActive(&a.TLS.NoSNI, o)
-	case "ciphers":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		value = strings.TrimSpace(value)
-		if value == "" {
-			a.TLS.CipherSuites = nil
-			return true, nil
-		}
-		suites, err := decodeCipherSuites(value)
-		if err != nil {
-			return true, err
-		}
-		a.TLS.CipherSuites = suites
-		return true, nil
-	case "openssl-min-proto-version":
-		return true, decodeProtocolVersion(a, o, name, true)
-	case "openssl-max-proto-version":
-		return true, decodeProtocolVersion(a, o, name, false)
-	case "alpn":
-		value, err := requiredString(o)
-		if err != nil {
-			return true, err
-		}
-		if len(value) > 255 {
-			return true, fmt.Errorf("alpn: protocol must contain 1 to 255 bytes")
-		}
-		a.TLS.ALPN = OptionalString{Set: true, Value: value}
-		return true, nil
-	case "dtls-mtu":
-		value, err := requiredInt(o, 256)
-		if err != nil || value > 65507 {
-			return true, fmt.Errorf("dtls-mtu: value must be between 256 and 65507")
-		}
-		a.TLS.DTLSMTU = OptionalInt{Set: true, Value: value}
-		return true, nil
-	case "dtls-migration", "dtls-unfragmented-probes":
-		value, err := parseBool(o)
-		if name == "dtls-migration" {
-			a.TLS.DTLSMigration = value
-		} else {
-			a.TLS.DTLSUnfragmentedProbes = value
-		}
-		return true, err
-	case "path":
-		// Empty path= keeps a positional URL path. A bare path is an error.
-		value, err := presentString(o)
-		if err != nil {
-			return true, err
-		}
-		a.TLS.WSPath = OptionalString{Set: true, Value: value}
-		return true, nil
-	case "origin":
-		return true, setRequiredString(&a.TLS.WSOrigin, o)
-	case "protocol":
-		if a.Network.Kind == AddressKindSocket || a.Network.Kind == AddressKindVSOCK {
-			return false, nil
-		}
-		return true, setRequiredString(&a.TLS.WSProtocol, o)
-	}
-	return decodeProxyOption(a, o, name)
-}
-
 func recordTLSPlaintextName(a *Address, o parse.Option, definition optionmeta.Option) {
 	spelling := o.OriginalSpelling()
 	if spelling == "" {
@@ -161,40 +60,6 @@ func recordTLSPlaintextName(a *Address, o parse.Option, definition optionmeta.Op
 	}
 	if definition.PublicTLS {
 		a.TLS.LastPlaintextName = spelling
-	}
-}
-
-func compatibleDisabledTLSOption(name string, o parse.Option) bool {
-	switch name {
-	case "openssl-fips", "openssl-pseudo":
-		v, err := parseBool(o)
-		return err == nil && !v.Value
-	case "openssl-compress":
-		return o.Has && strings.EqualFold(strings.TrimSpace(o.Value), "none")
-	default:
-		return false
-	}
-}
-
-func decodeUnsupportedTLSValue(name string, o parse.Option) error {
-	switch name {
-	case "openssl-method", "openssl-egd", "openssl-dhparam", "openssl-compress":
-		_, err := requiredString(o)
-		return err
-	case "openssl-fips", "openssl-pseudo":
-		_, err := parseBool(o)
-		return err
-	case "openssl-maxfraglen", "openssl-maxsendfrag":
-		if !o.Has {
-			return nil
-		}
-		_, err := strconv.ParseInt(strings.TrimSpace(o.Value), 0, 64)
-		if err != nil {
-			return fmt.Errorf("invalid %s %q", o.OriginalSpelling(), o.Value)
-		}
-		return nil
-	default:
-		return nil
 	}
 }
 
