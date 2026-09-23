@@ -104,29 +104,6 @@ func ApplyLateSocketOptionsToPacketConn(pc net.PacketConn, s addrconfig.Address)
 	return err
 }
 
-// ApplyIPSendOptsToPacketConn applies send-side IP options on a UDP PacketConn
-// that was not created with ListenControl (tests, leftover callers). QUIC,
-// HTTP/3, and raw IP apply the same options once in ListenControl / DialControl
-// after socket().
-func ApplyIPSendOptsToPacketConn(pc net.PacketConn, s addrconfig.Address, network string) error {
-	if pc == nil || !ipSendRequested(s) {
-		return nil
-	}
-	sc, ok := pc.(syscall.Conn)
-	if !ok {
-		return fmt.Errorf("ip-ttl/ip-tos: packet connection does not expose a socket")
-	}
-	raw, err := sc.SyscallConn()
-	if err != nil {
-		return err
-	}
-	var optErr error
-	ctrlErr := raw.Control(func(fd uintptr) {
-		optErr = ApplyIPSendOpts(int(fd), s, network)
-	})
-	return errors.Join(ctrlErr, optErr)
-}
-
 func hasLateSocketBuffers(config addrconfig.Address) bool {
 	for _, action := range config.Network.Actions {
 		if action.Kind == addrconfig.SocketActionBuffer && action.Phase == addrconfig.SocketPhaseLate {

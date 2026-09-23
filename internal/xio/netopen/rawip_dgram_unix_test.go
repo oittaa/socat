@@ -129,7 +129,7 @@ func TestIP4RecvfromForkChildPeerEnvironment(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	right := parseChannel(t, `SYSTEM:echo $SOCAT_PEERADDR/$SOCAT_PEERPORT`)
-	go func() { done <- xio.RunOpened(ctx, o, right, g) }()
+	go func() { done <- runOpened(ctx, o, right, g) }()
 	t.Cleanup(func() {
 		_ = o.Close()
 		<-done

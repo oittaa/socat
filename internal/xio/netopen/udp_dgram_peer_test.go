@@ -29,7 +29,7 @@ func openDgramStream(t *testing.T, spec string) (*xio.Opened, *net.UDPAddr) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
-	o, err := xio.OpenChannel(ctx, parseChannel(t, spec), xio.ModeRDWR, useGlobal())
+	o, err := openChannel(ctx, parseChannel(t, spec), xio.ModeRDWR, useGlobal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func testSendtoSourceportBinds(t *testing.T, typ string, listen func(*testing.T)
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		o, err := xio.OpenChannel(ctx, parseChannel(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,sourceport="+strconv.Itoa(sp)), xio.ModeRDWR, useGlobal())
+		o, err := openChannel(ctx, parseChannel(t, typ+":127.0.0.1:"+strconv.Itoa(destPort)+",bind=127.0.0.1,sourceport="+strconv.Itoa(sp)), xio.ModeRDWR, useGlobal())
 		if err != nil {
 			cancel()
 			continue

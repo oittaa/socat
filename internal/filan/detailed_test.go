@@ -13,6 +13,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+func SockAddrInfo(sa unix.Sockaddr) string {
+	return sockAddrInfo(sa, sockaddrLen(sa))
+}
+
 func TestClassicDevPairHighLow16(t *testing.T) {
 	if got := classicDevPair(0xa5c); got != "10,92" {
 		t.Fatalf("classicDevPair(0xa5c)=%q want 10,92", got)

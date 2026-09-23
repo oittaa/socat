@@ -51,7 +51,7 @@ func TestParseSocketDgramCallOverrides(t *testing.T) {
 }
 
 func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
-	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-CONNECT:99:0:x00"), xio.ModeRDWR, nil)
+	_, err := openSpec(context.Background(), mustSocketSpec(t, "SOCKET-CONNECT:99:0:x00"), xio.ModeRDWR, nil)
 	if err == nil {
 		t.Fatal("expected socket() failure")
 	}
@@ -64,7 +64,7 @@ func TestSocketConnectUnknownDomainCallsSocket(t *testing.T) {
 }
 
 func TestSocketIPv4ShortSockaddrBindIsEINVAL(t *testing.T) {
-	_, err := xio.OpenSpec(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
+	_, err := openSpec(context.Background(), mustSocketSpec(t, "SOCKET-LISTEN:2:0:x00007f000001,reuseaddr"), xio.ModeRDWR, xio.NewSession(xio.Options{BlockSize: 8192}, logx.New()))
 	if err == nil {
 		t.Fatal("short sockaddr_in bind succeeded")
 	}

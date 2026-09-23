@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"net"
-	"strings"
 	"testing"
 
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -18,37 +16,6 @@ type recordListener struct{ calls int }
 func (l *recordListener) Accept() (net.Conn, error) { l.calls++; return nil, errDispatch }
 func (l *recordListener) Close() error              { return nil }
 func (l *recordListener) Addr() net.Addr            { return &net.TCPAddr{} }
-
-func TestRunOpenedClosesLeftWhenRightPrepareFails(t *testing.T) {
-	lo, err := NewReady("", relay.FDStream{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	closed := false
-	lo.AddCleanup(func() { closed = true })
-	ch, err := parse.ParseChannel("NOSUCH:x")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = RunOpened(context.Background(), lo, ch, nil)
-	if err == nil || !strings.Contains(err.Error(), "unknown device/address") {
-		t.Fatalf("error=%v", err)
-	}
-	if !closed {
-		t.Fatal("left endpoint was not closed")
-	}
-}
-
-func TestRunOpenedNilLeftOnPrepareFailure(t *testing.T) {
-	ch, err := parse.ParseChannel("NOSUCH:x")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = RunOpened(context.Background(), nil, ch, nil)
-	if err == nil || !strings.Contains(err.Error(), "unknown device/address") {
-		t.Fatalf("error=%v", err)
-	}
-}
 
 func TestRunOpenedDispatch(t *testing.T) {
 	for _, tc := range []struct {

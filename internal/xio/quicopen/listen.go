@@ -32,7 +32,7 @@ func openQUICListen(ctx context.Context, s addrconfig.Address, mode xio.Mode, g 
 	if err != nil {
 		return nil, err
 	}
-	qcfg, err := quicConfig(ctx, s, tlsCfg)
+	qcfg, err := quicConfig(s, tlsCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -62,11 +62,11 @@ type quicSetup struct {
 	cfg *quic.Config
 }
 
-func quicHandshakeIdleTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
+func quicHandshakeIdleTimeout(s addrconfig.Address) time.Duration {
 	return xio.QUICHandshakeIdleTimeout(s)
 }
 
-func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (quicSetup, error) {
+func quicConfig(s addrconfig.Address, tlsCfg *tls.Config) (quicSetup, error) {
 	quicTLS, err := withALPN(tlsCfg, alpnProto(s.TLS))
 	if err != nil {
 		return quicSetup{}, err
@@ -74,7 +74,7 @@ func quicConfig(ctx context.Context, s addrconfig.Address, tlsCfg *tls.Config) (
 	// HandshakeIdleTimeout is the handshake-timeout extra (no C equivalent).
 	// Do not reuse connect-timeout as the QUIC handshake idle bound.
 	// handshake-timeout=0 must not become quic-go's 5s default.
-	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(ctx, s)}
+	cfg := &quic.Config{HandshakeIdleTimeout: quicHandshakeIdleTimeout(s)}
 	return quicSetup{tls: quicTLS, cfg: cfg}, nil
 }
 

@@ -79,7 +79,7 @@ var (
 )
 
 // ipAncillaryMatrix is the authoritative runtime support table. CLI
-// implementationGroups are derived from it; OpenSpec rejects the same
+// implementationGroups are derived from it; PrepareSpec rejects the same
 // combinations. Recv ancillary is not advertised on TCP or QUIC: stream TCP
 // and quic-go's PacketConn do not surface cmsgs. Send-side options are
 // advertised on QUIC because they are applied to the transport UDP fd.
@@ -265,18 +265,6 @@ func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
 		}
 	}
 	return nil
-}
-
-func ipSendRequested(s addrconfig.Address) bool {
-	for _, action := range s.Network.Actions {
-		if action.Kind != addrconfig.SocketActionAncillary {
-			continue
-		}
-		if e, ok := lookupIPAncillary(action.Ancillary); ok && e.Kind&IPAncillarySend != 0 {
-			return true
-		}
-	}
-	return false
 }
 
 func ancillaryRecvRequested(s addrconfig.Address) bool {

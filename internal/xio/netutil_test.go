@@ -105,10 +105,10 @@ func TestBindHostAndDualStackFromPreparedConfig(t *testing.T) {
 	if got := BindHost(config); got.Original() != "[::1]" {
 		t.Fatalf("bind=%q", got.Original())
 	}
-	if got := SourcePortText(config); got != "0x50" {
-		t.Fatalf("sourceport=%q", got)
+	if !config.Network.SourcePortSet || config.Network.SourcePort.Text() != "0x50" {
+		t.Fatalf("sourceport=%q", config.Network.SourcePort.Text())
 	}
-	if got := ProtocolFamilyText(config); got != "ip6" {
+	if got := config.Network.ProtocolFamilyToken(); got != "ip6" {
 		t.Fatalf("pf=%q", got)
 	}
 	if got := DualStackListenNetwork(config, "tcp6"); got != "tcp" {

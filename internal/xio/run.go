@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -23,18 +22,6 @@ func channelModes(opts Options) (lMode, rMode Mode) {
 		return ModeWrite, ModeRead
 	}
 	return lMode, rMode
-}
-
-func Run(ctx context.Context, left, right parse.Channel, g *Global) error {
-	preparedLeft, err := PrepareChannel(left)
-	if err != nil {
-		return err
-	}
-	preparedRight, err := PrepareChannel(right)
-	if err != nil {
-		return err
-	}
-	return RunPrepared(ctx, preparedLeft, preparedRight, g)
 }
 
 // RunPrepared opens and relays two prepared channels. It retains immutable
@@ -52,18 +39,6 @@ func RunPrepared(ctx context.Context, left, right PreparedChannel, g *Global) er
 		return err
 	}
 	return RunOpenedPrepared(ctx, lo, right, g)
-}
-
-// RunOpened continues Run after the left address is already open. It closes lo.
-func RunOpened(ctx context.Context, lo *Opened, right parse.Channel, g *Global) error {
-	prepared, err := PrepareChannel(right)
-	if err != nil {
-		if lo != nil {
-			_ = lo.Close()
-		}
-		return err
-	}
-	return RunOpenedPrepared(ctx, lo, prepared, g)
 }
 
 // RunOpenedPrepared continues a run with a prepared right channel.

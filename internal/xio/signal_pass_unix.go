@@ -86,10 +86,6 @@ func registerExecParentSignals(config addrconfig.Address, cmd *exec.Cmd, g *Glob
 	return nil
 }
 
-func registerChildSignal(pid int, sig syscall.Signal) error {
-	return registerChildSignalOn(nil, pid, sig)
-}
-
 func registerChildSignalOn(g *Global, pid int, sig syscall.Signal) error {
 	if pid <= 0 {
 		return nil
@@ -192,23 +188,4 @@ func forwardRegisteredChildSignal(sig os.Signal) bool {
 		log.Infof("socatsignalpass(): propagated signal to %d sub processes", sent)
 	}
 	return true
-}
-
-func resetChildSignalPassForTest() {
-	childSignalMu.Lock()
-	defer childSignalMu.Unlock()
-	processSession = childSignalSession{}
-	liveSessions = map[*childSignalSession]struct{}{}
-}
-
-func childSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
-	childSignalMu.Lock()
-	defer childSignalMu.Unlock()
-	idx, ok := sigIndex(sig)
-	if !ok {
-		return false, 0, nil
-	}
-	pids = collectPidsLocked(idx)
-	n = len(pids)
-	return n > 0, n, pids
 }

@@ -10,7 +10,3 @@ import (
 func isMessageTooLong(err error) bool {
 	return errors.Is(err, syscall.EMSGSIZE)
 }
-
-func messageTooLongError() error {
-	return syscall.EMSGSIZE
-}

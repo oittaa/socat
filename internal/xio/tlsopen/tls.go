@@ -36,7 +36,7 @@ func openTLSConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 	network = xio.ConnectNetworkForType(s, target, network)
 	addr := net.JoinHostPort(xio.StripBrackets(host), port.Text())
 
-	tlsCfg, err := tlsClientConfigForContext(ctx, s, host)
+	tlsCfg, err := tlsClientConfigForContext(s, host)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +114,7 @@ func openTLSListenNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode,
 		return nil, err
 	}
 
-	tlsCfg, err := tlsServerConfigForContext(ctx, s)
+	tlsCfg, err := tlsServerConfigForContext(s)
 	if err != nil {
 		return nil, err
 	}
@@ -168,24 +168,6 @@ func (l *socketTimeoutListener) Accept() (net.Conn, error) {
 	return xio.NewSocketTimeoutConn(conn, l.readTimeout, l.writeTimeout), nil
 }
 
-// TLSClientConfig builds a crypto/tls client config from TLS/WSS options.
-func TLSClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
-	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
-}
-
-func tlsClientConfig(s addrconfig.Address, serverName string) (*tls.Config, error) {
-	return TLSClientConfig(s, serverName)
-}
-
-// TLSServerConfig builds a crypto/tls server config from TLS/WSS-LISTEN options.
-func TLSServerConfig(s addrconfig.Address) (*tls.Config, error) {
-	return TLSServerConfigSettings(s.Type, s.TLS)
-}
-
-func tlsServerConfig(s addrconfig.Address) (*tls.Config, error) {
-	return TLSServerConfig(s)
-}
-
 func rejectUnsupportedOpenSSLOptions(settings addrconfig.TLS, typ string) error {
 	if typ == "" {
 		typ = "TLS"
@@ -224,7 +206,7 @@ func RejectPROXYTLSOnPlaintext(typ string, settings addrconfig.TLS) error {
 	return rejectTLSNamesOnPlaintext(typ, settings, true)
 }
 
-func tlsClientConfigForContext(ctx context.Context, s addrconfig.Address, serverName string) (*tls.Config, error) {
+func tlsClientConfigForContext(s addrconfig.Address, serverName string) (*tls.Config, error) {
 	return TLSClientConfigSettings(s.Type, s.TLS, serverName)
 }
 
@@ -295,7 +277,7 @@ func TLSClientConfigSettings(typ string, settings addrconfig.TLS, serverName str
 	return cfg, nil
 }
 
-func tlsServerConfigForContext(ctx context.Context, s addrconfig.Address) (*tls.Config, error) {
+func tlsServerConfigForContext(s addrconfig.Address) (*tls.Config, error) {
 	return TLSServerConfigSettings(s.Type, s.TLS)
 }
 

@@ -93,7 +93,7 @@ func dialResolver(ctx context.Context, nsName, network, address string) (net.Con
 }
 
 // WrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in
-// the target namespace (OpenDialed does not dial during OpenSpec).
+// the target namespace (OpenDialed does not dial during OpenPreparedSpec).
 func WrapNetNSDial(name string, g *Global, dial func(context.Context) (net.Conn, error)) func(context.Context) (net.Conn, error) {
 	if dial == nil {
 		return nil

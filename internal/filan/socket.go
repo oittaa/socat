@@ -132,11 +132,6 @@ func SockAddrString(sa unix.Sockaddr) string {
 	}
 }
 
-// SockAddrInfo formats a kernel sockaddr with family (and length on Darwin).
-func SockAddrInfo(sa unix.Sockaddr) string {
-	return sockAddrInfo(sa, sockaddrLen(sa))
-}
-
 func sockAddrInfo(sa unix.Sockaddr, slen int) string {
 	var b strings.Builder
 	b.WriteString(sockAddrLenPrefix(slen))

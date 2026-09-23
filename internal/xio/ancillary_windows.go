@@ -4,26 +4,14 @@ package xio
 
 import (
 	"errors"
-	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
+
+	"github.com/oittaa/socat/internal/addrconfig"
 )
 
 func NeedAncillary(addrconfig.Address) bool { return false }
 
-func ApplyAncillaryRecvOpts(_ int, s addrconfig.Address) error {
-	if !ancillaryRecvRequested(s) {
-		return nil
-	}
-	return fmt.Errorf("recv ancillary options are not supported on this platform")
-}
-
 func ProcessAncillary([]byte, *Global) {}
-
-func ReadUDPMsg(c *net.UDPConn, p []byte, _ bool) (int, []byte, *net.UDPAddr, error) {
-	n, addr, err := c.ReadFromUDP(p)
-	return n, nil, addr, err
-}
 
 func ReadUDPMsgWithBuffer(c *net.UDPConn, p []byte, _ bool, _ []byte) (int, []byte, *net.UDPAddr, error) {
 	n, addr, err := c.ReadFromUDP(p)

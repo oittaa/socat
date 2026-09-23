@@ -32,7 +32,7 @@ func openClient(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if host.Empty() || port.Empty() {
 		return nil, fmt.Errorf("%s requires host and port", s.Type)
 	}
-	cfg, err := endpointConfig(ctx, s, host.String(), false)
+	cfg, err := endpointConfig(s, host.String(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,7 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := endpointConfig(ctx, s, "", true)
+	cfg, err := endpointConfig(s, "", true)
 	if err != nil {
 		return nil, err
 	}

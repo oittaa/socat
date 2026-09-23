@@ -293,8 +293,6 @@ func (q *posixMQQueue) wrapRecvFork(ctx context.Context, s addrconfig.Address, p
 		},
 	})
 	if err != nil {
-		q.cleanup()
-		_ = ln.Close()
 		return nil, err
 	}
 	o.AddCleanup(func() {

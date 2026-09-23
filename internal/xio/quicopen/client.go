@@ -19,7 +19,7 @@ import (
 // omitted default) is also a candidate; handshake-timeout=0 disables only
 // that handshake candidate. The earlier positive deadline wins. A zero
 // result means no extra Dial context timeout.
-func quicDialAttemptTimeout(ctx context.Context, s addrconfig.Address) time.Duration {
+func quicDialAttemptTimeout(s addrconfig.Address) time.Duration {
 	return xio.CombinedConnectHandshakeTimeout(s)
 }
 
@@ -42,7 +42,7 @@ func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 	if err != nil {
 		return nil, err
 	}
-	setup, err := quicConfig(ctx, s, tlsCfg)
+	setup, err := quicConfig(s, tlsCfg)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +61,7 @@ func openQUICConnect(ctx context.Context, s addrconfig.Address, mode xio.Mode, g
 	// teardown then waits out the drain so tail bytes and the FIN survive.
 	var drain atomic.Bool
 
-	attemptTimeout := quicDialAttemptTimeout(ctx, s)
+	attemptTimeout := quicDialAttemptTimeout(s)
 	dialOnce := func(dctx context.Context) (net.Conn, error) {
 		var conn net.Conn
 		err := xio.WithRetry(dctx, g, s.Common.Retry.Policy(), s.Type, func() error {

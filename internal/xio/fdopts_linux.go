@@ -4,23 +4,10 @@ package xio
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"golang.org/x/sys/unix"
 )
-
-// ApplyFDOptions applies descriptor options to an already open file in
-// command-line order (after open, then late). o-direct is open(2) only.
-// o-noatime uses F_SETFL; fs-* uses FS_IOC_*.
-func ApplyFDOptions(f *os.File, s addrconfig.Address) error {
-	return ApplyFDOptionsSkip(f, s, FDSkip{})
-}
-
-// ApplyFDOptionsSkip applies descriptor options, skipping opener-owned names.
-func ApplyFDOptionsSkip(f *os.File, s addrconfig.Address, skip FDSkip) error {
-	return applyFDLifecycleToFile(f, s, skip)
-}
 
 func applyConfiguredLinuxPHFDAction(fd int, action addrconfig.FileAction) error {
 	switch action.Kind {

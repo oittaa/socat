@@ -2,9 +2,9 @@
 package dtlsopen
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
+
 	"github.com/oittaa/socat/internal/addrconfig"
 
 	"github.com/oittaa/socat/internal/dtls13"
@@ -12,7 +12,7 @@ import (
 	"github.com/oittaa/socat/internal/xio/tlsopen"
 )
 
-func endpointConfig(ctx context.Context, s addrconfig.Address, host string, server bool) (*dtls13.Config, error) {
+func endpointConfig(s addrconfig.Address, host string, server bool) (*dtls13.Config, error) {
 	// Older DTLS versions are intentionally excluded; see README security differences.
 	if s.TLS.UnsupportedCanonical == "openssl-method" {
 		return nil, fmt.Errorf("%s: method selection is not supported; only DTLS 1.3 is available", s.Type)

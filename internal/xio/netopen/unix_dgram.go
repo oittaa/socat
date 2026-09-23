@@ -26,7 +26,7 @@ func openUnixDatagram(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 	return openUnixgramSend(ctx, s, mode, g, false)
 }
 
-func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global, filterPeer bool) (*xio.Opened, error) {
+func openUnixgramSend(ctx context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.Global, filterPeer bool) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -76,8 +76,6 @@ func openUnixgramSend(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 		return nil, err
 	}
 	life.attach(o)
-	_ = mode
-	_ = g
 	return o, nil
 }
 
@@ -200,7 +198,6 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 			return nil, err
 		}
 		life.attach(o)
-		_ = mode
 		return o, nil
 	}
 
@@ -222,7 +219,6 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 			return nil, err
 		}
 		life.attach(o)
-		_ = mode
 		return o, nil
 	}
 
@@ -238,9 +234,6 @@ func openUnixRecvCommon(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		return nil, err
 	}
 	life.attach(o)
-	_ = ctx
-	_ = mode
-	_ = g
 	return o, nil
 }
 
@@ -415,7 +408,7 @@ func openAbstractRecv(ctx context.Context, s addrconfig.Address, mode xio.Mode, 
 }
 
 // openAbstractSendto implements ABSTRACT-SENDTO[,bind=] datagram send.
-func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
+func openAbstractSendto(ctx context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.Global) (*xio.Opened, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -454,8 +447,6 @@ func openAbstractSendto(ctx context.Context, s addrconfig.Address, mode xio.Mode
 		logx.CloseQuiet(c)
 		return nil, err
 	}
-	_ = mode
-	_ = g
 	return xio.NewReady("ABSTRACT-SENDTO:"+s.Network.SocketPath, wrapped)
 }
 

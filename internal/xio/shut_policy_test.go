@@ -41,11 +41,7 @@ func wrapShutDown(t *testing.T, inner relay.Stream) relay.Stream {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stream, err := wrapShutPolicy(mustDecodeAddress(t, spec), inner)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return stream
+	return wrapTransferShut(mustDecodeAddress(t, spec).Transfer.Shutdown, inner)
 }
 
 type recordingStream struct {

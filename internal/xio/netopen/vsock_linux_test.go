@@ -47,7 +47,7 @@ func TestVSOCKListenAcceptTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New()}
-	_, err = xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
+	_, err = openChannel(ctx, ch, xio.ModeRDWR, g)
 	if err != nil && vsockLoopbackUnavailable(err) {
 		t.Skip(err.Error())
 	}

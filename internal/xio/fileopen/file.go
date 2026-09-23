@@ -509,7 +509,7 @@ func openConfiguredFIFO(path string, flags int, config addrconfig.File) (*os.Fil
 }
 
 func applyConfiguredOpenTruncate(f *os.File, config addrconfig.File) error {
-	// ftruncate is late and is applied by ApplyFDOptions in command-line
+	// ftruncate is late and is applied by ApplyConfiguredFDOptions in command-line
 	// order with lseek / perm-late / async. Do not truncate here; mixed
 	// late options keep that order.
 	for _, action := range config.Actions {
@@ -551,7 +551,7 @@ func FileOpened(f *os.File, config addrconfig.Address, path string) (*xio.Opened
 	if err := xio.ApplyConfiguredFDOptions(f, config.File, namedOpenFDSkip(config.Facts.Kind)); err != nil {
 		return fail(err)
 	}
-	// trunc= after ApplyFDOptions late ftruncate/lseek/perm-late.
+	// trunc= after ApplyConfiguredFDOptions late ftruncate/lseek/perm-late.
 	if err := applyConfiguredOpenTruncate(f, config.File); err != nil {
 		return fail(err)
 	}

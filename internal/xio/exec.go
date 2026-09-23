@@ -417,11 +417,6 @@ func processFDPairConfig(config addrconfig.Process, mode Mode) (fdin, fdout stri
 	return fdin, fdout, nil
 }
 
-// dashFDRedirectMax is the largest descriptor dash (Ubuntu /bin/sh) accepts
-// as a redirection prefix. Runtime mapping no longer uses that grammar;
-// unusedFDNumbers still keeps historical prefix temps in 3–9.
-const dashFDRedirectMax = 9
-
 func startCmdPipes(config addrconfig.Address, mode Mode, cmd *exec.Cmd, fdRedirect bool) (relay.Stream, []func(), []*os.File, error) {
 	needIn, needOut := pipeDirections(mode)
 	var stdin io.WriteCloser

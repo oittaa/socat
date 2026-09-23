@@ -89,7 +89,7 @@ func TestUDP4SendtoRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	o, err := xio.OpenChannel(ctx, parseChannel(t, "UDP4-SENDTO:127.0.0.1:"+strconv.Itoa(port)+",ip-recverr"), xio.ModeRDWR, g)
+	o, err := openChannel(ctx, parseChannel(t, "UDP4-SENDTO:127.0.0.1:"+strconv.Itoa(port)+",ip-recverr"), xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestUDP4DatagramRecvErrICMPLinux(t *testing.T) {
 	g, logBuf := recverrTestGlobal()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	o, err := xio.OpenChannel(ctx, parseChannel(t, "UDP4-DATAGRAM:127.0.0.1:"+strconv.Itoa(port)+",ip-recverr"), xio.ModeRDWR, g)
+	o, err := openChannel(ctx, parseChannel(t, "UDP4-DATAGRAM:127.0.0.1:"+strconv.Itoa(port)+",ip-recverr"), xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -263,10 +263,6 @@ func applyConfiguredGroup(fd int, action addrconfig.FileAction) error {
 	return nil
 }
 
-func applyFDLifecycleToFile(f *os.File, s addrconfig.Address, skip FDSkip) error {
-	return ApplyConfiguredFDOptions(f, s.File, skip)
-}
-
 func applyFDLifecycleOnFD(fd int, s addrconfig.Address, skip FDSkip) error {
 	return applyConfiguredFDOnFD(fd, s.File, skip)
 }

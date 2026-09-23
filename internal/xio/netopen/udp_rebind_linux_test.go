@@ -21,7 +21,7 @@ func TestUDP4ExclusiveRebindUsesNamespaceAddress(t *testing.T) {
 	log := logx.New()
 	log.SetLevel(logx.Error)
 	spec := fmt.Sprintf("UDP4-LISTEN:0,bind=192.0.2.77,fork,reuseaddr=0,accept-timeout=0.2,netns=%s", ns)
-	o, err := xio.OpenSpec(context.Background(), parseUDPSpec(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{Experimental: true, BlockSize: 8192}, log))
+	o, err := openSpec(context.Background(), parseUDPSpec(t, spec), xio.ModeRDWR, xio.NewSession(xio.Options{Experimental: true, BlockSize: 8192}, log))
 	if err != nil {
 		t.Fatal(err)
 	}

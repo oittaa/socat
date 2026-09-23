@@ -28,27 +28,3 @@ func TestOPENNULRejectsB0(t *testing.T) {
 		t.Fatalf("OpenSpec OPEN:NUL,b0: %v", err)
 	}
 }
-
-func TestRunOpenedClosesOPENNULWhenRightPrepareFails(t *testing.T) {
-	spec, err := parse.ParseSpec("OPEN:NUL")
-	if err != nil {
-		t.Fatal(err)
-	}
-	o, err := OpenSpec(context.Background(), spec, ModeRDWR, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	closed := false
-	o.AddCleanup(func() { closed = true })
-	ch, err := parse.ParseChannel("NOSUCH:x")
-	if err != nil {
-		t.Fatal(err)
-	}
-	err = RunOpened(context.Background(), o, ch, nil)
-	if err == nil || !strings.Contains(err.Error(), "unknown device/address") {
-		t.Fatalf("error=%v", err)
-	}
-	if !closed {
-		t.Fatal("left OPEN:NUL was not closed")
-	}
-}

@@ -21,19 +21,6 @@ func DialSyslog(tag string, facility Facility) (SyslogWriter, error) {
 	return syslogDial(tag, facility)
 }
 
-// SetSyslogDial replaces the syslog constructor. Tests use this to capture
-// messages without talking to a system logger. The returned function restores
-// the previous constructor.
-func SetSyslogDial(fn func(tag string, facility Facility) (SyslogWriter, error)) func() {
-	prev := syslogDial
-	if fn == nil {
-		syslogDial = defaultSyslogDial
-	} else {
-		syslogDial = fn
-	}
-	return func() { syslogDial = prev }
-}
-
 func writeSyslog(w SyslogWriter, level Level, msg string) {
 	if w == nil {
 		return
