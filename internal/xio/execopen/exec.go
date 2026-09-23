@@ -497,11 +497,14 @@ func startCmdPipes(config addrconfig.Address, mode xio.Mode, cmd *exec.Cmd, fdRe
 	if stdin == nil {
 		w = io.Discard
 	}
+	// One closer for the parent ends. The stream and cleanup both call it;
+	// end-close skips the stream close.
+	release := xio.CloseOnce(parentFiles...)
 	st := relay.FDStream{
 		R: r,
 		W: w,
 		// Release both parent ends on Close, before the child is signaled.
-		C: xio.CloseOnce(parentFiles...),
+		C: release,
 		CloseW: func() error {
 			if stdin != nil {
 				return stdin.Close()
@@ -509,7 +512,7 @@ func startCmdPipes(config addrconfig.Address, mode xio.Mode, cmd *exec.Cmd, fdRe
 			return nil
 		},
 	}
-	cleanup := []func(){func() { closeFiles(parentFiles) }}
+	cleanup := []func(){func() { _ = release.Close() }}
 	return st, cleanup, childFiles, nil
 }
 
@@ -563,14 +566,15 @@ func startCmdSocketpair(config addrconfig.Address, mode xio.Mode, cmd *exec.Cmd,
 			}
 		}
 	}
-	st := execSocketpairParentStream(mode, parent, stype)
-	cleanup := []func(){func() {
-		logx.CloseQuiet(parent)
-	}}
+	// One closer for the parent end. The stream and cleanup both call it;
+	// end-close skips the stream close.
+	release := xio.CloseOnce(parent)
+	st := execSocketpairParentStream(mode, parent, stype, release)
+	cleanup := []func(){func() { _ = release.Close() }}
 	return st, cleanup, child, nil
 }
 
-func execSocketpairParentStream(mode xio.Mode, parent *os.File, stype int) relay.Stream {
+func execSocketpairParentStream(mode xio.Mode, parent *os.File, stype int, release io.Closer) relay.Stream {
 	switch mode {
 	case xio.ModeWrite:
 		closeW := func() error { return xio.ShutdownWriteFile(parent) }
@@ -583,21 +587,26 @@ func execSocketpairParentStream(mode xio.Mode, parent *os.File, stype int) relay
 		return relay.FDStream{
 			R:      xio.EOFReader{},
 			W:      parent,
-			C:      xio.CloseOnce(parent),
+			C:      release,
 			CloseW: closeW,
 		}
 	case xio.ModeRead:
 		return relay.FDStream{
 			R:      parent,
 			W:      io.Discard,
-			C:      xio.CloseOnce(parent),
+			C:      release,
 			CloseW: func() error { return nil },
 		}
 	default:
 		if stype == syscall.SOCK_DGRAM {
-			return xio.DgramPairStream(parent)
+			return xio.DgramPairStream(parent, release)
 		}
-		return xio.FileStream(parent)
+		return relay.FDStream{
+			R:      parent,
+			W:      parent,
+			C:      release,
+			CloseW: func() error { return xio.ShutdownWriteFile(parent) },
+		}
 	}
 }
 

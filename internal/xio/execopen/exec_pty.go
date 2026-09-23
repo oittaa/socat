@@ -124,6 +124,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*xio.Opened, error)
 		closeExecPTY(master, slave)
 		return nil, err
 	}
+	release := xio.CloseOnce(master)
 	var stream relay.Stream
 	waitChild := false
 	var done chan struct{}
@@ -134,7 +135,7 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*xio.Opened, error)
 		stream = relay.FDStream{
 			R:      xio.EOFReader{},
 			W:      w,
-			C:      xio.CloseOnce(master),
+			C:      release,
 			CloseW: func() error { w.CloseWrite(); return nil },
 		}
 		waitChild = true
@@ -146,14 +147,14 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*xio.Opened, error)
 			if unlink != nil {
 				unlink()
 			}
-			logx.CloseQuiet(master)
+			_ = release.Close()
 			return nil, rerr
 		}
 		closeSlave = closeHeldSlave
 		stream = relay.FDStream{
 			R:      r,
 			W:      io.Discard,
-			C:      xio.CloseOnce(master),
+			C:      release,
 			CloseW: func() error { return nil },
 		}
 	default:
@@ -164,13 +165,13 @@ func (c *execChild) startPtyFDRedirect(ctx context.Context) (*xio.Opened, error)
 			if unlink != nil {
 				unlink()
 			}
-			logx.CloseQuiet(master)
+			_ = release.Close()
 			return nil, rerr
 		}
 		closeSlave = closeHeldSlave
-		stream = xio.PtyExecStream(master, r)
+		stream = xio.PtyExecStream(master, r, release)
 	}
-	return c.finishAfterFD(stream, execPtyCleanup(master, unlink, closeSlave), waitChild, done)
+	return c.finishAfterFD(stream, execPtyCleanup(release, unlink, closeSlave), waitChild, done)
 }
 
 // startPty runs the child with a pseudo-terminal.
@@ -219,14 +220,15 @@ func (c *execChild) startPty(ctx context.Context) (*xio.Opened, error) {
 			logx.CloseQuiet(ptmx)
 			return nil, err
 		}
+		release := xio.CloseOnce(ptmx)
 		w := xio.NewHalfCloseWriter(ptmx)
 		stream := relay.FDStream{
 			R:      xio.EOFReader{},
 			W:      w,
-			C:      xio.CloseOnce(ptmx),
+			C:      release,
 			CloseW: func() error { w.CloseWrite(); return nil },
 		}
-		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, nil), true, nil)
+		return c.finishAfterFD(stream, execPtyCleanup(release, unlink, nil), true, nil)
 
 	case xio.ModeRead:
 		// Inherit stdin; only stdout/stderr on PTY slave.
@@ -272,13 +274,14 @@ func (c *execChild) startPty(ctx context.Context) (*xio.Opened, error) {
 			logx.CloseQuiet(ptmx)
 			return nil, rerr
 		}
+		release := xio.CloseOnce(ptmx)
 		stream := relay.FDStream{
 			R:      r,
 			W:      io.Discard,
-			C:      xio.CloseOnce(ptmx),
+			C:      release,
 			CloseW: func() error { return nil },
 		}
-		return c.finishAfterFD(stream, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		return c.finishAfterFD(stream, execPtyCleanup(release, unlink, closeSlave), false, done)
 
 	default:
 		var slave *os.File
@@ -304,8 +307,9 @@ func (c *execChild) startPty(ctx context.Context) (*xio.Opened, error) {
 			logx.CloseQuiet(ptmx)
 			return nil, rerr
 		}
-		st := xio.PtyExecStream(ptmx, r)
-		return c.finishAfterFD(st, execPtyCleanup(ptmx, unlink, closeSlave), false, done)
+		release := xio.CloseOnce(ptmx)
+		st := xio.PtyExecStream(ptmx, r, release)
+		return c.finishAfterFD(st, execPtyCleanup(release, unlink, closeSlave), false, done)
 	}
 }
 
@@ -366,8 +370,8 @@ func (c *execChild) startOnPTY(ctx context.Context) (*os.File, *os.File, func(),
 	return master, slave, unlink, nil
 }
 
-func execPtyCleanup(master *os.File, unlink, closeSlave func()) []func() {
-	out := []func(){func() { logx.CloseQuiet(master) }}
+func execPtyCleanup(release io.Closer, unlink, closeSlave func()) []func() {
+	out := []func(){func() { logx.CloseQuiet(release) }}
 	if unlink != nil {
 		out = append(out, unlink)
 	}

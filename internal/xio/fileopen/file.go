@@ -182,27 +182,35 @@ func openPIPE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.G
 		logx.CloseQuiet(w)
 		return nil, err
 	}
-	st, err := xio.WrapAfterFD(s, relay.FDStream{
-		R: r,
-		W: w,
-		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
-		CloseW: func() error {
-			return w.Close()
-		},
-	})
+	stream, release := pipeEnds(r, w)
+	st, err := xio.WrapAfterFD(s, stream)
 	if err != nil {
-		logx.CloseQuiet(r)
-		logx.CloseQuiet(w)
+		release()
 		return nil, err
 	}
 	o, err := xio.NewReady("PIPE", st)
 	if err != nil {
-		logx.CloseQuiet(r)
-		logx.CloseQuiet(w)
+		release()
 		return nil, err
 	}
-	o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
+	// end-close skips the stream close. release is still the only close.
+	o.AddCleanup(release)
 	return o, nil
+}
+
+// pipeEnds owns both pipe ends. The stream closer and Opened cleanup share
+// release, so each descriptor is closed once.
+func pipeEnds(r, w *os.File) (relay.Stream, func()) {
+	release := xio.CloseOnce(r, w)
+	stream := relay.FDStream{
+		R: r,
+		W: w,
+		C: release,
+		CloseW: func() error {
+			return w.Close()
+		},
+	}
+	return stream, func() { _ = release.Close() }
 }
 
 // openNamedPIPE creates/opens a FIFO. For bidirectional use we open separate
@@ -400,25 +408,21 @@ func (p *namedPIPE) openBidir() (*xio.Opened, error) {
 		p.failOpen(r, w)
 		return nil, err
 	}
-	stream := relay.FDStream{
-		R: r,
-		W: w,
-		C: xio.NewMultiCloser(relay.RWCStream{ReadWriteCloser: r}, relay.RWCStream{ReadWriteCloser: w}),
-		CloseW: func() error {
-			return w.Close()
-		},
-	}
+	stream, release := pipeEnds(r, w)
 	st, err := xio.WrapAfterFD(p.config, stream)
 	if err != nil {
-		p.failOpen(r, w)
+		release()
+		p.removeCreated()
 		return nil, err
 	}
 	o, err := xio.NewReady("PIPE:"+p.path, st)
 	if err != nil {
-		p.failOpen(r, w)
+		release()
+		p.removeCreated()
 		return nil, err
 	}
-	o.AddCleanup(func() { logx.CloseQuiet(r); logx.CloseQuiet(w) })
+	// end-close skips the stream close. release is still the only close.
+	o.AddCleanup(release)
 	p.addPathCleanup(o)
 	return o, nil
 }

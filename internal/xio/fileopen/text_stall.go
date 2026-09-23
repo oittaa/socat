@@ -64,24 +64,22 @@ func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Gl
 	var r io.Reader = xio.EOFReader{}
 	var w = io.Discard
 	var cleanup []func()
-	var closeFDs []int
 
-	// xio.Read stall: pipe with only read end held open; never has data.
+	// Read stall: pipe with only the read end offered; never has data.
 	if mode == xio.ModeRead || mode == xio.ModeRDWR {
 		pr, pw, err := os.Pipe()
 		if err != nil {
 			return nil, err
 		}
-		// Keep write end open so xio.Read blocks (not EOF); drop after process ends.
+		// Keep the write end open so Read blocks (not EOF).
 		r = pr
-		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
 			logx.CloseQuiet(pr)
 			logx.CloseQuiet(pw)
 		})
 	}
 
-	// xio.Write stall: pipe filled to capacity so further Writes block.
+	// Write stall: pipe filled to capacity so further Writes block.
 	if mode == xio.ModeWrite || mode == xio.ModeRDWR {
 		pr, pw, err := os.Pipe()
 		if err != nil {
@@ -90,10 +88,9 @@ func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Gl
 			}
 			return nil, err
 		}
-		// Keep read end open; fill write end.
+		// Keep the read end open; fill the write end.
 		fillPipe(pw)
 		w = pw
-		closeFDs = append(closeFDs, int(pr.Fd()), int(pw.Fd()))
 		cleanup = append(cleanup, func() {
 			logx.CloseQuiet(pr)
 			logx.CloseQuiet(pw)
@@ -105,15 +102,13 @@ func openSTALL(_ context.Context, s addrconfig.Address, mode xio.Mode, _ *xio.Gl
 		W: w,
 		C: multiCloserFuncs(cleanup),
 		CloseW: func() error {
-			// Closing write end of write-stall pipe unblocks any blocked xio.Write.
+			// Closing the write end unblocks a blocked Write.
 			if c, ok := w.(io.Closer); ok {
 				return c.Close()
 			}
 			return nil
 		},
 	}
-	// When idle timeout cancels, Close() runs cleanup and unblocks.
-	_ = closeFDs
 	return xio.NewReady("STALL", stream)
 }
 
