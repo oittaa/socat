@@ -45,9 +45,6 @@ func assertBindInChdirDir(t *testing.T, work, chdirDir, bindName string) {
 }
 
 func TestGOPENUnixBindFollowsChdir(t *testing.T) {
-	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
-		t.Skip("UNIX sockets not enabled")
-	}
 	work, chdirDir, listen := unixChdirWorkDirs(t)
 	ctx, g := testCtx(t), testGlobal()
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+listen+",unlink-early,fork")
@@ -57,9 +54,6 @@ func TestGOPENUnixBindFollowsChdir(t *testing.T) {
 }
 
 func TestUNIXConnectIPLiteralBindFollowsChdir(t *testing.T) {
-	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
-		t.Skip("UNIX sockets not enabled")
-	}
 	work, chdirDir, listen := unixChdirWorkDirs(t)
 	ctx, g := testCtx(t), testGlobal()
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+listen+",unlink-early,fork")
@@ -69,9 +63,6 @@ func TestUNIXConnectIPLiteralBindFollowsChdir(t *testing.T) {
 }
 
 func TestUNIXListenPIPEEcho(t *testing.T) {
-	if !xio.FeatureGENERICSOCKET && !xio.FeatureSOCKETPAIR {
-		t.Skip("UNIX sockets not enabled")
-	}
 	ctx, g := testCtx(t), testGlobal()
 	path := testutil.UnixSocketPath(t, "echo.sock")
 	startForkListenPIPE(t, ctx, g, "UNIX-LISTEN:"+path+",unlink-early,fork")
@@ -126,9 +117,6 @@ func TestGOPENUnixSocket(t *testing.T) {
 }
 
 func TestEXECPrintsStdout(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	echo := lookPath(t, "echo")
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "EXEC:"+echo+" socat-exec-ok"), xio.ModeRead, g)
@@ -143,9 +131,6 @@ func TestEXECPrintsStdout(t *testing.T) {
 }
 
 func TestSHELLHonorsShell(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("SHELL not enabled")
-	}
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "SHELL:printf socat-shell-ok,shell=/bin/sh"), xio.ModeRead, g)
 	if err != nil {
@@ -158,9 +143,6 @@ func TestSHELLHonorsShell(t *testing.T) {
 }
 
 func TestSYSTEMSocketpairRoundtrip(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("SYSTEM not enabled")
-	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "SYSTEM:"+cat), xio.ModeRDWR, g)
@@ -180,9 +162,6 @@ func TestSYSTEMSocketpairRoundtrip(t *testing.T) {
 
 // TestTCPListenEXECCat is the inetd shape: TCP4-LISTEN,fork EXEC:cat.
 func TestTCPListenEXECCat(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
 	srv := startListenRight(t, ctx, g,
@@ -202,9 +181,6 @@ func TestTCPListenEXECCat(t *testing.T) {
 // TestTCPListenEXECCatEndClose is inetd with end-close: TCP4-LISTEN,fork
 // EXEC:cat,end-close. Classic still uses socketpair per child.
 func TestTCPListenEXECCatEndClose(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
 	srv := startListenRight(t, ctx, g,
@@ -222,9 +198,6 @@ func TestTCPListenEXECCatEndClose(t *testing.T) {
 }
 
 func TestEXECPtyRoundtrip(t *testing.T) {
-	if !xio.FeatureEXEC || !xio.FeaturePTY {
-		t.Skip("EXEC/PTY not enabled")
-	}
 	dd := lookPath(t, "dd")
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "EXEC:"+dd+" bs=1 count=5,pty,setsid,stderr,rawer,echo=0"), xio.ModeRDWR, g)
@@ -240,9 +213,6 @@ func TestEXECPtyRoundtrip(t *testing.T) {
 }
 
 func TestEXECfdinFdout(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "SYSTEM:dd bs=1 count=5 <&3 >&4 2>/dev/null,fdin=3,fdout=4"), xio.ModeRDWR, g)
 	if err != nil {
@@ -277,9 +247,6 @@ func TestUNIXClientConnect(t *testing.T) {
 }
 
 func TestUNIXListenEXECCat(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
 	path := testutil.UnixSocketPath(t, "exec.sock")
@@ -296,9 +263,6 @@ func TestUNIXListenEXECCat(t *testing.T) {
 }
 
 func TestEXECPipesRoundtrip(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	cat := lookPath(t, "cat")
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "EXEC:"+cat+",pipes"), xio.ModeRDWR, g)
@@ -317,9 +281,6 @@ func TestEXECPipesRoundtrip(t *testing.T) {
 }
 
 func TestSOCKETPAIREcho(t *testing.T) {
-	if !xio.FeatureSOCKETPAIR {
-		t.Skip("SOCKETPAIR not enabled")
-	}
 	ctx, g := testCtx(t), testGlobal()
 	o, err := xio.OpenChannel(ctx, mustParse(t, "SOCKETPAIR"), xio.ModeRDWR, g)
 	if err != nil {

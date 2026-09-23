@@ -40,9 +40,6 @@ func TestUnixListenPermEarlyWinsOverPerm(t *testing.T) {
 }
 
 func TestUnixRecvPermEarlyChmodsSocket(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECV:" + path + ",perm-early=0600")
 	if err != nil {
@@ -57,9 +54,6 @@ func TestUnixRecvPermEarlyChmodsSocket(t *testing.T) {
 }
 
 func TestUnixSendtoBindPermEarlyChmodsSocket(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	local := unixSocketTestPath(t, "local.sock")
 	remote := unixSocketTestPath(t, "remote.sock")
 	spec, err := parse.ParseSpec("UNIX-SENDTO:" + remote + ",bind=" + local + ",perm-early=0600")

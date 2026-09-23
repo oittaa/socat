@@ -19,10 +19,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() {
-	xio.FeatureSCTP = true
-}
-
 func listenSCTP(ctx context.Context, network string, ip net.IP, zone string, port addrconfig.PortTarget, s addrconfig.Address) (net.Listener, error) {
 	portNum, err := xio.ResolvePort(network, port)
 	if err != nil {

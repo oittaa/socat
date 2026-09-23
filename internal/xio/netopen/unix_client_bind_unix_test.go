@@ -74,9 +74,6 @@ func TestUnixConnectFailedOpenUnlinksOnlyCreatedBind(t *testing.T) {
 }
 
 func TestUnixSendtoHonorsCanceledContext(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	remote := unixSocketTestPath(t, "cancel.sock")
 	spec, err := parse.ParseSpec("UNIX-SENDTO:" + remote + ",forever,interval=1")
 	if err != nil {
@@ -91,9 +88,6 @@ func TestUnixSendtoHonorsCanceledContext(t *testing.T) {
 }
 
 func TestUnixRecvRejectsWriteModeAtOpen(t *testing.T) {
-	if !xio.FeatureUNIXDatagram {
-		t.Skip("UNIX datagram not enabled")
-	}
 	path := unixSocketTestPath(t, "recv.sock")
 	spec, err := parse.ParseSpec("UNIX-RECV:" + path)
 	if err != nil {

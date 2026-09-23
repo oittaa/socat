@@ -26,10 +26,6 @@ const mqWaitInterval = 200 * time.Millisecond
 // immediately, taking a message or slot if one is already available.
 var mqTryOnce = time.Unix(0, 1)
 
-func init() {
-	xio.FeaturePOSIXMQ = true
-}
-
 func openPOSIXMQ(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *xio.Global) (*xio.Opened, error) {
 	p, err := parsePOSIXMQ(ctx, s, mode)
 	if err != nil {

@@ -45,9 +45,6 @@ func TestExecSocketpairAppliesSOPriorityToChildLinux(t *testing.T) {
 }
 
 func TestRunExecNoForkRejectsPastSocketOptionsLinux(t *testing.T) {
-	if !xio.FeatureEXEC {
-		t.Skip("EXEC not enabled")
-	}
 	spec, err := parse.ParseSpec("EXEC:/bin/true,nofork,so-priority=5")
 	if err != nil {
 		t.Fatal(err)

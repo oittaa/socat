@@ -17,10 +17,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() {
-	xio.FeatureACCEPTFD = true
-}
-
 // openAcceptFDNum implements ACCEPT-FD / ACCEPT on Linux and macOS.
 // The fd must already be a listening stream socket. After accept, apply
 // descriptor, socket, connected, then late options.

@@ -10,10 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func init() {
-	FeatureNAMESPACES = true
-}
-
 // WithNetNS runs fn in Linux network namespace netns=NAME, then restores.
 // The calling OS thread is locked for the whole section (setns is per-thread).
 // There is no process-wide mutex: setns is per-thread, and a lock here
