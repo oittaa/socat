@@ -85,7 +85,7 @@ func openServer(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Gl
 	if err != nil {
 		return nil, err
 	}
-	filter, err := xio.PreparedPeerFilter(ctx, s, g.Options())
+	filter, err := xio.PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 	if err != nil {
 		return nil, err
 	}

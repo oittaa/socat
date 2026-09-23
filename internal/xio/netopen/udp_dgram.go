@@ -176,7 +176,7 @@ type udpDatagramConn struct {
 
 func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr, s addrconfig.Address, g *xio.Global, exactPeer bool) (*udpDatagramConn, error) {
 	sourcePortFilter := s.Network.SourcePortSet
-	filter, err := xio.NewPeerFilter(ctx, s.Network.WithoutSourcePort(), xio.LookupResolver(s), g.Options())
+	filter, err := xio.NewPeerFilter(ctx, s.Network.WithoutSourcePort(), xio.LookupResolver(s), g.Options(), g.Logger())
 	if err != nil {
 		return nil, err
 	}
@@ -207,8 +207,8 @@ func logOrStopPeerFilter(ctx context.Context, g *xio.Global, err error) error {
 	if ctx != nil && ctx.Err() != nil {
 		return ctx.Err()
 	}
-	if g != nil && g.Log != nil {
-		g.Log.Noticef("%s", err)
+	if g != nil {
+		xio.LogRefusedPeer(g.Log, err)
 	}
 	return nil
 }
@@ -363,7 +363,7 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		logx.CloseQuiet(pc)
 		return nil, ferr
 	}
-	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options())
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -410,7 +410,7 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 	}
 	var n int
 	var raddr *net.UDPAddr
-	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options())
+	peerFilter, err := xio.PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
@@ -473,7 +473,7 @@ func openUDPRecvAll(ctx context.Context, s addrconfig.Address, g *xio.Global, pc
 		logx.CloseQuiet(pc)
 		return nil, fmt.Errorf("UDP-RECV is read-only")
 	}
-	filter, err := xio.PreparedPeerFilter(ctx, s, g.Options())
+	filter, err := xio.PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 	if err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err

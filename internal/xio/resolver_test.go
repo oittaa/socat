@@ -26,9 +26,12 @@ type fakeDNSServer struct {
 	queried     chan struct{}
 	wg          sync.WaitGroup
 
-	mu      sync.Mutex
-	answer  net.IP
-	answers []net.IP
+	mu       sync.Mutex
+	answer   net.IP
+	answers  []net.IP
+	cname    string
+	spoofPTR string
+	nxdomain bool
 }
 
 func startFakeDNS(t *testing.T, ip string, truncateUDP, drop bool) (*fakeDNSServer, error) {
@@ -86,7 +89,23 @@ func (s *fakeDNSServer) serveUDP() {
 		if s.dropping() {
 			continue
 		}
-		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.truncateUDP)
+		if spoof, nx := s.rejectedAnswer(); spoof != "" && dnsQueryIsPTR(buf[:n]) {
+			forged, err := makeDNSResponse(buf[:n], nil, spoof, "", false)
+			if err == nil && len(forged) >= 2 {
+				forged[0] ^= 0xff
+				forged[1] ^= 0xff
+				_, _ = s.udp.WriteTo(forged, peer)
+			}
+			if nx {
+				response, err := makeDNSResponse(buf[:n], nil, "", "", false)
+				if err == nil && len(response) > 3 {
+					response[3] = (response[3] & 0xf0) | 3
+					_, _ = s.udp.WriteTo(response, peer)
+				}
+				continue
+			}
+		}
+		response, err := makeDNSResponse(buf[:n], s.records(), s.ptrName, s.cnameTarget(), s.truncateUDP)
 		if err == nil {
 			_, _ = s.udp.WriteTo(response, peer)
 		}
@@ -118,7 +137,7 @@ func (s *fakeDNSServer) serveTCPConn(conn net.Conn) {
 	if s.dropping() {
 		return
 	}
-	response, err := makeDNSResponse(query, s.records(), s.ptrName, false)
+	response, err := makeDNSResponse(query, s.records(), s.ptrName, s.cnameTarget(), false)
 	if err != nil {
 		return
 	}
@@ -137,6 +156,31 @@ func (s *fakeDNSServer) setAnswers(ips []net.IP) {
 	s.mu.Lock()
 	s.answers = cloned
 	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) rejectThenNXDOMAIN(name string) {
+	s.mu.Lock()
+	s.spoofPTR = name
+	s.nxdomain = true
+	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) rejectedAnswer() (string, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.spoofPTR, s.nxdomain
+}
+
+func (s *fakeDNSServer) setCNAME(name string) {
+	s.mu.Lock()
+	s.cname = name
+	s.mu.Unlock()
+}
+
+func (s *fakeDNSServer) cnameTarget() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cname
 }
 
 func (s *fakeDNSServer) records() []net.IP {
@@ -166,7 +210,16 @@ func cloneIP(ip net.IP) net.IP {
 	return append(net.IP(nil), ip...)
 }
 
-func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated bool) ([]byte, error) {
+func dnsQueryIsPTR(query []byte) bool {
+	var parser dnsmessage.Parser
+	if _, err := parser.Start(query); err != nil {
+		return false
+	}
+	q, err := parser.Question()
+	return err == nil && q.Type == dnsmessage.TypePTR
+}
+
+func makeDNSResponse(query []byte, answers []net.IP, ptrName, cname string, truncated bool) ([]byte, error) {
 	var parser dnsmessage.Parser
 	header, err := parser.Start(query)
 	if err != nil {
@@ -207,6 +260,15 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 		}
 		switch question.Type {
 		case dnsmessage.TypeA:
+			hdr := resourceHeader
+			if target, ok, err := aliasCNAME(cname); err != nil {
+				return nil, err
+			} else if ok {
+				if err := builder.CNAMEResource(hdr, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+					return nil, err
+				}
+				hdr.Name = target
+			}
 			for _, answer := range answers {
 				ip4 := answer.To4()
 				if ip4 == nil {
@@ -214,11 +276,20 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 				}
 				var a [4]byte
 				copy(a[:], ip4)
-				if err := builder.AResource(resourceHeader, dnsmessage.AResource{A: a}); err != nil {
+				if err := builder.AResource(hdr, dnsmessage.AResource{A: a}); err != nil {
 					return nil, err
 				}
 			}
 		case dnsmessage.TypeAAAA:
+			hdr := resourceHeader
+			if target, ok, err := aliasCNAME(cname); err != nil {
+				return nil, err
+			} else if ok {
+				if err := builder.CNAMEResource(hdr, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+					return nil, err
+				}
+				hdr.Name = target
+			}
 			for _, answer := range answers {
 				if answer.To4() != nil {
 					continue
@@ -229,9 +300,21 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 				}
 				var aaaa [16]byte
 				copy(aaaa[:], ip16)
-				if err := builder.AAAAResource(resourceHeader, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
+				if err := builder.AAAAResource(hdr, dnsmessage.AAAAResource{AAAA: aaaa}); err != nil {
 					return nil, err
 				}
+			}
+		case dnsmessage.TypeCNAME:
+			target := question.Name
+			if cname != "" {
+				var err error
+				target, err = dnsmessage.NewName(cname)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if err := builder.CNAMEResource(resourceHeader, dnsmessage.CNAMEResource{CNAME: target}); err != nil {
+				return nil, err
 			}
 		case dnsmessage.TypePTR:
 			if ptrName == "" {
@@ -247,6 +330,20 @@ func makeDNSResponse(query []byte, answers []net.IP, ptrName string, truncated b
 		}
 	}
 	return builder.Finish()
+}
+
+// aliasCNAME is the canonical name to put ahead of address records.
+// The Go resolver can take the canonical name from the first address
+// answer and ignore a separate CNAME query.
+func aliasCNAME(cname string) (dnsmessage.Name, bool, error) {
+	if cname == "" {
+		return dnsmessage.Name{}, false, nil
+	}
+	target, err := dnsmessage.NewName(cname)
+	if err != nil {
+		return dnsmessage.Name{}, false, err
+	}
+	return target, true, nil
 }
 
 func resolverConfig(t *testing.T, s parse.Spec) addrconfig.Address {
@@ -316,12 +413,12 @@ func TestTCPWrapReverseVerificationUsesResNSAddr(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := reverseHost(t.Context(), LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr))), "192.0.2.55")
+	got, status, err := lookupHostStatus(t.Context(), LookupResolver(resolverConfig(t, resNSAddrSpec(server.addr))), "192.0.2.55")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != ptrName {
-		t.Fatalf("reverseHost=%q want %q", got, ptrName)
+	if status != nameKnown || got != ptrName {
+		t.Fatalf("reverse name=%q status=%v", got, status)
 	}
 	if server.udpQueries.Load() < 2 {
 		t.Fatalf("reverse and forward verification made %d DNS queries; want at least 2", server.udpQueries.Load())

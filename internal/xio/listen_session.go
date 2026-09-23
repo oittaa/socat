@@ -68,7 +68,7 @@ func OpenListenSession(ctx context.Context, s addrconfig.Address, g *Global, ses
 	}
 	peerFilter := sess.PeerFilter
 	if peerFilter == nil {
-		peerFilter, err = PreparedPeerFilter(ctx, s, g.Options())
+		peerFilter, err = PreparedPeerFilter(ctx, s, g.Options(), g.Logger())
 		if err != nil {
 			_ = closeLn()
 			return nil, err
@@ -140,8 +140,8 @@ func acceptOnce(ctx context.Context, s addrconfig.Address, g *Global, sess Liste
 				_ = safeCloseLn()
 				return nil, ctx.Err()
 			}
-			if g != nil && g.Log != nil {
-				g.Log.Noticef("%s", err)
+			if g != nil {
+				LogRefusedPeer(g.Log, err)
 			}
 			continue
 		}
