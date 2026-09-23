@@ -27,9 +27,9 @@ func warnNetNSExperimental(g *Global) {
 // mutates net.DefaultResolver or libc _res. Remaining libc res-* flags
 // (debug, search, retry, retrans, …) are rejected rather than applied
 // globally. Construction is: select the base (system default, res-nsaddr,
-// or PreferGo for netns), apply res-usevc transport policy, then wrap
-// custom Dial connections once so session cancel unblocks in-flight
-// DNS reads.
+// or a Go resolver that dials inside netns=), apply res-usevc transport
+// policy, then wrap custom Dial connections once so session cancel unblocks
+// in-flight DNS reads.
 func LookupResolver(config addrconfig.Address) *net.Resolver {
 	r := lookupResolverBase(config)
 	if config.Common.UseVC.Set {
@@ -62,15 +62,34 @@ func lookupResolverBase(config addrconfig.Address) *net.Resolver {
 				default:
 					return nil, fmt.Errorf("res-nsaddr: unsupported DNS transport %q", network)
 				}
-				var d net.Dialer
-				return d.DialContext(ctx, network, net.JoinHostPort(ns.Host.String(), strconv.Itoa(port)))
+				return dialResolver(ctx, netNamespaceName(config), network, net.JoinHostPort(ns.Host.String(), strconv.Itoa(port)))
 			},
 		}
 	}
-	if netNamespaceName(config) != "" {
-		return &net.Resolver{PreferGo: true}
+	if name := netNamespaceName(config); name != "" {
+		// Go's resolver dials from another goroutine, so PreferGo alone
+		// leaves the DNS socket in the caller's namespace.
+		return &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+				return dialResolver(ctx, name, network, address)
+			},
+		}
 	}
 	return net.DefaultResolver
+}
+
+// dialResolver opens the DNS connection. netns= is applied here because the
+// dial runs off the opener's locked thread.
+func dialResolver(ctx context.Context, nsName, network, address string) (net.Conn, error) {
+	var c net.Conn
+	err := WithNetNS(nsName, nil, func() error {
+		var d net.Dialer
+		var e error
+		c, e = d.DialContext(ctx, network, address)
+		return e
+	})
+	return c, err
 }
 
 // WrapNetNSDial runs dial inside WithNetNS so CONNECT,fork reconnects stay in

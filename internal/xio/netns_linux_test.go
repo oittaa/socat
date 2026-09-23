@@ -7,12 +7,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testcert"
@@ -135,6 +137,31 @@ func echoRW(t *testing.T, st io.ReadWriter, payload []byte) {
 	if !bytes.Contains(buf[:n], bytes.TrimSpace(payload)) && !bytes.Contains(buf[:n], payload) {
 		t.Fatalf("got %q", buf[:n])
 	}
+}
+
+func TestNetNSDNSDialUsesNamespace(t *testing.T) {
+	ns, _ := setupNetNS(t)
+	var ln net.Listener
+	err := xio.WithNetNS(ns, nil, func() error {
+		var listenErr error
+		ln, listenErr = net.Listen("tcp4", "127.0.0.1:0")
+		return listenErr
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	if _, err := net.Dial("tcp", ln.Addr().String()); err == nil {
+		t.Fatal("listener reachable outside the namespace")
+	}
+	cfg := addrconfig.Address{Common: addrconfig.Common{
+		NetNamespace: addrconfig.OptionalString{Set: true, Value: ns},
+	}}
+	conn, err := xio.LookupResolver(cfg).Dial(context.Background(), "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.Close()
 }
 
 func TestNetNSTCPEcho(t *testing.T) {
