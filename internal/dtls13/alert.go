@@ -26,7 +26,7 @@ const (
 )
 
 func (a alertError) Error() string {
-	name := ""
+	var name string
 	switch a {
 	case errUnexpectedMessage:
 		name = "unexpected message"

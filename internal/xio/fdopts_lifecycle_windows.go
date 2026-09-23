@@ -163,10 +163,6 @@ func configuredWindowsSeek(fd uintptr, offset int64, whence int, name string) er
 	return nil
 }
 
-func applyFDLifecycleToFile(f *os.File, s addrconfig.Address, skip FDSkip) error {
-	return ApplyConfiguredFDOptions(f, s.File, skip)
-}
-
 // applyFDLifecycleToStream applies descriptor lifecycle once per unique
 // underlying fd in this call (FileStream R/W/C sharing one fd).
 func applyFDLifecycleToStream(s addrconfig.Address, stream relay.Stream, skip FDSkip) error {

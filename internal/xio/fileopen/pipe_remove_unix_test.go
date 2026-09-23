@@ -53,7 +53,7 @@ func TestNamedPipeUnlinkEarlyMissingPathFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+	o, err := openChannel(context.Background(), ch, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("PIPE,unlink-early of a missing path succeeded")
@@ -75,7 +75,7 @@ func TestNamedPipePermEarlyChmodsExistingFIFO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+	o, err := openChannel(context.Background(), ch, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func runNamedPipeBlockedOpenHelper(t *testing.T) {
 	}
 	opened := make(chan resultOpened, 1)
 	go func() {
-		o, err := xio.OpenChannel(context.Background(), ch, xio.ModeRead, nil)
+		o, err := openChannel(context.Background(), ch, xio.ModeRead, nil)
 		opened <- resultOpened{o: o, err: err}
 	}()
 	waitRegisteredUnlink(t, opened, 2*time.Second)

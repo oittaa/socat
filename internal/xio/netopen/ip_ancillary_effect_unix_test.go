@@ -19,7 +19,7 @@ func TestOpenSpecRejectsTCPRecvAncillary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
+	_, err = openSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("err=%v want not supported", err)
 	}
@@ -40,7 +40,7 @@ func TestOpenSpecRejectsTCPHdrincl(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
+	_, err = openSpec(context.Background(), spec, xio.ModeRDWR, useGlobal())
 	if err == nil || !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("err=%v want not supported", err)
 	}

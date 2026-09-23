@@ -31,7 +31,7 @@ func openSpec(t *testing.T, spec string, mode xio.Mode) *xio.Opened {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	t.Cleanup(cancel)
-	o, err := xio.OpenChannel(ctx, ch, mode, testGlobal())
+	o, err := openChannel(ctx, ch, mode, testGlobal())
 	if err != nil {
 		t.Fatal(err)
 	}

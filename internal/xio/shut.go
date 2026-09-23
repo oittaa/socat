@@ -8,10 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/relay"
 )
 
-func wrapShutPolicy(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	return wrapTransferShut(s.Transfer.Shutdown, stream), nil
-}
-
 func wrapTransferShut(mode addrconfig.ShutdownMode, stream relay.Stream) relay.Stream {
 	switch mode {
 	case addrconfig.ShutdownNone:
@@ -25,11 +21,6 @@ func wrapTransferShut(mode addrconfig.ShutdownMode, stream relay.Stream) relay.S
 	default:
 		return stream
 	}
-}
-
-// ShutNoneSelected reports that shut-none (or shut=none) is selected.
-func ShutNoneSelected(config addrconfig.Address) bool {
-	return config.Transfer.Shutdown == addrconfig.ShutdownNone
 }
 
 // ShutDownSelected reports that shut-down (or shut=down) is selected.

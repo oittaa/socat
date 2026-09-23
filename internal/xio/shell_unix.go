@@ -2,10 +2,6 @@
 
 package xio
 
-import (
-	"strconv"
-)
-
 // ExtraFiles sources and fdi/fdo numbering for EXEC/SYSTEM/SHELL.
 // Runtime remapping is ExtraFiles plus the child dup2 helper
 // (exec_fd_helper_unix.go), not a /bin/sh reconstruction, so bare SHELL
@@ -40,25 +36,4 @@ func defaultFDO(fdout string) string {
 		return "1"
 	}
 	return fdout
-}
-
-func unusedFDNumbers(avoid ...string) (string, string) {
-	taken := map[string]bool{"0": true, "1": true, "2": true}
-	for _, a := range avoid {
-		if a != "" {
-			taken[a] = true
-		}
-	}
-	found := make([]string, 0, 2)
-	// Ubuntu /bin/sh is dash; its redirection grammar only accepts a
-	// single-digit descriptor prefix (`10<&3` is a syntax error). Temps
-	// stay in 3–9: the caller avoids at most two ExtraFiles sources and
-	// two fdi/fdo targets, so two slots remain.
-	for i := 3; i <= dashFDRedirectMax && len(found) < 2; i++ {
-		s := strconv.Itoa(i)
-		if !taken[s] {
-			found = append(found, s)
-		}
-	}
-	return found[0], found[1]
 }

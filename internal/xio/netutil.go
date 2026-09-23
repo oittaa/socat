@@ -298,19 +298,6 @@ func ClientUsesLowport(s addrconfig.Address) bool {
 	return s.Network.LowPort.Value && s.Network.SourcePort.Empty()
 }
 
-// SourcePortText is the prepared sourceport= value, or empty when absent.
-func SourcePortText(config addrconfig.Address) string {
-	if !config.Network.SourcePortSet {
-		return ""
-	}
-	return config.Network.SourcePort.Text()
-}
-
-// ProtocolFamilyText is the prepared pf= token, or empty when absent.
-func ProtocolFamilyText(config addrconfig.Address) string {
-	return config.Network.ProtocolFamilyToken()
-}
-
 // DualStackListenNetwork maps *6 networks onto dual-stack names when
 // ipv6-v6only=0. Other values keep the caller network.
 func DualStackListenNetwork(config addrconfig.Address, network string) string {

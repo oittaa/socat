@@ -53,7 +53,7 @@ func sendMsg(t *testing.T, q, msg string, prio uint32) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(ctx, ch, xio.ModeWrite, testGlobal())
+	o, err := openChannel(ctx, ch, xio.ModeWrite, testGlobal())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestPOSIXMQKeywordRDWR(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenChannel(context.Background(), ch, xio.ModeRDWR, testGlobal())
+	_, err = openChannel(context.Background(), ch, xio.ModeRDWR, testGlobal())
 	if err == nil {
 		t.Fatal("expected POSIXMQ bidirectional error")
 	}
@@ -81,7 +81,7 @@ func TestPOSIXMQMaxChildrenRequiresFork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenChannel(context.Background(), ch, xio.ModeRead, testGlobal())
+	_, err = openChannel(context.Background(), ch, xio.ModeRead, testGlobal())
 	if err == nil {
 		t.Fatal("expected max-children without fork to fail")
 	}
@@ -93,7 +93,7 @@ func TestPOSIXMQUnknownAddressNotUsed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = xio.OpenChannel(context.Background(), ch, xio.ModeWrite, testGlobal())
+	_, err = openChannel(context.Background(), ch, xio.ModeWrite, testGlobal())
 	if err == nil {
 		t.Fatal("expected arity error")
 	}
@@ -112,7 +112,7 @@ func TestPOSIXMQEmptyMessageIsEOF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(ctx, ch, xio.ModeRead, testGlobal())
+	o, err := openChannel(ctx, ch, xio.ModeRead, testGlobal())
 	if err != nil {
 		t.Fatal(err)
 	}

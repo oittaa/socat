@@ -5,7 +5,7 @@ import (
 )
 
 func TestTermiosOptionNames(t *testing.T) {
-	names := TermiosOptionNames()
+	names := termiosOptionNames
 	have := make(map[string]bool, len(names))
 	for _, name := range names {
 		have[name] = true

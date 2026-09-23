@@ -22,7 +22,11 @@ func TestCLILockSamePathAsAddressLockfileFails(t *testing.T) {
 		Type:    "ECHO",
 		Options: []parse.Option{{Name: "lockfile", Value: path, Has: true}},
 	}
-	_, err = xio.OpenSpec(context.Background(), spec, xio.ModeRDWR, &xio.Global{Log: logx.New()})
+	prepared, err := xio.PrepareSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = xio.OpenPreparedSpec(context.Background(), prepared, xio.ModeRDWR, &xio.Global{Log: logx.New()})
 	if err == nil || !strings.Contains(err.Error(), "exists") {
 		t.Fatalf("error=%v want lockfile exists", err)
 	}

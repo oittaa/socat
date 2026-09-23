@@ -145,7 +145,7 @@ func TestUnixListenForkPeerEnvironment(t *testing.T) {
 			}
 			right := parseChannel(t, `SYSTEM:echo $SOCAT_SOCKADDR/$SOCAT_PEERADDR/$SOCAT_SOCKPORT/$SOCAT_PEERPORT`)
 			done := make(chan error, 1)
-			go func() { done <- xio.RunOpened(ctx, o, right, g) }()
+			go func() { done <- runOpened(ctx, o, right, g) }()
 			defer func() {
 				cancel()
 				_ = o.Close()

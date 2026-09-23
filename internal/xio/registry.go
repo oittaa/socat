@@ -196,27 +196,6 @@ func (r *addressRegistry) resolve(typ string) (AddressDesc, bool) {
 	return AddressDesc{}, false
 }
 
-// AddressAliasMap returns alias → registered keyword for every alias this
-// process registered. Direct RegisterAddress names are omitted.
-func AddressAliasMap() map[string]string {
-	return registeredAddresses.aliasMap()
-}
-
-func (r *addressRegistry) aliasMap() map[string]string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make(map[string]string, len(r.aliases))
-	for alias, dest := range r.aliases {
-		out[alias] = dest
-	}
-	return out
-}
-
-// DefaultHelpGroupOrder is the -h section order.
-func DefaultHelpGroupOrder() []string {
-	return append([]string(nil), defaultGroupOrder...)
-}
-
 // AddressRegistration is a snapshot of one registered address type.
 type AddressRegistration struct {
 	Name       string
@@ -245,37 +224,6 @@ func (r *addressRegistry) registration(typ string) (AddressRegistration, bool) {
 		return AddressRegistration{}, false
 	}
 	return registrationSnapshot(d), true
-}
-
-// AddressRegistrations returns every opener and its help metadata.
-func AddressRegistrations() []AddressRegistration {
-	return registeredAddresses.registrations()
-}
-
-func (r *addressRegistry) registrations() []AddressRegistration {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	seen := map[string]bool{}
-	var out []AddressRegistration
-	for _, group := range r.orderedGroupsLocked() {
-		descs := r.addrsByGroup[group]
-		for _, d := range descs {
-			name := d.Name
-			seen[name] = true
-			out = append(out, registrationSnapshot(d))
-		}
-	}
-	var hidden []string
-	for name := range r.openers {
-		if !seen[name] {
-			hidden = append(hidden, name)
-		}
-	}
-	sort.Strings(hidden)
-	for _, name := range hidden {
-		out = append(out, registrationSnapshot(r.descsByName[name]))
-	}
-	return out
 }
 
 func registrationSnapshot(d AddressDesc) AddressRegistration {

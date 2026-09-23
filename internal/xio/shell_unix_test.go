@@ -26,6 +26,25 @@ func TestExtraSources(t *testing.T) {
 	}
 }
 
+const dashFDRedirectMax = 9
+
+func unusedFDNumbers(avoid ...string) (string, string) {
+	taken := map[string]bool{"0": true, "1": true, "2": true}
+	for _, a := range avoid {
+		if a != "" {
+			taken[a] = true
+		}
+	}
+	found := make([]string, 0, 2)
+	for i := 3; i <= dashFDRedirectMax && len(found) < 2; i++ {
+		s := strconv.Itoa(i)
+		if !taken[s] {
+			found = append(found, s)
+		}
+	}
+	return found[0], found[1]
+}
+
 func TestUnusedFDNumbersAreSingleDigit(t *testing.T) {
 	for a := 3; a <= 9; a++ {
 		for b := 3; b <= 9; b++ {

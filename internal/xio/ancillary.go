@@ -20,31 +20,6 @@ func NeedAncillary(s addrconfig.Address) bool {
 	return ancillaryRecvRequested(s)
 }
 
-// ApplyAncillaryRecvOpts enables kernel delivery of control messages on fd.
-// Bare flag → 1; with '=' → integer; =0 disables. Each matching decoded
-// ancillary action is applied in command-line order (ippktinfo then
-// ip-pktinfo=0 is two setsockopt calls).
-func ApplyAncillaryRecvOpts(fd int, s addrconfig.Address) error {
-	family, err := socketIPFamily(fd)
-	if err != nil {
-		return err
-	}
-	resolved := family
-	for _, action := range s.Network.Actions {
-		if action.Kind != addrconfig.SocketActionAncillary {
-			continue
-		}
-		e, inMatrix := lookupIPAncillary(action.Ancillary)
-		if !inMatrix || e.Kind&IPAncillaryRecv == 0 {
-			continue
-		}
-		if err := applyPreparedIPRecv(fd, e, action.Number, resolved); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func applyPreparedIPRecv(fd int, e IPAncillaryEntry, n int, family ipFamily) error {
 	if err := rejectIPAncillaryApply(e, family); err != nil {
 		return err
@@ -357,11 +332,6 @@ func ControlMessageBytes(oob []byte, oobn, flags int) []byte {
 		oobn = len(oob)
 	}
 	return oob[:oobn]
-}
-
-// ReadUDPMsg reads one datagram with control messages when needed.
-func ReadUDPMsg(c *net.UDPConn, p []byte, wantCtrl bool) (n int, oob []byte, addr *net.UDPAddr, err error) {
-	return ReadUDPMsgWithBuffer(c, p, wantCtrl, nil)
 }
 
 // ReadUDPMsgWithBuffer reuses oobBuffer when control messages are enabled.

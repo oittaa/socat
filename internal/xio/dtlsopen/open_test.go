@@ -66,7 +66,7 @@ func TestDTLSHandshakeReceiveTimeout(t *testing.T) {
 		t.Run(option, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			o, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+peer.LocalAddr().String()+",verify=0,handshake-timeout=0,"+option), xio.ModeRDWR, nil)
+			o, err := openSpec(ctx, spec(t, "DTLS:"+peer.LocalAddr().String()+",verify=0,handshake-timeout=0,"+option), xio.ModeRDWR, nil)
 			if o != nil {
 				_ = o.Close()
 			}

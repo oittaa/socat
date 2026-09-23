@@ -21,10 +21,11 @@
 //
 // # Opener lifecycle
 //
-// OpenSpec is the common entry. It looks up the registered opener, rewrites
-// the type to the catalog name, ResolvePreparedPaths, then RejectUnsupported*
-// (IP ancillary, termios, recverr, remaining IPv4, listen-backlog). lockfile=
-// / waitlock= run next. If the opener returns an error, OpenSpec releases
+// PrepareSpec rejects unsupported options (IP ancillary, termios, recverr,
+// remaining IPv4, listen-backlog). OpenPreparedSpec is the common entry
+// after that. It looks up the registered opener, rewrites the type to the
+// catalog name, then ResolvePreparedPaths. lockfile= / waitlock= run next.
+// If the opener returns an error, OpenPreparedSpec releases
 // that address lock only; it does not close sockets, files, or children the
 // opener already acquired. The opener must clean those up before returning.
 // The opener itself runs under WithNetNS. children-shutup is recorded on the
@@ -58,7 +59,7 @@
 // conn options and WrapOpened.
 //
 // Files (OPEN/CREATE/FILE/…) open a path, apply named unlink/owner/locks,
-// ApplyFDOptionsSkip on that *os.File, then WrapAfterFD. There is no bind
+// ApplyConfiguredFDOptions on that *os.File, then WrapAfterFD. There is no bind
 // phase.
 //
 // EXEC/SYSTEM/SHELL build a child, then either return a nofork placeholder

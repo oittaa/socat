@@ -19,12 +19,12 @@ func packetEndpointPair(t *testing.T, options string) (context.Context, *xio.Ope
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	t.Cleanup(cancel)
 	// Allow full-size records even with a smaller default socket send buffer.
-	ln, err := xio.OpenSpec(ctx, spec(t, "DTLS-LISTEN:0,bind=127.0.0.1,fork,dtls-mtu=20000,sndbuf=65536"+server), xio.ModeRDWR, nil)
+	ln, err := openSpec(ctx, spec(t, "DTLS-LISTEN:0,bind=127.0.0.1,fork,dtls-mtu=20000,sndbuf=65536"+server), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	c, err := xio.OpenSpec(ctx, spec(t, "DTLS:"+ln.Listener().Addr().String()+client+options), xio.ModeRDWR, nil)
+	c, err := openSpec(ctx, spec(t, "DTLS:"+ln.Listener().Addr().String()+client+options), xio.ModeRDWR, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

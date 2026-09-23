@@ -33,7 +33,7 @@ func TestSCTPOpenChannelListenTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 	g := &xio.Global{Log: logx.New()}
-	_, err = xio.OpenChannel(ctx, ch, xio.ModeRDWR, g)
+	_, err = openChannel(ctx, ch, xio.ModeRDWR, g)
 	if err != xio.ErrAcceptTimeout {
 		t.Fatalf("want accept timeout, got %v", err)
 	}

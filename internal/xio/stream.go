@@ -210,13 +210,6 @@ func (r *readBytesWrap) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// ApplyReadBytes wraps a stream if the address has readbytes=N.
-// Size is parsed with base 0 (decimal, 0x hex, 0 octal).
-// readbytes=0 means unlimited and leaves the stream unwrapped.
-func ApplyReadBytes(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	return applyReadBytes(s.Transfer.ReadBytes, stream), nil
-}
-
 func applyReadBytes(limit addrconfig.OptionalUint64, stream relay.Stream) relay.Stream {
 	if !limit.Set || limit.Value == 0 {
 		return stream
@@ -446,11 +439,6 @@ func applyLineTerm(ending addrconfig.LineEnding, stream relay.Stream) relay.Stre
 	default:
 		return stream
 	}
-}
-
-// ApplyCRNL wraps a stream with the selected line-termination mode.
-func ApplyCRNL(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	return applyLineTerm(s.Transfer.LineEnding, stream), nil
 }
 
 // escapeReader stops with EOF when the escape byte is seen (escape=N).

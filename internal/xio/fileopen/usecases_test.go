@@ -17,7 +17,7 @@ func openUse(t *testing.T, spec string, mode xio.Mode) *xio.Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenChannel(context.Background(), ch, mode, nil)
+	o, err := openChannel(context.Background(), ch, mode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

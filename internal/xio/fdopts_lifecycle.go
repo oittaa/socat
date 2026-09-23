@@ -4,8 +4,8 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 )
 
-// Descriptor lifecycle options apply after open, then late. ApplyFDOptions
-// owns already-open files. Fd numbers are not cached. OPEN/FILE/CREATE/GOPEN
+// Descriptor lifecycle options apply after open, then late.
+// ApplyConfiguredFDOptions owns already-open files. Fd numbers are not cached. OPEN/FILE/CREATE/GOPEN
 // consume perm= as open(2) mode so umask applies. Windows hides and rejects
 // ioctl-* and cloexec.
 

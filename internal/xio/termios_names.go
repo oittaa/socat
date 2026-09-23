@@ -177,13 +177,6 @@ var termiosOptionNameSet = func() map[string]struct{} {
 	return out
 }()
 
-// TermiosOptionNames returns recognized termios option spellings.
-func TermiosOptionNames() []string {
-	out := make([]string, len(termiosOptionNames))
-	copy(out, termiosOptionNames)
-	return out
-}
-
 // IsTermiosOption reports whether xio recognizes a termios spelling.
 func IsTermiosOption(name string) bool {
 	_, ok := termiosOptionNameSet[strings.ToLower(strings.TrimSpace(name))]

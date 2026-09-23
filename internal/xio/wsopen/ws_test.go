@@ -80,7 +80,7 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened
 		t.Fatal(err)
 	}
 	g := xio.NewSession(xio.Options{Linger: 200 * time.Millisecond}, logx.New())
-	lo, err := xio.OpenChannel(ctx, ls, xio.ModeRDWR, g)
+	lo, err := openChannel(ctx, ls, xio.ModeRDWR, g)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func startListenPIPE(t *testing.T, ctx context.Context, spec string) *xio.Opened
 		t.Fatal("listen address did not return a listener (use fork)")
 	}
 	t.Cleanup(func() { _ = lo.Close() })
-	go func() { _ = xio.RunOpened(ctx, lo, pipe, g) }()
+	go func() { _ = runOpened(ctx, lo, pipe, g) }()
 	return lo
 }
 

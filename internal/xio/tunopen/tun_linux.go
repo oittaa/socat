@@ -493,9 +493,7 @@ func (p *packetRawStream) Close() error {
 func (p *packetRawStream) ShutdownWrite() error {
 	// Prefer SHUT_WR so a still-running Read can finish the echo (TUNINTERFACE).
 	// Fall back to no-op; full Close is applied when the transfer cancels.
-	if err := unix.Shutdown(p.fd, unix.SHUT_WR); err != nil {
-		return nil
-	}
+	_ = unix.Shutdown(p.fd, unix.SHUT_WR)
 	return nil
 }
 

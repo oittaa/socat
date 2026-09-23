@@ -21,7 +21,7 @@ func TestNamedPipeUnlinkLateRemovesNameOnFDOptionFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+	o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("f-setpipe-sz on a regular file succeeded")

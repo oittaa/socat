@@ -23,7 +23,7 @@ func openSpec(t *testing.T, raw string, mode xio.Mode) *xio.Opened {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, mode, nil)
+	o, err := preparedSpec(context.Background(), spec, mode, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +39,7 @@ func TestOpenUnlinkEarlyRemovesThenOpenFails(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+	o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN,unlink-early of existing file without creat succeeded")
@@ -87,7 +87,7 @@ func TestNamedPipeUnlinkPreOpenIgnoresMissingPath(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+			o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -102,7 +102,7 @@ func TestNamedPipeUnlinkLateRemovesNameWhileOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+	o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestNamedPipeUnlinkEqualsZeroMissingCreatesFIFO(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+			o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 			if err != nil {
 				t.Fatalf("PIPE,%s of a missing path: %v", opt, err)
 			}
@@ -188,7 +188,7 @@ func TestNamedPipeUnlinkLateEqualsZeroKeepsName(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+	o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestOpenPermEarlyDroppedOnMissingPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	o, err := xio.OpenSpec(context.Background(), spec, xio.ModeRead, nil)
+	o, err := preparedSpec(context.Background(), spec, xio.ModeRead, nil)
 	if err == nil {
 		_ = o.Close()
 		t.Fatal("OPEN of missing path with perm-early succeeded")

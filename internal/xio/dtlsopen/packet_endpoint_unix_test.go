@@ -15,7 +15,7 @@ func TestPacketizerExecNoforkStillRejectsDTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xio.RunOpened(ctx, client, right, &xio.Global{}); err == nil {
+	if err := runOpened(ctx, client, right, &xio.Global{}); err == nil {
 		t.Fatal("nofork accepted an endpoint without a plaintext descriptor")
 	}
 }

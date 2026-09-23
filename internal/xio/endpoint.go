@@ -13,7 +13,6 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
-	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
 )
 
@@ -413,15 +412,6 @@ type EOFReader struct{}
 
 func (EOFReader) Read([]byte) (int, error) { return 0, io.EOF }
 
-// OpenChannel prepares and opens a parsed address channel.
-func OpenChannel(ctx context.Context, ch parse.Channel, mode Mode, g *Global) (*Opened, error) {
-	prepared, err := PrepareChannel(ch)
-	if err != nil {
-		return nil, err
-	}
-	return OpenPreparedChannel(ctx, prepared, mode, g)
-}
-
 // OpenPreparedChannel opens a previously prepared channel without repeating
 // registry resolution or common static decoding.
 func OpenPreparedChannel(ctx context.Context, ch PreparedChannel, mode Mode, g *Global) (*Opened, error) {
@@ -453,15 +443,6 @@ func openPreparedDual(ctx context.Context, d *PreparedDual, g *Global) (*Opened,
 	o.AddCleanup(func() { logx.CloseQuiet(left) })
 	o.AddCleanup(func() { logx.CloseQuiet(right) })
 	return o, nil
-}
-
-// OpenSpec prepares and opens a single address.
-func OpenSpec(ctx context.Context, s parse.Spec, mode Mode, g *Global) (*Opened, error) {
-	prepared, err := PrepareSpec(s)
-	if err != nil {
-		return nil, err
-	}
-	return OpenPreparedSpec(ctx, prepared, mode, g)
 }
 
 // OpenPreparedSpec opens a prepared address. Resource acquisition and

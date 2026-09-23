@@ -60,3 +60,13 @@ func TestDialSyslogPassesPreparedFacility(t *testing.T) {
 		t.Fatalf("facility=%v want local0", got)
 	}
 }
+
+func SetSyslogDial(fn func(tag string, facility Facility) (SyslogWriter, error)) func() {
+	prev := syslogDial
+	if fn == nil {
+		syslogDial = defaultSyslogDial
+	} else {
+		syslogDial = fn
+	}
+	return func() { syslogDial = prev }
+}

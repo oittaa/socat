@@ -39,7 +39,7 @@ func TestQUICAcceptNotBlockedBySilentPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	opened, err := xio.OpenChannel(ctx, ch, xio.ModeRDWR, xio.NewSession(xio.Options{}, logx.New()))
+	opened, err := openChannel(ctx, ch, xio.ModeRDWR, xio.NewSession(xio.Options{}, logx.New()))
 	if err != nil {
 		t.Fatal(err)
 	}

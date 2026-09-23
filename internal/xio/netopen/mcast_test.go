@@ -45,7 +45,7 @@ func TestListenUDPJoinsIPv4GroupFromIPAddMembership(t *testing.T) {
 func TestUDP6ConnectProcessesMembershipInterface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := xio.OpenChannel(ctx, parseChannel(t, "UDP6:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
+	_, err := openChannel(ctx, parseChannel(t, "UDP6:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
 	if err == nil {
 		t.Fatal("UDP6 connect with invalid membership interface succeeded (option was a no-op)")
 	}
@@ -57,7 +57,7 @@ func TestUDP6ConnectProcessesMembershipInterface(t *testing.T) {
 func TestTCP6ConnectProcessesMembershipInterface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := xio.OpenChannel(ctx, parseChannel(t, "TCP6:[::1]:1,ipv6-join-group=[ff02::2]:"+missingMcastIface+",connect-timeout=2"), xio.ModeRDWR, useGlobal())
+	_, err := openChannel(ctx, parseChannel(t, "TCP6:[::1]:1,ipv6-join-group=[ff02::2]:"+missingMcastIface+",connect-timeout=2"), xio.ModeRDWR, useGlobal())
 	if err == nil {
 		t.Fatal("TCP6 connect with invalid membership interface succeeded (option was a no-op)")
 	}
@@ -69,7 +69,7 @@ func TestTCP6ConnectProcessesMembershipInterface(t *testing.T) {
 func TestUDP6DatagramProcessesMembershipInterface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := xio.OpenChannel(ctx, parseChannel(t, "UDP6-DATAGRAM:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
+	_, err := openChannel(ctx, parseChannel(t, "UDP6-DATAGRAM:[::1]:9,ipv6-join-group=[ff02::2]:"+missingMcastIface), xio.ModeRDWR, useGlobal())
 	if err == nil {
 		t.Fatal("UDP6-DATAGRAM with invalid membership interface succeeded (option was a no-op)")
 	}
