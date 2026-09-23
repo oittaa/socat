@@ -63,7 +63,7 @@ func createHostsPipe(path string) (windows.Handle, error) {
 	}
 	return windows.CreateNamedPipe(
 		name,
-		windows.PIPE_ACCESS_OUTBOUND,
+		windows.PIPE_ACCESS_OUTBOUND|windows.FILE_FLAG_OVERLAPPED,
 		windows.PIPE_TYPE_BYTE|windows.PIPE_READMODE_BYTE|windows.PIPE_WAIT,
 		windows.PIPE_UNLIMITED_INSTANCES,
 		4096,
@@ -74,39 +74,87 @@ func createHostsPipe(path string) (windows.Handle, error) {
 }
 
 func writeHostsPipe(path string, h windows.Handle, payload []byte, stop <-chan struct{}) bool {
-	errc := make(chan error, 1)
+	defer func() { _ = windows.CloseHandle(h) }()
+	if !acceptHostsClient(path, h, stop) {
+		return false
+	}
+	return writeHostsPayload(h, payload)
+}
+
+func acceptHostsClient(path string, h windows.Handle, stop <-chan struct{}) bool {
+	ev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = windows.CloseHandle(ev) }()
+	ov := &windows.Overlapped{HEvent: ev}
+	err = windows.ConnectNamedPipe(h, ov)
+	switch {
+	case err == nil || errors.Is(err, windows.ERROR_PIPE_CONNECTED):
+		return !stopping(stop)
+	case errors.Is(err, windows.ERROR_IO_PENDING):
+	default:
+		return false
+	}
+	done := make(chan struct{})
 	go func() {
-		errc <- windows.ConnectNamedPipe(h, nil)
+		_, _ = windows.WaitForSingleObject(ev, windows.INFINITE)
+		close(done)
 	}()
-	var closeOnce sync.Once
-	closePipe := func() { closeOnce.Do(func() { _ = windows.CloseHandle(h) }) }
 	select {
 	case <-stop:
-		// CloseHandle waits for ConnectNamedPipe, and that call waits for a
-		// client. A reader completes both. If the open misses, leave the
-		// pending call alone: closing the handle here does not return.
-		client, _ := os.Open(path)
+		// Opening the pipe completes ConnectNamedPipe. If that open fails,
+		// cancel the pending connect and wait for it before the handle is closed.
+		client, oerr := os.Open(path)
+		if oerr != nil {
+			_ = windows.CancelIoEx(h, ov)
+		}
+		<-done
 		if client != nil {
-			<-errc
 			_ = client.Close()
-			closePipe()
-			return false
 		}
-		select {
-		case <-errc:
-			closePipe()
-		default:
-		}
+		retireOverlapped(h, ov)
 		return false
-	case err := <-errc:
-		if err != nil && !errors.Is(err, windows.ERROR_PIPE_CONNECTED) {
-			closePipe()
-			return false
-		}
-		var wrote uint32
-		werr := windows.WriteFile(h, payload, &wrote, nil)
-		_ = windows.FlushFileBuffers(h)
-		closePipe()
-		return werr == nil && wrote == uint32(len(payload))
+	case <-done:
+		return overlappedOK(h, ov)
 	}
+}
+
+func stopping(stop <-chan struct{}) bool {
+	select {
+	case <-stop:
+		return true
+	default:
+		return false
+	}
+}
+
+func retireOverlapped(h windows.Handle, ov *windows.Overlapped) {
+	var n uint32
+	_ = windows.GetOverlappedResult(h, ov, &n, false)
+}
+
+func overlappedOK(h windows.Handle, ov *windows.Overlapped) bool {
+	var n uint32
+	err := windows.GetOverlappedResult(h, ov, &n, false)
+	return err == nil || errors.Is(err, windows.ERROR_PIPE_CONNECTED)
+}
+
+func writeHostsPayload(h windows.Handle, payload []byte) bool {
+	ev, err := windows.CreateEvent(nil, 1, 0, nil)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = windows.CloseHandle(ev) }()
+	ov := &windows.Overlapped{HEvent: ev}
+	var wrote uint32
+	err = windows.WriteFile(h, payload, &wrote, ov)
+	if err != nil && !errors.Is(err, windows.ERROR_IO_PENDING) {
+		return false
+	}
+	if err = windows.GetOverlappedResult(h, ov, &wrote, true); err != nil {
+		return false
+	}
+	_ = windows.FlushFileBuffers(h)
+	return wrote == uint32(len(payload))
 }
