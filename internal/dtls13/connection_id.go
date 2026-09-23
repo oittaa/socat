@@ -80,6 +80,7 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 	if s.cid.local == nil {
 		s.cid.local = [][]byte{bytes.Clone(s.handshake.localCID)}
 	}
+	prevLocal := s.cid.local
 	count = min(max(count, 0), maxConnectionIDs-len(s.cid.local))
 	if immediate {
 		count = 1
@@ -108,7 +109,19 @@ func (s *session) provideCIDs(count int, immediate bool, now time.Time) error {
 	if immediate {
 		s.cid.immediate = ids
 	}
-	return s.startPost(msgNewConnectionID, body, now)
+	if err := s.startPost(msgNewConnectionID, body, now); err != nil {
+		if s.post[msgNewConnectionID] == nil {
+			if s.cid.setLocal != nil {
+				if restoreErr := s.cid.setLocal(prevLocal); restoreErr != nil {
+					return restoreErr
+				}
+			}
+			s.cid.local = prevLocal
+			s.cid.immediate = nil
+		}
+		return err
+	}
+	return nil
 }
 
 func encodeCIDs(ids [][]byte, immediate bool) ([]byte, error) {

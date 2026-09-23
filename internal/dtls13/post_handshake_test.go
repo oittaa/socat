@@ -2,6 +2,7 @@ package dtls13
 
 import (
 	"encoding/binary"
+	"errors"
 	"testing"
 	"time"
 )
@@ -88,6 +89,25 @@ func rfc9147KeyUpdateFlag(plaintext []byte) (byte, bool) {
 		return 0, false
 	}
 	return flag, true
+}
+
+func TestKeyUpdateSendErrorDoesNotStick(t *testing.T) {
+	a, b := handshakeConfigs(t)
+	client, _, _ := driveSessions(t, a, b, false, false)
+	now := time.Unix(2000, 0)
+	seq := client.handshake.sequence
+	sendErr := errors.New("no buffer space")
+	client.send = func([]byte) error { return sendErr }
+	if err := client.requestKeyUpdate(false, now); !errors.Is(err, sendErr) {
+		t.Fatalf("key update send: %v", err)
+	}
+	if client.handshake.sequence != seq {
+		t.Fatalf("handshake sequence %d, want %d", client.handshake.sequence, seq)
+	}
+	client.send = func([]byte) error { return nil }
+	if err := client.tick(now.Add(time.Second)); err != nil {
+		t.Fatalf("tick after a failed key update send: %v", err)
+	}
 }
 
 func TestRFC9147KeyUpdateFlagRejectsNonKeyUpdate(t *testing.T) {
