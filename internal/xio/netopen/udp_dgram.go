@@ -383,11 +383,12 @@ func openUDPRecvfromFork(ctx context.Context, s addrconfig.Address, g *xio.Globa
 		logx.CloseQuiet(pc)
 		return nil, err
 	}
+	// Accept already ran peerFilter. A second check re-reads the tcpwrap
+	// tables and repeats DNS, so the two decisions can disagree.
 	return xio.NewAcceptParent("UDP-RECVFROM", xio.AcceptParent{
 		Listener:       ln,
 		ForkSocketpair: true,
 		MaxChildren:    maxChildren,
-		PeerFilter:     peerFilter.AllowConn,
 		WrapDial:       xio.DefaultWrapOpened(s),
 	})
 }
