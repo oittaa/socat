@@ -211,7 +211,7 @@ func DecodeOptions(spec parse.Spec, facts Facts, definitions []optionmeta.Option
 	}
 	d := newDecoder(spec, facts)
 	for i, option := range spec.Options {
-		if err := decodeOption(&d, option, definitions[i]); err != nil {
+		if err := applyOption(&d, option, definitions[i]); err != nil {
 			return PreparedDecode{}, fmt.Errorf("%s: %w", facts.Type, err)
 		}
 	}
@@ -262,10 +262,6 @@ func finishDecode(d *decoder) error {
 		return fmt.Errorf("minimum TLS protocol version exceeds maximum")
 	}
 	return nil
-}
-
-func decodeOption(d *decoder, o parse.Option, definition optionmeta.Option) error {
-	return applyOption(d, o, definition)
 }
 
 func resolveLineEnding(d *decoder) {
