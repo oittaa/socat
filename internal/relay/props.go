@@ -145,7 +145,11 @@ func zeroCopyEndpoint(v any) (syscall.Conn, bool) {
 }
 
 func halfProps(v any, read bool) (fd int, setDL func(time.Time) error, poll bool, ioKind IOSemantics, zc syscall.Conn, cfg func(IOSemantics)) {
-	if v == nil {
+	return halfPropsN(v, read, 0)
+}
+
+func halfPropsN(v any, read bool, depth int) (fd int, setDL func(time.Time) error, poll bool, ioKind IOSemantics, zc syscall.Conn, cfg func(IOSemantics)) {
+	if v == nil || depth > 32 {
 		return -1, nil, false, UnknownIO, nil, nil
 	}
 	if st, ok := v.(Stream); ok {
@@ -154,6 +158,15 @@ func halfProps(v any, read bool) (fd int, setDL func(time.Time) error, poll bool
 			return p.ReadFD, p.SetReadDeadline, p.NeedsPoll, p.ReadIO, p.ZeroCopyRead, p.ConfigureRead
 		}
 		return p.WriteFD, p.SetWriteDeadline, p.NeedsPoll, p.WriteIO, p.ZeroCopyWrite, p.ConfigureWrite
+	}
+	// readbytes and escape are readers, not streams. Keep the descriptor so
+	// cancel and poll can wake a blocked read. Drop zero-copy so splice
+	// cannot skip the filter.
+	if read {
+		if next, ok := unwrapFilterReader(v); ok {
+			fd, setDL, poll, ioKind, _, cfg = halfPropsN(next, read, depth+1)
+			return fd, setDL, poll, ioKind, nil, cfg
+		}
 	}
 	p := Inspect(v)
 	fd, setDL, poll, ioKind, zc, cfg = p.ReadFD, p.SetReadDeadline, p.NeedsPoll, p.ReadIO, p.ZeroCopyRead, p.ConfigureRead
@@ -170,6 +183,18 @@ func halfProps(v any, read bool) (fd int, setDL func(time.Time) error, poll bool
 		}
 	}
 	return fd, setDL, poll, ioKind, zc, cfg
+}
+
+func unwrapFilterReader(v any) (any, bool) {
+	u, ok := v.(interface{ UnwrapReader() io.Reader })
+	if !ok {
+		return nil, false
+	}
+	next := u.UnwrapReader()
+	if next == nil || any(next) == v {
+		return nil, false
+	}
+	return next, true
 }
 
 func semanticHalf(v any, read bool) (IOSemantics, func(IOSemantics)) {
