@@ -1,8 +1,10 @@
 //go:build darwin
 
-package sockopt_test
+package sockopt
 
 import "testing"
 
-// FIOGETOWN SET works; GET does not copy out. F_GETOWN / SIOCGPGRP cover the owner.
+// FIOGETOWN writes so_pgid and returns before copyout. F_GETOWN and
+// SIOCGPGRP cover the owner. This stays in package sockopt so the shared
+// unix test does not assert the ioctl result.
 func assertFIOGETOWN(*testing.T, int, int) {}

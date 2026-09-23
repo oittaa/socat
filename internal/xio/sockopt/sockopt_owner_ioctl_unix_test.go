@@ -65,14 +65,10 @@ func assertSocketOwner(t *testing.T, fd, want int) {
 	if got := ownerIoctlGet(t, fd, uint(unix.SIOCGPGRP)); got != want {
 		t.Fatalf("SIOCGPGRP=%d want %d", got, want)
 	}
+	// FIOGETOWN copy-out is platform-specific. The linux helper checks it.
+	// Darwin's kernel writes so_pgid and returns before copyout, so that
+	// helper does not read the ioctl.
 	assertFIOGETOWN(t, fd, want)
-}
-
-func assertFIOGETOWN(t *testing.T, fd, want int) {
-	t.Helper()
-	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != want {
-		t.Fatalf("FIOGETOWN=%d want %d", got, want)
-	}
 }
 
 func ownerIoctlGet(t *testing.T, fd int, req uint) int {
