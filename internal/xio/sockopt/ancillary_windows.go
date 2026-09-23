@@ -48,8 +48,5 @@ func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {
 			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
-	if err := errors.Join(controlErr, optionErr); err != nil {
-		return err
-	}
-	return applyConnFDLifecycle(c, s)
+	return errors.Join(controlErr, optionErr)
 }

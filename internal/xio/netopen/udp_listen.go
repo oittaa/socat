@@ -508,6 +508,10 @@ func dialUDPSession(ctx context.Context, network string, local *net.UDPAddr, rem
 		logx.CloseQuiet(uc)
 		return nil, err
 	}
+	if err := xio.ApplyFDLifecycleToConn(uc, s); err != nil {
+		logx.CloseQuiet(uc)
+		return nil, err
+	}
 	return uc, nil
 }
 

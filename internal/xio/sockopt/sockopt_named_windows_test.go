@@ -1,13 +1,12 @@
 //go:build windows
 
-package sockopt_test
+package sockopt
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 func TestLowWaterOptionsUnsupportedWindows(t *testing.T) {
@@ -21,9 +20,9 @@ func TestLowWaterOptionsUnsupportedWindows(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err = sockopt.ApplySocketOptions(0, mustDecodeAddress(t, spec))
-		if err == nil || !errors.Is(err, sockopt.ErrNamedOptUnsupported) {
-			t.Fatalf("%s: error=%v want %v", specText, err, sockopt.ErrNamedOptUnsupported)
+		err = ApplySocketOptions(0, mustDecodeAddress(t, spec))
+		if err == nil || !errors.Is(err, errNamedOptUnsupported) {
+			t.Fatalf("%s: error=%v want %v", specText, err, errNamedOptUnsupported)
 		}
 	}
 }

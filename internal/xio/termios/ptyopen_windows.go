@@ -1,6 +1,6 @@
 //go:build windows
 
-package execopen
+package termios
 
 import (
 	"fmt"

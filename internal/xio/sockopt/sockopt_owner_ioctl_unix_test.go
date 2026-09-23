@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package sockopt_test
+package sockopt
 
 import (
 	"os"
@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -24,7 +23,7 @@ func TestApplySocketOptionsOwnerIoctlCommandLineOrderUnix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
 	assertSocketOwner(t, fd, pid)
@@ -46,7 +45,7 @@ func TestApplySocketOptionsOwnerIoctlInvalidUnix(t *testing.T) {
 		}
 		config, err := decodeAddress(spec)
 		if err == nil {
-			err = sockopt.ApplySocketOptions(fd, config)
+			err = ApplySocketOptions(fd, config)
 		}
 		if err == nil || !strings.Contains(err.Error(), "invalid value") {
 			t.Fatalf("%s: err=%v want invalid value", specText, err)
@@ -67,6 +66,13 @@ func assertSocketOwner(t *testing.T, fd, want int) {
 		t.Fatalf("SIOCGPGRP=%d want %d", got, want)
 	}
 	assertFIOGETOWN(t, fd, want)
+}
+
+func assertFIOGETOWN(t *testing.T, fd, want int) {
+	t.Helper()
+	if got := ownerIoctlGet(t, fd, ownerIoctlFIOGETOWN); got != want {
+		t.Fatalf("FIOGETOWN=%d want %d", got, want)
+	}
 }
 
 func ownerIoctlGet(t *testing.T, fd int, req uint) int {

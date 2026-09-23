@@ -11,6 +11,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
+	"github.com/oittaa/socat/internal/xio/termios"
 	"golang.org/x/sys/unix"
 )
 
@@ -51,7 +52,7 @@ func TestApplyFDOptionsIoctlIntpFIONREADSocket(t *testing.T) {
 }
 
 func TestApplyFDOptionsIoctlVoidTIOCEXCLPty(t *testing.T) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
@@ -63,7 +64,7 @@ func TestApplyFDOptionsIoctlVoidTIOCEXCLPty(t *testing.T) {
 }
 
 func TestApplyFDOptionsIoctlBinTIOCGWINSZPty(t *testing.T) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestApplyFDOptionsIoctlBinTIOCGWINSZPty(t *testing.T) {
 }
 
 func TestIoctlBinTIOCGWINSZDoesNotMutatePreparedBytes(t *testing.T) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}

@@ -17,6 +17,8 @@ import (
 	"github.com/oittaa/socat/internal/xio/termios"
 )
 
+func init() { xio.FeaturePTY = true }
+
 // rejectExecUnsupportedPTYOptions rejects wait-slave / pty-interval on
 // EXEC/SYSTEM/SHELL. Those options apply only to the PTY address.
 func rejectExecUnsupportedPTYOptions(config addrconfig.Address) error {
@@ -50,7 +52,7 @@ func applyExecPtySession(cmd *exec.Cmd, config addrconfig.Process, g *xio.Global
 // openExecPTYPair allocates a PTY pair for an EXEC child, applies session/
 // controlling-terminal attributes, and configures slave termios.
 func openExecPTYPair(cmd *exec.Cmd, config addrconfig.Address, g *xio.Global) (*os.File, *os.File, func(), error) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("EXEC pty: %w", err)
 	}
@@ -312,7 +314,7 @@ func (c *execChild) startPty(ctx context.Context) (*xio.Opened, error) {
 // come from the spec; pty itself does not start a session or take the
 // controlling tty.
 func (c *execChild) startOnPTY(ctx context.Context) (*os.File, *os.File, func(), error) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -4,6 +4,7 @@ package sockopt_test
 
 import (
 	"net"
+	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
@@ -57,6 +58,33 @@ type netConnUnwrapper struct {
 }
 
 func (c netConnUnwrapper) NetConn() net.Conn { return c.Conn }
+
+// sockoptFlagOn reports whether a SOL_SOCKET boolean option is enabled.
+// Linux returns 1; Darwin returns the so_options bit (SO_KEEPALIVE is 8).
+func sockoptFlagOn(v int) bool { return v != 0 }
+
+func listenerSockoptInt(t *testing.T, ln net.Listener, opt int) int {
+	t.Helper()
+	sc, ok := ln.(syscall.Conn)
+	if !ok {
+		t.Fatalf("listener type %T is not syscall.Conn", ln)
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v int
+	var gerr error
+	if err := raw.Control(func(fd uintptr) {
+		v, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gerr != nil {
+		t.Fatal(gerr)
+	}
+	return v
+}
 
 func tcpPair(t *testing.T) (*net.TCPConn, *net.TCPConn) {
 	t.Helper()
@@ -116,23 +144,6 @@ func TestApplyTCPConnOptsAppliesSndbufLateThroughNetConnUnwrap(t *testing.T) {
 	if got := tcpSockoptInt(t, cli, unix.SO_SNDBUF); got < 65536 {
 		t.Fatalf("SO_SNDBUF=%d want >= 65536 through NetConn() unwrap", got)
 	}
-}
-
-func udpSockoptInt(t *testing.T, uc *net.UDPConn, opt int) int {
-	t.Helper()
-	raw, err := uc.SyscallConn()
-	if err != nil {
-		t.Fatal(err)
-	}
-	var v int
-	var gerr error
-	_ = raw.Control(func(fd uintptr) {
-		v, gerr = unix.GetsockoptInt(int(fd), unix.SOL_SOCKET, opt)
-	})
-	if gerr != nil {
-		t.Fatal(gerr)
-	}
-	return v
 }
 
 func TestApplyListenOptionsDoesNotApplyBroadcastUnix(t *testing.T) {

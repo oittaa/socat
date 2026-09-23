@@ -1,17 +1,14 @@
 //go:build linux
 
-package sockopt_test
+package sockopt
 
 import (
 	"errors"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -37,22 +34,12 @@ func openSCTPStream(t *testing.T) int {
 
 func fdSCTPSockoptInt(t *testing.T, fd, opt int) int {
 	t.Helper()
-	v, err := unix.GetsockoptInt(fd, sockopt.SolSCTP, opt)
+	v, err := unix.GetsockoptInt(fd, solSCTP, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return v
 }
-
-type ctrlFD int
-
-func (fd ctrlFD) Control(f func(uintptr)) error {
-	f(uintptr(fd))
-	return nil
-}
-
-func (fd ctrlFD) Read(func(uintptr) bool) error  { return syscall.EINVAL }
-func (fd ctrlFD) Write(func(uintptr) bool) error { return syscall.EINVAL }
 
 func TestApplySocketOptionsSCTPNodelayOnTCPLinux(t *testing.T) {
 	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
@@ -64,7 +51,7 @@ func TestApplySocketOptionsSCTPNodelayOnTCPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, spec))
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("sctp-nodelay on TCP must fail, not no-op")
 	}
@@ -83,7 +70,7 @@ func TestApplySocketOptionsSCTPMaxsegOnUDPLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, spec))
+	err = ApplySocketOptions(fd, mustDecodeAddress(t, spec))
 	if err == nil {
 		t.Fatal("sctp-maxseg on UDP must fail, not no-op")
 	}
@@ -110,10 +97,10 @@ func TestSCTPNodelayNoDisablesLinux(t *testing.T) {
 		t.Fatalf("sctp-nodelay=on: %v", err)
 	}
 	fd := openSCTPStream(t)
-	if err := sockopt.ApplySocketOptions(fd, config); err != nil {
+	if err := ApplySocketOptions(fd, config); err != nil {
 		t.Fatal(err)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpNodelay); got != 0 {
+	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 0 {
 		t.Fatalf("sctp-nodelay=no SCTP_NODELAY=%d want 0", got)
 	}
 }
@@ -124,10 +111,10 @@ func TestApplySocketOptionsSCTPMaxsegLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, spec)); err != nil {
 		t.Fatal(err)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpMaxseg); got != 1400 {
+	if got := fdSCTPSockoptInt(t, fd, sctpMaxseg); got != 1400 {
 		t.Fatalf("SCTP_MAXSEG=%d want 1400", got)
 	}
 }
@@ -138,17 +125,17 @@ func TestApplySocketOptionsSCTPNodelayClearLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, on)); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, on)); err != nil {
 		t.Fatal(err)
 	}
 	off, err := parse.ParseSpec("SCTP4:127.0.0.1:9,sctp-nodelay=0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sockopt.ApplySocketOptions(fd, mustDecodeAddress(t, off)); err != nil {
+	if err := ApplySocketOptions(fd, mustDecodeAddress(t, off)); err != nil {
 		t.Fatal(err)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpNodelay); got != 0 {
+	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 0 {
 		t.Fatalf("sctp-nodelay=0 SCTP_NODELAY=%d want 0", got)
 	}
 }
@@ -159,13 +146,13 @@ func TestListenControlAppliesSCTPNodelayLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xio.ListenControl(mustDecodeAddress(t, spec))("sctp4", "127.0.0.1:0", ctrlFD(fd)); err != nil {
+	if err := ApplyPreparedSocketPhase(fd, mustDecodeAddress(t, spec), SocketApplyPastSocket, "sctp4"); err != nil {
 		t.Fatal(err)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpNodelay); got != 1 {
+	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 1 {
 		t.Fatalf("ListenControl SCTP_NODELAY=%d want 1", got)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpMaxseg); got != 1400 {
+	if got := fdSCTPSockoptInt(t, fd, sctpMaxseg); got != 1400 {
 		t.Fatalf("ListenControl SCTP_MAXSEG=%d want 1400", got)
 	}
 }
@@ -176,10 +163,10 @@ func TestDialControlAppliesSCTPNodelayLinux(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := xio.DialControl(mustDecodeAddress(t, spec), "sctp4", nil)("sctp4", "127.0.0.1:9", ctrlFD(fd)); err != nil {
+	if err := ApplyPreparedSocketPhase(fd, mustDecodeAddress(t, spec), SocketApplyPastSocket, "sctp4"); err != nil {
 		t.Fatal(err)
 	}
-	if got := fdSCTPSockoptInt(t, fd, sockopt.SctpNodelay); got != 1 {
+	if got := fdSCTPSockoptInt(t, fd, sctpNodelay); got != 1 {
 		t.Fatalf("DialControl SCTP_NODELAY=%d want 1", got)
 	}
 }

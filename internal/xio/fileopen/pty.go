@@ -20,7 +20,7 @@ func openPTY(ctx context.Context, s addrconfig.Address, _ xio.Mode, g *xio.Globa
 	if len(s.Params) > 0 {
 		return nil, addrconfig.WrongParameterCount(s.Type, len(s.Params), 0, 0, s.Type)
 	}
-	master, slave, err := execopen.OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		return nil, fmt.Errorf("PTY: %w", err)
 	}

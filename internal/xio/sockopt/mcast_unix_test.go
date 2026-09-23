@@ -1,22 +1,18 @@
 //go:build linux || darwin
 
-package sockopt_test
+package sockopt
 
 import (
-	"context"
 	"net"
 	"strconv"
 	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
-	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
-
-const missingMcastIface = "no-such-iface-socat-test"
 
 func decodeMulticastJoin(t *testing.T, raw string) addrconfig.MulticastRequest {
 	t.Helper()
@@ -69,64 +65,15 @@ func TestDecodeMcastSpecStoresClassicAddressNames(t *testing.T) {
 	if _, err := net.InterfaceByName("localhost"); err == nil {
 		t.Skip("host has an interface literally named localhost")
 	}
-	addr, _, _, err := sockopt.ResolveJoinInterface(req, "ip-add-membership")
+	addr, _, _, err := resolveJoinInterface(req, "ip-add-membership")
 	if err != nil || !addr.Equal(net.IPv4(127, 0, 0, 1)) {
 		t.Fatalf("localhost=%v err=%v", addr, err)
 	}
 }
 
-func TestIPAddMembershipRejectsIPv6Group(t *testing.T) {
-	err := sockopt.ApplyPreparedMulticast(0, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=[ff02::2]:lo"))
-	if err == nil || !strings.Contains(err.Error(), "IPv4 membership") {
-		t.Fatalf("error=%v want IPv4 membership group mismatch", err)
-	}
-}
-
-func TestDialControlUDP6RejectsInvalidMembershipInterface(t *testing.T) {
-	skipWithoutIPv6Loopback(t)
-	spec, err := parse.ParseSpec("UDP6:[::1]:9,ipv6-join-group=[ff02::2]:" + missingMcastIface)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := &net.Dialer{Control: xio.DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
-	c, err := d.Dial("udp6", "[::1]:9")
-	if c != nil {
-		_ = c.Close()
-	}
-	requireMissingMembershipIface(t, err)
-}
-
-func TestListenControlTCP6RejectsInvalidMembershipInterface(t *testing.T) {
-	skipWithoutIPv6Loopback(t)
-	spec, err := parse.ParseSpec("TCP6-LISTEN:0,ipv6-join-group=[ff02::2]:" + missingMcastIface)
-	if err != nil {
-		t.Fatal(err)
-	}
-	lc := net.ListenConfig{Control: xio.ListenControl(mustDecodeAddress(t, spec))}
-	ln, err := lc.Listen(context.Background(), "tcp6", "[::1]:0")
-	if ln != nil {
-		_ = ln.Close()
-	}
-	requireMissingMembershipIface(t, err)
-}
-
-func TestApplyMembershipJoinsAppliesAllInOrder(t *testing.T) {
-	skipWithoutIPv6Loopback(t)
-	spec, err := parse.ParseSpec("UDP6-RECV:0,ipv6-join-group=[ff02::2]:" + missingMcastIface + ",ipv6-join-group=[ff02::3]:lo")
-	if err != nil {
-		t.Fatal(err)
-	}
-	d := &net.Dialer{Control: xio.DialControl(mustDecodeAddress(t, spec), "udp6", nil)}
-	c, err := d.Dial("udp6", "[::1]:9")
-	if c != nil {
-		_ = c.Close()
-	}
-	requireMissingMembershipIface(t, err)
-}
-
 func TestIPv4MembershipResolvesInterfaceAddressName(t *testing.T) {
 	fd := mustUDP4Socket(t)
-	if err := sockopt.ApplyPreparedMulticast(fd, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.4:localhost")); err != nil {
+	if err := applyPreparedMulticast(fd, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=224.0.0.4:localhost")); err != nil {
 		t.Fatalf("hostname interface address join: %v", err)
 	}
 }
@@ -137,28 +84,16 @@ func TestIPv4NumericIndexDoesNotRequireIPv4AddressOnIface(t *testing.T) {
 	ifi := multicastLoopback(t)
 	fd := mustUDP4Socket(t)
 	raw := "UDP:127.0.0.1:9,ip-add-membership=224.0.0.1:" + strconv.Itoa(ifi.Index)
-	if err := sockopt.ApplyPreparedMulticast(fd, decodeMulticastJoin(t, raw)); err != nil {
+	if err := applyPreparedMulticast(fd, decodeMulticastJoin(t, raw)); err != nil {
 		t.Fatalf("index-only join: %v", err)
 	}
 }
 
-func requireMissingMembershipIface(t *testing.T, err error) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected membership/interface error, option was a silent no-op")
+func TestIPAddMembershipRejectsIPv6Group(t *testing.T) {
+	err := applyPreparedMulticast(0, decodeMulticastJoin(t, "UDP:127.0.0.1:9,ip-add-membership=[ff02::2]:lo"))
+	if err == nil || !strings.Contains(err.Error(), "IPv4 membership") {
+		t.Fatalf("error=%v want IPv4 membership group mismatch", err)
 	}
-	if !strings.Contains(err.Error(), missingMcastIface) {
-		t.Fatalf("error=%v want %q", err, missingMcastIface)
-	}
-}
-
-func skipWithoutIPv6Loopback(t *testing.T) {
-	t.Helper()
-	c, err := net.ListenPacket("udp6", "[::1]:0")
-	if err != nil {
-		t.Skipf("IPv6 loopback not available: %v", err)
-	}
-	_ = c.Close()
 }
 
 func multicastLoopback(t *testing.T) net.Interface {
@@ -184,4 +119,11 @@ func mustUDP4Socket(t *testing.T) int {
 	}
 	t.Cleanup(func() { _ = unix.Close(fd) })
 	return fd
+}
+
+func TestGroupSourceReqLayout(t *testing.T) {
+	want := uintptr(groupSourceReqSize)
+	if unsafe.Sizeof(groupSourceReq{}) != want {
+		t.Fatalf("groupSourceReq size=%d want %d", unsafe.Sizeof(groupSourceReq{}), want)
+	}
 }

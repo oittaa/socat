@@ -2,12 +2,16 @@
 
 package execopen
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/oittaa/socat/internal/xio/termios"
+)
 
 func TestOpenPTYPairMultipleLivePairs(t *testing.T) {
 	var firstSlave string
 	for range 2 {
-		master, slave, err := OpenPTYPair()
+		master, slave, err := termios.OpenPTYPair()
 		if err != nil {
 			t.Fatal(err)
 		}

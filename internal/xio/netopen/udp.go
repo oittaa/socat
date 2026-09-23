@@ -86,7 +86,11 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: sockopt.WrapUDPAncillary(udpConn, s, g)}})
+	if err := xio.ApplyFDLifecycleToConn(udpConn, s); err != nil {
+		logx.CloseQuiet(conn)
+		return nil, err
+	}
+	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: xio.WrapUDPAncillary(udpConn, s, g)}})
 	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(conn)

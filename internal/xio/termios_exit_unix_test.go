@@ -20,7 +20,7 @@ import (
 // to two descriptors of one terminal, so the later snapshot is the raw state
 // and must run first.
 func TestSignalExitRestoresPTYTermios(t *testing.T) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSignalExitRestoresPTYTermios(t *testing.T) {
 // the signal-exit hook. A later signal cleanup must leave later terminal
 // changes alone.
 func TestCloseDropsTTYExitHook(t *testing.T) {
-	master, slave, err := OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			master, slave, err := OpenPTYPair()
+			master, slave, err := termios.OpenPTYPair()
 			if err != nil {
 				t.Skipf("pty: %v", err)
 			}

@@ -1,4 +1,4 @@
-package sockopt_test
+package sockopt
 
 import (
 	"testing"
@@ -49,4 +49,17 @@ func namedSocketNumber(config addrconfig.Address, id addrconfig.NamedSocket) nam
 		}
 	}
 	return namedSocketNumberResult{}
+}
+
+func decodeAddress(spec parse.Spec) (addrconfig.Address, error) {
+	return addrconfig.Decode(spec, addrconfig.Facts{Type: spec.Type})
+}
+
+func mustDecodeAddress(t *testing.T, spec parse.Spec) addrconfig.Address {
+	t.Helper()
+	config, err := decodeAddress(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return config
 }

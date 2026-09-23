@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oittaa/socat/internal/xio/execopen"
+	"github.com/oittaa/socat/internal/xio/termios"
 	"golang.org/x/sys/unix"
 )
 
@@ -97,7 +97,7 @@ func TestForegroundProcessGroupBadFD(t *testing.T) {
 }
 
 func TestForegroundProcessGroupControllingPTY(t *testing.T) {
-	master, slave, err := execopen.OpenPTYPair()
+	master, slave, err := termios.OpenPTYPair()
 	if err != nil {
 		t.Fatal(err)
 	}

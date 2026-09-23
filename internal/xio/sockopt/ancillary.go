@@ -380,10 +380,5 @@ func ApplyUDPConnOpts(c *net.UDPConn, s addrconfig.Address, _ string) error {
 			optionErr = ApplyGenericSetsockopt(int(fd), s, SockoptPhaseConnected)
 		}
 	})
-	if err := errors.Join(controlErr, optionErr); err != nil {
-		return err
-	}
-	// append/perm/user/group/ftruncate on the raw UDP socket before
-	// packet-session wrapping (udpFilteredRecv / udpRecvFromConn).
-	return applyConnFDLifecycle(c, s)
+	return errors.Join(controlErr, optionErr)
 }

@@ -304,7 +304,11 @@ func TestApplyUDPConnOptsSetsAppend(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 	spec := mustSpec(t, "UDP-RECV:0,append")
-	if err := sockopt.ApplyUDPConnOpts(pc, mustDecodeAddress(t, spec), "udp4"); err != nil {
+	config := mustDecodeAddress(t, spec)
+	if err := sockopt.ApplyUDPConnOpts(pc, config, "udp4"); err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyFDLifecycleToConn(pc, config); err != nil {
 		t.Fatal(err)
 	}
 	if connFcntlFlags(t, pc)&unix.O_APPEND == 0 {

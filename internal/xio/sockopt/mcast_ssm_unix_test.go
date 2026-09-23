@@ -6,20 +6,11 @@ import (
 	"net"
 	"strings"
 	"testing"
-	"unsafe"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 )
-
-func TestGroupSourceReqLayout(t *testing.T) {
-	want := uintptr(sockopt.GroupSourceReqSize)
-	if unsafe.Sizeof(sockopt.GroupSourceReq{}) != want {
-		t.Fatalf("groupSourceReq size=%d want %d", unsafe.Sizeof(sockopt.GroupSourceReq{}), want)
-	}
-}
 
 func TestIPv6SourceMembershipInterfaceRequired(t *testing.T) {
 	skipWithoutIPv6Loopback(t)

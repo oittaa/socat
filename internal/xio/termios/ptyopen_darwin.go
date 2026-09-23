@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// OpenPTYPair allocates a master/slave PTY pair (macOS /dev/ptmx).
 func OpenPTYPair() (master, slave *os.File, err error) {
 	fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_CLOEXEC, 0)
 	if err != nil {
@@ -22,14 +23,18 @@ func OpenPTYPair() (master, slave *os.File, err error) {
 			_ = m.Close()
 		}
 	}()
+
+	// Grant access to the slave.
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCPTYGRANT), 0); errno != 0 {
 		err = errno
 		return nil, nil, err
 	}
+	// Unlock slave.
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCPTYUNLK), 0); errno != 0 {
 		err = errno
 		return nil, nil, err
 	}
+	// Slave path via TIOCPTYGNAME.
 	var buf [128]byte
 	if _, _, errno := unix.Syscall(unix.SYS_IOCTL, m.Fd(), uintptr(unix.TIOCPTYGNAME), uintptr(unsafe.Pointer(&buf[0]))); errno != 0 { // #nosec G103 -- TIOCPTYGNAME writes the slave path
 		err = errno
@@ -44,6 +49,7 @@ func OpenPTYPair() (master, slave *os.File, err error) {
 		err = fmt.Errorf("empty pty slave name")
 		return nil, nil, err
 	}
+
 	s, err := os.OpenFile(sname, os.O_RDWR|syscall.O_NOCTTY, 0) // #nosec G304 -- slave path comes from TIOCPTYGNAME, not user input
 	if err != nil {
 		return nil, nil, fmt.Errorf("open slave %s: %w", sname, err)

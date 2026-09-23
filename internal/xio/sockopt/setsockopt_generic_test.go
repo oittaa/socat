@@ -1,4 +1,4 @@
-package sockopt_test
+package sockopt
 
 import (
 	"encoding/binary"
@@ -7,12 +7,11 @@ import (
 	"net"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
-	"github.com/oittaa/socat/internal/xio"
-	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 func TestParseSockoptBinDecimalAndDalan(t *testing.T) {
@@ -68,11 +67,11 @@ func TestApplyTCPConnOptsRejectsSetsockoptWithoutSocket(t *testing.T) {
 		_ = a.Close()
 		_ = b.Close()
 	})
-	spec, err := parse.ParseSpec(fmt.Sprintf("TCP:127.0.0.1:9,setsockopt=%d:%d:1", sockopt.SOLSocket, sockopt.SoKeepalive))
+	spec, err := parse.ParseSpec(fmt.Sprintf("TCP:127.0.0.1:9,setsockopt=%d:%d:1", SOLSocket, soKeepalive))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = xio.ApplyTCPConnOpts(mustDecodeAddress(t, spec), a)
+	err = ApplyGenericSetsockoptToNetConn(a, mustDecodeAddress(t, spec), SockoptPhaseConnected)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want connection does not expose a socket", err)
 	}
@@ -84,28 +83,38 @@ func TestSetupStreamSkipsSetsockoptWithoutSocket(t *testing.T) {
 		_ = a.Close()
 		_ = b.Close()
 	})
-	spec, err := parse.ParseSpec(fmt.Sprintf("TCP:127.0.0.1:9,setsockopt=%d:%d:1", sockopt.SOLSocket, sockopt.SoKeepalive))
+	spec, err := parse.ParseSpec(fmt.Sprintf("TCP:127.0.0.1:9,setsockopt=%d:%d:1", SOLSocket, soKeepalive))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Same split as sndbuf-late: SetupStream is a fallback for streams that
 	// expose a socket fd. QUIC/WS/UDP-RECVFROM apply CONNECTED on the raw
 	// fd first, then wrap a non-syscall.Conn session.
-	if _, err := xio.SetupStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: a}); err != nil {
+	if err := ApplyGenericSetsockoptToStream(mustDecodeAddress(t, spec), relay.NetStream{Conn: a}, SockoptPhaseConnected); err != nil {
 		t.Fatalf("SetupStream on net.Pipe: %v", err)
 	}
 }
 
 func TestApplyGenericSetsockoptToPacketConnRejectsNonSocket(t *testing.T) {
-	spec, err := parse.ParseSpec(fmt.Sprintf("QUIC-LISTEN:0,setsockopt=%d:%d:1", sockopt.SOLSocket, sockopt.SoKeepalive))
+	spec, err := parse.ParseSpec(fmt.Sprintf("QUIC-LISTEN:0,setsockopt=%d:%d:1", SOLSocket, soKeepalive))
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sockopt.ApplyGenericSetsockoptToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), sockopt.SockoptPhaseConnected)
+	err = ApplyGenericSetsockoptToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec), SockoptPhaseConnected)
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}
 }
+
+type stubPacketConn struct{}
+
+func (stubPacketConn) ReadFrom([]byte) (int, net.Addr, error) { return 0, nil, net.ErrClosed }
+func (stubPacketConn) WriteTo([]byte, net.Addr) (int, error)  { return 0, net.ErrClosed }
+func (stubPacketConn) Close() error                           { return nil }
+func (stubPacketConn) LocalAddr() net.Addr                    { return nil }
+func (stubPacketConn) SetDeadline(time.Time) error            { return nil }
+func (stubPacketConn) SetReadDeadline(time.Time) error        { return nil }
+func (stubPacketConn) SetWriteDeadline(time.Time) error       { return nil }
 
 func nativeDalanInt(data []byte) int {
 	if len(data) < 4 {

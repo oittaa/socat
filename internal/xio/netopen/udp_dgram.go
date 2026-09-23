@@ -112,6 +112,10 @@ func wrapUDPDatagram(ctx context.Context, s addrconfig.Address, g *xio.Global, c
 		_ = c.Close()
 		return nil, err
 	}
+	if err := xio.ApplyFDLifecycleToConn(c, s); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
 	st, err := newUDPDatagramConn(ctx, c, raddr, s, g, exactPeer)
 	if err != nil {
 		logx.CloseQuiet(c)
@@ -549,6 +553,10 @@ func listenUDP(network string, laddr *net.UDPAddr, s addrconfig.Address) (*net.U
 	// Late buffers. Send and recv IP/ancillary options were applied
 	// after socket() by ListenControl.
 	if err := sockopt.ApplyUDPConnOpts(c, s, network); err != nil {
+		_ = c.Close()
+		return nil, err
+	}
+	if err := xio.ApplyFDLifecycleToConn(c, s); err != nil {
 		_ = c.Close()
 		return nil, err
 	}

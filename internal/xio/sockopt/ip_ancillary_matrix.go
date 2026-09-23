@@ -8,10 +8,6 @@ import (
 	"github.com/oittaa/socat/internal/optionmeta"
 )
 
-// AddressGroup resolves an address type to its help-section group.
-// The xio registry registers the implementation.
-var AddressGroup func(typ string) (group string, ok bool)
-
 // ipAncillaryKind is a bitmask of runtime effects implemented for one
 // IP/ancillary option. Combinations that are not listed are rejected
 // instead of being accepted as no-ops.
@@ -242,11 +238,8 @@ func rejectIPAncillaryApply(e ipAncillaryEntry, family IPFamily) error {
 // Same combinations the CLI rejects via implementationGroups, plus Windows
 // recv/ip-options/ipv6-* and IPv4/IPv6 mismatches.
 func RejectUnsupportedIPAncillary(s addrconfig.Address) error {
-	if AddressGroup == nil {
-		return nil
-	}
-	group, ok := AddressGroup(s.Type)
-	if !ok {
+	group := s.Facts.Group
+	if group == "" {
 		return nil
 	}
 	family := PreparedForcedIPFamily(s)

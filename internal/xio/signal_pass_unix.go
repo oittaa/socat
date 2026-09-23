@@ -141,27 +141,6 @@ func sessionEmpty(s *childSignalSession) bool {
 	return true
 }
 
-// ResetChildSignalPassForTest clears registered child-signal state.
-func ResetChildSignalPassForTest() {
-	childSignalMu.Lock()
-	defer childSignalMu.Unlock()
-	processSession = childSignalSession{}
-	liveSessions = map[*childSignalSession]struct{}{}
-}
-
-// ChildSignalPassStateForTest reports pids registered for sig.
-func ChildSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
-	childSignalMu.Lock()
-	defer childSignalMu.Unlock()
-	idx, ok := sigIndex(sig)
-	if !ok {
-		return false, 0, nil
-	}
-	pids = collectPidsLocked(idx)
-	n = len(pids)
-	return n > 0, n, pids
-}
-
 func collectPidsLocked(idx int) []int {
 	var pids []int
 	for sess := range liveSessions {
