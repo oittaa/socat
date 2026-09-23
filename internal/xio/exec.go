@@ -777,6 +777,17 @@ func (w *execWaitState) recordExit(g *Global) {
 	}
 }
 
+func awaitExecChild(w *execWaitState, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-w.done:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
 func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, endClose bool) {
 	w := c.wait
 	if w == nil {
@@ -791,11 +802,9 @@ func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, end
 			return
 		}
 	} else {
-		// Parent descriptors are already closed. SIGTERM, then SIGKILL
-		// if the child is still running when the wait ends.
-		if c.cmd != nil && c.cmd.Process != nil {
-			_ = c.cmd.Process.Signal(syscall.SIGTERM)
-		}
+		// Parent descriptors are already closed, so the child can exit on
+		// EOF during this wait. Then SIGTERM, and SIGKILL if it is still
+		// running.
 		waitFor := linger
 		if waitChild {
 			waitFor = time.Second
@@ -803,13 +812,12 @@ func (c *execChild) closeAfterTransfer(waitChild bool, linger time.Duration, end
 		if c.config.Process.PTY.Value {
 			waitFor = linger + time.Second
 		}
-		t := time.NewTimer(waitFor)
-		select {
-		case <-w.done:
-			t.Stop()
-		case <-t.C:
-			_ = c.cmd.Process.Kill()
-			<-w.done
+		if !awaitExecChild(w, waitFor) && c.cmd != nil && c.cmd.Process != nil {
+			_ = c.cmd.Process.Signal(syscall.SIGTERM)
+			if !awaitExecChild(w, waitFor) {
+				_ = c.cmd.Process.Kill()
+				<-w.done
+			}
 		}
 	}
 	w.recordExit(c.g)
