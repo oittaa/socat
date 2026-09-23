@@ -40,3 +40,30 @@ func TestSTALLReadDeadlineStillFires(t *testing.T) {
 		t.Fatal("read blocked past the deadline")
 	}
 }
+
+func TestSTALLWriteDeadlineStillFires(t *testing.T) {
+	o, err := openSTALL(context.Background(), addrconfig.Address{Type: "STALL"}, xio.ModeWrite, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = o.Close() })
+	f := o.Stream().(relay.FDStream).W.(*os.File)
+	if err := f.SetWriteDeadline(time.Now().Add(200 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.Write([]byte{0})
+		done <- err
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	select {
+	case err := <-done:
+		if !errors.Is(err, os.ErrDeadlineExceeded) {
+			t.Fatalf("%v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("write blocked past the deadline")
+	}
+}
