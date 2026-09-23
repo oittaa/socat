@@ -25,19 +25,3 @@ func Uint32FromInt(n int) (uint32, bool) {
 	}
 	return uint32(n), true
 }
-
-// int32FromUint32 converts u to int32 when it fits (kernel int fields).
-func int32FromUint32(u uint32) (int32, bool) {
-	if u > uint32(math.MaxInt32) {
-		return 0, false
-	}
-	return int32(u), true
-}
-
-// int64FromUint64 converts u to int64 when it fits (kernel 64-bit fields).
-func int64FromUint64(u uint64) (int64, bool) {
-	if u > uint64(math.MaxInt64) {
-		return 0, false
-	}
-	return int64(u), true
-}

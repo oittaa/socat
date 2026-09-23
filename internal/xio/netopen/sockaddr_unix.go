@@ -10,6 +10,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -171,10 +172,10 @@ func applySocketOpts(fd int, config addrconfig.Address) error {
 	if err := xio.ApplyReuse(fd, config, false); err != nil {
 		return err
 	}
-	if err := xio.ApplySocketOptions(fd, config); err != nil {
+	if err := sockopt.ApplySocketOptions(fd, config); err != nil {
 		return err
 	}
-	return xio.ApplyGenericSetsockopt(fd, config, xio.SockoptPhasePrebind)
+	return sockopt.ApplyGenericSetsockopt(fd, config, sockopt.SockoptPhasePrebind)
 }
 
 func newSocket(domain, typ, proto int) (int, error) {

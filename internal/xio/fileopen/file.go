@@ -9,6 +9,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
@@ -439,7 +440,7 @@ func openSocketpair(_ context.Context, s addrconfig.Address, _ xio.Mode, _ *xio.
 		// sndbuf, linger, timeos, connected-phase options, …).
 		// ApplySocketOptions is past-socket only and would drop connected-phase
 		// options.
-		if err := xio.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
+		if err := sockopt.ApplyGenericSetsockoptAll(int(conn.Fd()), s); err != nil {
 			logx.CloseQuiet(c1)
 			logx.CloseQuiet(c2)
 			return nil, fmt.Errorf("setsockopt: %w", err)

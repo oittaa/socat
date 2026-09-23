@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 func ancillaryBuffer(buf *[]byte, enabled bool) []byte {
@@ -15,7 +16,7 @@ func ancillaryBuffer(buf *[]byte, enabled bool) []byte {
 		return nil
 	}
 	if *buf == nil {
-		*buf = make([]byte, xio.AncillaryBufferSize)
+		*buf = make([]byte, sockopt.AncillaryBufferSize)
 	}
 	return *buf
 }

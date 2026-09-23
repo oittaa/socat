@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
@@ -209,7 +210,7 @@ func openProxyDial(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 		Wrap: func(c net.Conn) (relay.Stream, error) {
 			if transportLifecycleApplied {
 				stream := relay.NetStream{Conn: c}
-				if err := xio.ApplyStreamLateSocketOptions(s, stream); err != nil {
+				if err := sockopt.ApplyStreamLateSocketOptions(s, stream); err != nil {
 					return nil, err
 				}
 				return xio.WrapStream(s, stream, xio.StreamSocketTimeouts)

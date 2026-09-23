@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -17,11 +17,11 @@ func udpForkUsesPeekDial() bool { return true }
 // child is bound. UDP-RECVFROM remains a consuming, one-shot receive.
 func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte, peek bool) (int, []byte, *udpPeer, error) {
 	if !peek {
-		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
+		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(pc, p, wantCtrl, oobBuffer)
 		return n, oob, udpPeerFromNet(addr), err
 	}
-	if len(oobBuffer) < xio.AncillaryBufferSize && wantCtrl {
-		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	if len(oobBuffer) < sockopt.AncillaryBufferSize && wantCtrl {
+		oobBuffer = make([]byte, sockopt.AncillaryBufferSize)
 	}
 	if !wantCtrl {
 		oobBuffer = nil
@@ -53,12 +53,12 @@ func readUDPForkOpener(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byt
 	if err != nil {
 		return n, nil, nil, err
 	}
-	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
+	return n, sockopt.ControlMessageBytes(oobBuffer, oobn, flags), addr, nil
 }
 
 func readQueuedUDPForkPacket(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer []byte) (int, []byte, *udpPeer, bool, error) {
-	if len(oobBuffer) < xio.AncillaryBufferSize && wantCtrl {
-		oobBuffer = make([]byte, xio.AncillaryBufferSize)
+	if len(oobBuffer) < sockopt.AncillaryBufferSize && wantCtrl {
+		oobBuffer = make([]byte, sockopt.AncillaryBufferSize)
 	}
 	if !wantCtrl {
 		oobBuffer = nil
@@ -92,7 +92,7 @@ func readQueuedUDPForkPacket(pc *net.UDPConn, p []byte, wantCtrl bool, oobBuffer
 	if err != nil {
 		return n, nil, nil, false, err
 	}
-	return n, xio.ControlMessageBytes(oobBuffer, oobn, flags), addr, true, nil
+	return n, sockopt.ControlMessageBytes(oobBuffer, oobn, flags), addr, true, nil
 }
 
 func udpPeerFromSockaddr(sa unix.Sockaddr) (*udpPeer, error) {

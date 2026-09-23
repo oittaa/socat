@@ -18,7 +18,7 @@ const (
 	GroupRawIP     = optionmeta.GroupRawIP
 	GroupUnix      = optionmeta.GroupUnix
 	GroupSocket    = optionmeta.GroupSocket
-	groupProcess   = optionmeta.GroupProcess
+	GroupProcess   = optionmeta.GroupProcess
 	GroupDTLS      = optionmeta.GroupDTLS
 	GroupTLS       = optionmeta.GroupTLS
 	GroupProxy     = optionmeta.GroupProxy
@@ -92,7 +92,7 @@ var defaultGroupOrder = []string{
 	GroupRawIP,
 	GroupUnix,
 	GroupSocket,
-	groupProcess,
+	GroupProcess,
 	GroupTLS,
 	GroupDTLS,
 	GroupProxy,

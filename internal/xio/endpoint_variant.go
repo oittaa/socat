@@ -174,7 +174,7 @@ func NewRepeatedDial(label string, p RepeatedDial) (*Opened, error) {
 
 // newDeferredNoFork returns EXEC/SYSTEM/SHELL,nofork. Run starts the process
 // after the peer stream is open.
-func newDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
+func NewDeferredNoFork(label string, cfg addrconfig.Address) *Opened {
 	return newOpened(label, &deferredNoFork{config: cfg})
 }
 
@@ -335,14 +335,15 @@ func (o *Opened) afterAccept() func(*Global, net.Conn) error {
 	return nil
 }
 
-func (o *Opened) childDone() <-chan struct{} {
+// ChildDone is closed when an EXEC child has exited.
+func (o *Opened) ChildDone() <-chan struct{} {
 	if p := o.ready(); p != nil {
 		return p.childDone
 	}
 	return nil
 }
 
-func (o *Opened) setChildDone(done <-chan struct{}) {
+func (o *Opened) SetChildDone(done <-chan struct{}) {
 	if p := o.ready(); p != nil {
 		p.childDone = done
 	}

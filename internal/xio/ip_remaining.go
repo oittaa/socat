@@ -4,27 +4,12 @@ import (
 	"fmt"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // Linux IPPROTO_RAW. IP4-SENDTO:host:255 uses this protocol;
 // IP_ROUTER_ALERT returns EINVAL there (not a silent no-op).
 const ipprotoRaw = 255
-
-func getOnlyNames(action addrconfig.SocketAction) (spelling, kernel string) {
-	canonical := "ip-mtu"
-	if action.GetOnly == addrconfig.IPGetOnlyPktoptions {
-		canonical = "ip-pktoptions"
-	}
-	spelling = canonical
-	if action.Text != "" {
-		spelling = action.Text
-	}
-	kernel = action.Kernel
-	if kernel == "" {
-		kernel = canonical
-	}
-	return spelling, kernel
-}
 
 func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.SocketAction) error {
 	spelling := action.Text
@@ -38,8 +23,8 @@ func rejectPreparedRouterAlert(config addrconfig.Address, action addrconfig.Sock
 		}
 		return fmt.Errorf("%s: option %q not supported with this address type", typ, spelling)
 	}
-	family := preparedForcedIPFamily(config)
-	if family == ipFamilyV6 {
+	family := sockopt.PreparedForcedIPFamily(config)
+	if family == sockopt.IPFamilyV6 {
 		return fmt.Errorf("%s: option %q not supported on IPv6", config.Type, spelling)
 	}
 	if proto, ok := preparedRawIPProtocolNumber(config); ok && proto == ipprotoRaw {
@@ -67,7 +52,7 @@ func rejectUnsupportedRemainingIPv4(config addrconfig.Address) error {
 	for _, action := range config.Network.Actions {
 		switch action.Kind {
 		case addrconfig.SocketActionGetOnly:
-			spelling, kernel := getOnlyNames(action)
+			spelling, kernel := sockopt.GetOnlyNames(action)
 			typ := config.Type
 			if typ == "" {
 				return fmt.Errorf("%s: %s is get-only; not implemented as a setter", spelling, kernel)

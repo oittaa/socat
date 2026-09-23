@@ -3,8 +3,10 @@ package xio
 import (
 	"context"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 )
@@ -27,14 +29,14 @@ func ListenPacketWithOptions(ctx context.Context, network string, host addrconfi
 		return nil, err
 	}
 	for _, apply := range []func(net.PacketConn, addrconfig.Address) error{
-		applyLateSocketOptionsToPacketConn, applyFDLifecycleToPacketConn,
+		sockopt.ApplyLateSocketOptionsToPacketConn, applyFDLifecycleToPacketConn,
 	} {
 		if err := apply(pc, s); err != nil {
 			logx.CloseQuiet(pc)
 			return nil, err
 		}
 	}
-	if err := applyGenericSetsockoptToPacketConn(pc, s, SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockoptToPacketConn(pc, s, sockopt.SockoptPhaseConnected); err != nil {
 		logx.CloseQuiet(pc)
 		return nil, err
 	}

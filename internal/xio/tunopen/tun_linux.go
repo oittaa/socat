@@ -16,6 +16,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/relay"
@@ -280,11 +281,11 @@ func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 		return nil, fmt.Errorf("socket(AF_PACKET): %w", err)
 	}
 	// Packet sockets are real sockets: apply socket options after socket().
-	if err := xio.ApplySocketOptions(int(fd), s); err != nil {
+	if err := sockopt.ApplySocketOptions(int(fd), s); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("socket options: %w", err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhasePrebind); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}
@@ -304,7 +305,7 @@ func openINTERFACE(ctx context.Context, s addrconfig.Address, mode xio.Mode, g *
 		logx.CloseErr(unix.Close(fd))
 		return nil, fmt.Errorf("bind(AF_PACKET, %s): %w", ifname, err)
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhaseConnected); err != nil {
 		logx.CloseErr(unix.Close(fd))
 		return nil, err
 	}

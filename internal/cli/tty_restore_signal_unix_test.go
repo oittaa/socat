@@ -15,6 +15,7 @@ import (
 
 	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
+	"github.com/oittaa/socat/internal/xio/execopen"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,7 +29,7 @@ func TestSignalExitRestoresTerminal(t *testing.T) {
 
 func assertSignalRestoresTerminal(t *testing.T, sig syscall.Signal) {
 	t.Helper()
-	master, slave, err := xio.OpenPTYPair()
+	master, slave, err := execopen.OpenPTYPair()
 	if err != nil {
 		t.Skipf("pty: %v", err)
 	}

@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"syscall"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -106,7 +108,7 @@ func resolveUDPDatagramRemote(ctx context.Context, s addrconfig.Address, network
 func wrapUDPDatagram(ctx context.Context, s addrconfig.Address, g *xio.Global, c *net.UDPConn, raddr *net.UDPAddr, network string, exactPeer bool) (*xio.Opened, error) {
 	// Late buffers. Send and recv IP/ancillary options were applied
 	// after socket() by ListenControl.
-	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
+	if err := sockopt.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
 	}
@@ -186,8 +188,8 @@ func newUDPDatagramConn(ctx context.Context, c *net.UDPConn, raddr *net.UDPAddr,
 		filter:           filter,
 		g:                g,
 		ctx:              ctx,
-		wantCtrl:         xio.NeedAncillary(s),
-		recvErr:          xio.NeedRecvErr(s),
+		wantCtrl:         sockopt.NeedAncillary(s),
+		recvErr:          sockopt.NeedRecvErr(s),
 		exactPeer:        exactPeer,
 		sourcePortFilter: sourcePortFilter,
 	}, nil
@@ -215,7 +217,7 @@ func logOrStopPeerFilter(ctx context.Context, g *xio.Global, err error) error {
 
 func (u *udpDatagramConn) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.UDPConn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
+		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.UDPConn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			xio.DrainRecvErrOnError(err, u.recvErr, u.UDPConn, u.g)
 			return n, err
@@ -227,7 +229,7 @@ func (u *udpDatagramConn) Read(p []byte) (int, error) {
 			continue
 		}
 		if u.wantCtrl {
-			xio.ProcessAncillary(oob, u.g)
+			sockopt.ProcessAncillary(oob, u.g)
 		}
 		return n, nil
 	}
@@ -401,8 +403,8 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 	// When ancillary options are set, use recvmsg so we can log/set env
 	// before SYSTEM/EXEC children start (UDP*ENV tests).
 	buf := make([]byte, max(g.Options().BlockSize, 65535))
-	wantCtrl := xio.NeedAncillary(s)
-	recvErr := xio.NeedRecvErr(s)
+	wantCtrl := sockopt.NeedAncillary(s)
+	recvErr := sockopt.NeedRecvErr(s)
 	type res struct {
 		n   int
 		a   *net.UDPAddr
@@ -417,11 +419,11 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 		return nil, err
 	}
 	nullEOF := s.Transfer.NullEOF.Value
-	var oobBuffer [xio.AncillaryBufferSize]byte
+	var oobBuffer [sockopt.AncillaryBufferSize]byte
 	for {
 		ch := make(chan res, 1)
 		go func() {
-			nn, oob, a, err := xio.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
+			nn, oob, a, err := sockopt.ReadUDPMsgWithBuffer(pc, buf, wantCtrl, oobBuffer[:])
 			ch <- res{nn, a, oob, err}
 		}()
 		select {
@@ -446,7 +448,7 @@ func openUDPRecvfromOne(ctx context.Context, s addrconfig.Address, g *xio.Global
 			}
 			n, raddr = r.n, r.a
 			// Process before returning so SYSTEM sees SOCAT_* env.
-			xio.ProcessAncillary(r.oob, g)
+			sockopt.ProcessAncillary(r.oob, g)
 		}
 		break
 	}
@@ -484,8 +486,8 @@ func openUDPRecvAll(ctx context.Context, s addrconfig.Address, g *xio.Global, pc
 		filter:   filter,
 		g:        g,
 		ctx:      ctx,
-		wantCtrl: xio.NeedAncillary(s),
-		recvErr:  xio.NeedRecvErr(s),
+		wantCtrl: sockopt.NeedAncillary(s),
+		recvErr:  sockopt.NeedRecvErr(s),
 	})
 	st, err = xio.WrapOpened(s, st)
 	if err != nil {
@@ -509,7 +511,7 @@ type udpFilteredRecv struct {
 
 func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 	for {
-		n, oob, addr, err := xio.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
+		n, oob, addr, err := sockopt.ReadUDPMsgWithBuffer(u.conn, p, u.wantCtrl, ancillaryBuffer(&u.oob, u.wantCtrl))
 		if err != nil {
 			xio.DrainRecvErrOnError(err, u.recvErr, u.conn, u.g)
 			return n, err
@@ -521,7 +523,7 @@ func (u *udpFilteredRecv) Read(p []byte) (int, error) {
 			continue
 		}
 		if u.wantCtrl {
-			xio.ProcessAncillary(oob, u.g)
+			sockopt.ProcessAncillary(oob, u.g)
 		}
 		return n, nil
 	}
@@ -546,7 +548,7 @@ func listenUDP(network string, laddr *net.UDPAddr, s addrconfig.Address) (*net.U
 	c := pc.(*net.UDPConn)
 	// Late buffers. Send and recv IP/ancillary options were applied
 	// after socket() by ListenControl.
-	if err := xio.ApplyUDPConnOpts(c, s, network); err != nil {
+	if err := sockopt.ApplyUDPConnOpts(c, s, network); err != nil {
 		_ = c.Close()
 		return nil, err
 	}

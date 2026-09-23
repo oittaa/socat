@@ -2,10 +2,12 @@ package xio
 
 import (
 	"testing"
+
+	"github.com/oittaa/socat/internal/xio/termios"
 )
 
 func TestTermiosOptionNames(t *testing.T) {
-	names := termiosOptionNames
+	names := termios.TermiosOptionNames
 	have := make(map[string]bool, len(names))
 	for _, name := range names {
 		have[name] = true

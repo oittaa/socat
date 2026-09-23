@@ -18,7 +18,7 @@ func unixSocketpairLogged(g *Global) (a, b *os.File, err error) {
 		g.Log.Infof("Generating socketpair that triggers parent when packet has been consumed")
 		g.Log.Infof("socketpair(1, 1, 0, {%d,%d}) -> 0", fds[0], fds[1])
 	}
-	closeOnExec(fds[0])
-	closeOnExec(fds[1])
+	CloseOnExec(fds[0])
+	CloseOnExec(fds[1])
 	return os.NewFile(uintptr(fds[0]), "sp0"), os.NewFile(uintptr(fds[1]), "sp1"), nil
 }

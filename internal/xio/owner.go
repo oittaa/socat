@@ -209,7 +209,7 @@ func UnlinkRegisteredPaths() {
 	exitHooks = nil
 	unlinkMu.Unlock()
 	for _, entry := range paths {
-		unlinkIfSameFile(entry.path, entry.info)
+		UnlinkIfSameFile(entry.path, entry.info)
 	}
 	for i := len(hooks) - 1; i >= 0; i-- {
 		hooks[i].fn()
@@ -244,7 +244,7 @@ func sameRegisteredFile(original, current os.FileInfo) bool {
 }
 
 // unlinkIfSameFile removes path only when it still names original.
-func unlinkIfSameFile(path string, original os.FileInfo) {
+func UnlinkIfSameFile(path string, original os.FileInfo) {
 	if path == "" || original == nil {
 		return
 	}

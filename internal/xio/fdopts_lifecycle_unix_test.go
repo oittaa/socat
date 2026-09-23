@@ -14,6 +14,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 	"golang.org/x/sys/unix"
 )
 
@@ -303,7 +304,7 @@ func TestApplyUDPConnOptsSetsAppend(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = pc.Close() })
 	spec := mustSpec(t, "UDP-RECV:0,append")
-	if err := ApplyUDPConnOpts(pc, mustDecodeAddress(t, spec), "udp4"); err != nil {
+	if err := sockopt.ApplyUDPConnOpts(pc, mustDecodeAddress(t, spec), "udp4"); err != nil {
 		t.Fatal(err)
 	}
 	if connFcntlFlags(t, pc)&unix.O_APPEND == 0 {

@@ -10,6 +10,7 @@ import (
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio/termios"
 	"golang.org/x/sys/unix"
 )
 
@@ -33,7 +34,7 @@ func TestSignalExitRestoresPTYTermios(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = unix.Close(dupFD) })
 
-	orig, err := getTermios(int(slave.Fd()))
+	orig, err := termios.GetTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +54,7 @@ func TestSignalExitRestoresPTYTermios(t *testing.T) {
 	if err := AttachConfiguredTermios(o, dupFD, config); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := getTermios(int(slave.Fd()))
+	raw, err := termios.GetTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +65,7 @@ func TestSignalExitRestoresPTYTermios(t *testing.T) {
 	// Signal exit does not Close the endpoint.
 	UnlinkRegisteredPaths()
 
-	got, err := getTermios(int(slave.Fd()))
+	got, err := termios.GetTermios(int(slave.Fd()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +87,7 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 		_ = slave.Close()
 	})
 	fd := int(slave.Fd())
-	orig, err := getTermios(fd)
+	orig, err := termios.GetTermios(fd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,18 +109,18 @@ func TestCloseDropsTTYExitHook(t *testing.T) {
 	if got := exitHookCount(); got != before {
 		t.Fatalf("close left the exit hook registered: hooks=%d want %d", got, before)
 	}
-	restored, err := getTermios(fd)
+	restored, err := termios.GetTermios(fd)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !termiosEqual(orig, restored) {
 		t.Fatalf("close did not restore termios\n orig %s\n got  %s", formatTermios(orig), formatTermios(restored))
 	}
-	if err := ApplyConfiguredTermios(fd, config); err != nil {
+	if err := termios.ApplyConfiguredTermios(fd, config); err != nil {
 		t.Fatal(err)
 	}
 	UnlinkRegisteredPaths()
-	got, err := getTermios(fd)
+	got, err := termios.GetTermios(fd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +176,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = unix.Close(dupFD) })
-			orig, err := getTermios(fd)
+			orig, err := termios.GetTermios(fd)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -200,7 +201,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			if err := AttachConfiguredTermios(o, fd, config.Terminal); err != nil {
 				t.Fatal(err)
 			}
-			raw, err := getTermios(dupFD)
+			raw, err := termios.GetTermios(dupFD)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -220,7 +221,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 					t.Fatal(err)
 				}
 				if tc.half == ptyHalfRestores {
-					mid, err := getTermios(dupFD)
+					mid, err := termios.GetTermios(dupFD)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -228,10 +229,10 @@ func TestPTYTermiosScenarios(t *testing.T) {
 						t.Fatalf("half-close left the terminal changed\n orig %s\n got  %s", formatTermios(orig), formatTermios(mid))
 					}
 				} else {
-					if _, err := getTermios(fd); err != nil {
+					if _, err := termios.GetTermios(fd); err != nil {
 						t.Fatalf("half-close closed the terminal: %v", err)
 					}
-					mid, err := getTermios(dupFD)
+					mid, err := termios.GetTermios(dupFD)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -243,7 +244,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			if err := o.Stream().Close(); err != nil {
 				t.Fatal(err)
 			}
-			got, err := getTermios(dupFD)
+			got, err := termios.GetTermios(dupFD)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -252,7 +253,7 @@ func TestPTYTermiosScenarios(t *testing.T) {
 			}
 			// STDIO and end-close leave the descriptor open.
 			if config.Type == "STDIO" || config.Transfer.EndClose.Value {
-				if _, err := getTermios(fd); err != nil {
+				if _, err := termios.GetTermios(fd); err != nil {
 					t.Fatalf("close closed the descriptor: %v", err)
 				}
 			}

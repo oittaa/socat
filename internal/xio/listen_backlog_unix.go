@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // defaultListenBacklog is the Linux/macOS listen queue length when backlog=
@@ -64,7 +65,7 @@ func applyListenBacklog(ln net.Listener, backlog int) error {
 	}
 	var optionErr error
 	controlErr := raw.Control(func(fd uintptr) {
-		optionErr = setListenBacklog(int(fd), backlog)
+		optionErr = sockopt.SetListenBacklog(int(fd), backlog)
 	})
 	return errors.Join(controlErr, optionErr)
 }

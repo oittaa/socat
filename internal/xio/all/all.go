@@ -1,8 +1,9 @@
-// Package all imports every address opener so xio.Register init runs.
+// Package all imports every address opener so registration init runs.
 package all
 
 import (
 	_ "github.com/oittaa/socat/internal/xio/dtlsopen"
+	_ "github.com/oittaa/socat/internal/xio/execopen"
 	_ "github.com/oittaa/socat/internal/xio/fileopen"
 	_ "github.com/oittaa/socat/internal/xio/netopen"
 	_ "github.com/oittaa/socat/internal/xio/posixmqopen"

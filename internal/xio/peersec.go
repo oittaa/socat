@@ -11,6 +11,7 @@ import (
 
 	"github.com/oittaa/socat/internal/addrconfig"
 	"github.com/oittaa/socat/internal/logx"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 // closeRefusedPeer closes a rejected accept without RST when the peer already
@@ -23,7 +24,7 @@ func closeRefusedPeer(c net.Conn) {
 	// Walk nested NetConn wrappers (TLS → socketTimeoutConn → TCPConn)
 	// so the TCP socket is drained. WebSocket connections stay opaque:
 	// wsNetConn does not implement NetConn().
-	raw := unwrapNetConn(c)
+	raw := sockopt.UnwrapNetConn(c)
 	if tc, ok := raw.(*net.TCPConn); ok {
 		_ = tc.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 		_, _ = io.Copy(io.Discard, tc)

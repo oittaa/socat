@@ -52,8 +52,8 @@ var (
 	CapsGOPEN  = capset(capFD, capFIFO, capCHR, capBLK, capREG, capNamed, capOpen, capTermios, capSocket, capSockUNIX)
 	CapsText   = capset(capFD, capFIFO)
 	CapsPTY    = capset(capNamed, capFD, capTermios, capPTY)
-	capsExec   = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent)
-	capsSHELL  = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent, capShell)
+	CapsExec   = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent)
+	CapsSHELL  = capset(capFD, capFork, capExec, capSocket, capSockUNIX, capTermios, capFIFO, capPTY, capParent, capShell)
 
 	CapsTCPConnect  = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capChild, capRetry)
 	CapsTCPListen   = capset(capFD, capSocket, capSockIP4, capSockIP6, capIPTCP, capListen, capChild, capRange, capRetry)

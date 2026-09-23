@@ -8,6 +8,7 @@ import (
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/relay"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 )
 
 func TestSetupStreamRejectsLifecycleWithoutDescriptor(t *testing.T) {
@@ -56,7 +57,7 @@ func TestApplyLateSocketOptionsToPacketConnRejectsNonSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = applyLateSocketOptionsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
+	err = sockopt.ApplyLateSocketOptionsToPacketConn(stubPacketConn{}, mustDecodeAddress(t, spec))
 	if err == nil || !strings.Contains(err.Error(), "does not expose a socket") {
 		t.Fatalf("error=%v want packet connection does not expose a socket", err)
 	}

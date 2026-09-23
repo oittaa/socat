@@ -66,7 +66,7 @@ func parentSignalSyscall(sig addrconfig.ParentSignal) (syscall.Signal, bool) {
 // `sighup` flags occupy two of the four slots. The four-slot limit is per
 // logical session (g's ForkSession copy). Register after Start so pid is
 // known; pid 0 would signal the process group. nofork still Wait()s.
-func registerExecParentSignals(config addrconfig.Address, cmd *exec.Cmd, g *Global) error {
+func RegisterExecParentSignals(config addrconfig.Address, cmd *exec.Cmd, g *Global) error {
 	if len(config.Process.ParentSignals) == 0 {
 		return nil
 	}
@@ -106,7 +106,7 @@ func registerChildSignalOn(g *Global, pid int, sig syscall.Signal) error {
 	return nil
 }
 
-func unregisterChildSignals(pid int) {
+func UnregisterChildSignals(pid int) {
 	if pid <= 0 {
 		return
 	}
@@ -139,6 +139,27 @@ func sessionEmpty(s *childSignalSession) bool {
 		}
 	}
 	return true
+}
+
+// ResetChildSignalPassForTest clears registered child-signal state.
+func ResetChildSignalPassForTest() {
+	childSignalMu.Lock()
+	defer childSignalMu.Unlock()
+	processSession = childSignalSession{}
+	liveSessions = map[*childSignalSession]struct{}{}
+}
+
+// ChildSignalPassStateForTest reports pids registered for sig.
+func ChildSignalPassStateForTest(sig syscall.Signal) (enabled bool, n int, pids []int) {
+	childSignalMu.Lock()
+	defer childSignalMu.Unlock()
+	idx, ok := sigIndex(sig)
+	if !ok {
+		return false, 0, nil
+	}
+	pids = collectPidsLocked(idx)
+	n = len(pids)
+	return n > 0, n, pids
 }
 
 func collectPidsLocked(idx int) []int {

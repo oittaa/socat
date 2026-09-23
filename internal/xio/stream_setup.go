@@ -1,8 +1,10 @@
 package xio
 
 import (
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/relay"
 )
@@ -13,14 +15,14 @@ func ApplyStreamFDOptions(s addrconfig.Address, stream relay.Stream) error {
 	if err := applyFDLifecycleToStream(s, stream, FDSkip{}); err != nil {
 		return err
 	}
-	return ApplyStreamLateSocketOptions(s, stream)
+	return sockopt.ApplyStreamLateSocketOptions(s, stream)
 }
 
 // WrapOpened applies late socket buffers and stream wrappers. The opener
 // must already have applied descriptor lifecycle and connected sockopts
 // (or rejected them).
 func WrapOpened(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	if err := ApplyStreamLateSocketOptions(s, stream); err != nil {
+	if err := sockopt.ApplyStreamLateSocketOptions(s, stream); err != nil {
 		return nil, err
 	}
 	return WrapStream(s, stream, StreamSocketTimeouts)
@@ -29,7 +31,7 @@ func WrapOpened(s addrconfig.Address, stream relay.Stream) (relay.Stream, error)
 // WrapAfterFD finishes connected sockopts and wrapping after the opener
 // applied descriptor lifecycle on the underlying file or connection.
 func WrapAfterFD(s addrconfig.Address, stream relay.Stream) (relay.Stream, error) {
-	if err := applyGenericSetsockoptToStream(s, stream, SockoptPhaseConnected); err != nil {
+	if err := sockopt.ApplyGenericSetsockoptToStream(s, stream, sockopt.SockoptPhaseConnected); err != nil {
 		return nil, err
 	}
 	return WrapOpened(s, stream)
@@ -69,5 +71,5 @@ func ApplyStreamLateOptions(s addrconfig.Address, stream relay.Stream) error {
 	if err := applyFDLifecycleLateToStream(s, stream); err != nil {
 		return err
 	}
-	return ApplyStreamLateSocketOptions(s, stream)
+	return sockopt.ApplyStreamLateSocketOptions(s, stream)
 }

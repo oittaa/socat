@@ -3,8 +3,10 @@ package netopen
 import (
 	"context"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -80,11 +82,11 @@ func openUDPConnectNetwork(ctx context.Context, s addrconfig.Address, _ xio.Mode
 		logx.CloseQuiet(conn)
 		return nil, fmt.Errorf("UDP: unexpected connection type %T", conn)
 	}
-	if err := xio.ApplyUDPConnOpts(udpConn, s, network); err != nil {
+	if err := sockopt.ApplyUDPConnOpts(udpConn, s, network); err != nil {
 		logx.CloseQuiet(conn)
 		return nil, err
 	}
-	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: xio.WrapUDPAncillary(udpConn, s, g)}})
+	st := relay.Stream(udpConnectStream{NetStream: relay.NetStream{Conn: sockopt.WrapUDPAncillary(udpConn, s, g)}})
 	st, err = xio.WrapOpened(s, st)
 	if err != nil {
 		logx.CloseQuiet(conn)

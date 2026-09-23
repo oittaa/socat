@@ -4,13 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"io"
 	"net"
 	"os"
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/xio"
 
@@ -459,9 +461,9 @@ func applyUnixgramSocketOptions(c *net.UnixConn, s addrconfig.Address) error {
 	controlErr := raw.Control(func(fd uintptr) {
 		// After-socket options (ApplySocketOptions / setsockopt-socket) are applied
 		// after socket() in listen/dial Control or listenUnixgramUnbound.
-		optionErr = xio.ApplyLateSocketOptions(int(fd), s)
+		optionErr = sockopt.ApplyLateSocketOptions(int(fd), s)
 		if optionErr == nil {
-			optionErr = xio.ApplyGenericSetsockopt(int(fd), s, xio.SockoptPhaseConnected)
+			optionErr = sockopt.ApplyGenericSetsockopt(int(fd), s, sockopt.SockoptPhaseConnected)
 		}
 	})
 	if err := errors.Join(controlErr, optionErr); err != nil {

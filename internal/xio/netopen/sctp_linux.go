@@ -6,11 +6,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oittaa/socat/internal/addrconfig"
 	"net"
 	"os"
 	"syscall"
 	"time"
+
+	"github.com/oittaa/socat/internal/addrconfig"
+	"github.com/oittaa/socat/internal/xio/sockopt"
 
 	"github.com/oittaa/socat/internal/logx"
 	"github.com/oittaa/socat/internal/xio"
@@ -65,7 +67,7 @@ func listenSCTP(ctx context.Context, network string, ip net.IP, zone string, por
 		_ = unix.Close(fd)
 		return nil, err
 	}
-	if err := xio.ApplyGenericSetsockopt(fd, s, xio.SockoptPhasePrebind); err != nil {
+	if err := sockopt.ApplyGenericSetsockopt(fd, s, sockopt.SockoptPhasePrebind); err != nil {
 		_ = unix.Close(fd)
 		return nil, err
 	}
