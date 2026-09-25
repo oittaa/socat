@@ -121,7 +121,6 @@ func makeVerifyPeer(roots *x509.CertPool, checkName string) func(rawCerts [][]by
 		if len(leaf.DNSNames) == 0 && len(leaf.IPAddresses) == 0 && cnMatches(leaf, checkName) {
 			return nil
 		}
-		// IP literals must not match any CN.
 		return fmt.Errorf("tls: certificate hostname mismatch (CN=%q name=%q)", leaf.Subject.CommonName, checkName)
 	}
 }
