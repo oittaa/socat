@@ -28,44 +28,75 @@ func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
 	}
 }
 
-// Input that arrives after a session closed belongs to the next session,
-// whether or not Close can interrupt the blocked read.
-func TestSharedKeepsInputForNextSession(t *testing.T) {
-	for name, deadline := range map[string]bool{"deadline": true, "no deadline": false} {
-		t.Run(name, func(t *testing.T) {
-			started, input := make(chan struct{}, 1), make(chan string, 1)
-			read := func(p []byte) (int, error) {
-				select {
-				case started <- struct{}{}:
-				default:
-				}
-				s, ok := <-input
-				if !ok {
-					return 0, io.EOF
-				}
-				return copy(p, s), nil
-			}
-			var inner Stream = readFuncStream(read)
-			if deadline {
-				inner = &recordingDeadlineStream{read: read}
-			}
-			shared := NewShared(inner)
-			first := newSessionWrap(shared)
-			result := make(chan error, 1)
-			go func() { _, err := first.Read(make([]byte, 8)); result <- err }()
-			<-started
-			_ = first.Close()
-			input <- "kept"
-			close(input)
-			if err := <-result; err != io.EOF {
-				t.Fatalf("closed session Read error = %v, want EOF", err)
-			}
-			buf := make([]byte, 8)
-			n, err := newSessionWrap(shared).Read(buf)
-			if err != nil || string(buf[:n]) != "kept" {
-				t.Fatalf("next session Read = %q, %v; want kept", buf[:n], err)
-			}
-		})
+// Input a session read after it closed belongs to the next session.
+func TestSharedKeepsInputReadAfterClose(t *testing.T) {
+	started, input := make(chan struct{}, 1), make(chan string, 1)
+	shared := NewShared(&recordingDeadlineStream{read: gatedRead(started, input)})
+	result := readInSession(shared)
+	<-started
+	_ = result.session.Close()
+	input <- "kept"
+	close(input)
+	if err := <-result.err; err != io.EOF {
+		t.Fatalf("closed session Read error = %v, want EOF", err)
+	}
+	wantNextRead(t, shared, "kept")
+}
+
+// Close releases a session whose read it cannot interrupt. The read's input
+// goes to the next session, which must not start another read meanwhile.
+func TestSharedCarriesUninterruptibleRead(t *testing.T) {
+	started, input := make(chan struct{}, 1), make(chan string, 1)
+	defer close(input)
+	shared := NewShared(readFuncStream(gatedRead(started, input)))
+	result := readInSession(shared)
+	<-started
+	_ = result.session.Close()
+	if err := <-result.err; err != io.EOF {
+		t.Fatalf("closed session Read error = %v, want EOF", err)
+	}
+	input <- "kept"
+	<-shared.background(8)
+	select {
+	case <-shared.background(8):
+	default:
+		t.Fatal("started another read while input was pending")
+	}
+	wantNextRead(t, shared, "kept")
+}
+
+// gatedRead signals started, then returns one string from input per call.
+func gatedRead(started chan<- struct{}, input <-chan string) func([]byte) (int, error) {
+	return func(p []byte) (int, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		s, ok := <-input
+		if !ok {
+			return 0, io.EOF
+		}
+		return copy(p, s), nil
+	}
+}
+
+type sessionRead struct {
+	session *sessionWrap
+	err     chan error
+}
+
+func readInSession(shared *Shared) sessionRead {
+	r := sessionRead{session: newSessionWrap(shared), err: make(chan error, 1)}
+	go func() { _, err := r.session.Read(make([]byte, 8)); r.err <- err }()
+	return r
+}
+
+func wantNextRead(t *testing.T, shared *Shared, want string) {
+	t.Helper()
+	buf := make([]byte, 8)
+	n, err := newSessionWrap(shared).Read(buf)
+	if err != nil || string(buf[:n]) != want {
+		t.Fatalf("next session Read = %q, %v; want %q", buf[:n], err, want)
 	}
 }
 

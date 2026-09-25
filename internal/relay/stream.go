@@ -177,10 +177,16 @@ func (s *Shared) keep(b []byte) {
 }
 
 // background reads without a session so the read can outlive one. It
-// returns a channel closed when that read finishes.
+// returns a channel closed when input is ready for take.
 func (s *Shared) background(size int) <-chan struct{} {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if len(s.pending) > 0 || s.err != nil {
+		// An earlier read finished after the caller's take.
+		ready := make(chan struct{})
+		close(ready)
+		return ready
+	}
 	if s.reading == nil {
 		done := make(chan struct{})
 		s.reading = done
