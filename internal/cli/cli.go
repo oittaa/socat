@@ -334,6 +334,9 @@ func setLingerFlag(cfg *Config, v string) error {
 	if err != nil {
 		return fmt.Errorf("invalid -t value %q: %w", v, err)
 	}
+	if d < 0 {
+		return fmt.Errorf("invalid -t value %q: negative timeout", v)
+	}
 	cfg.Linger = d
 	return nil
 }

@@ -167,17 +167,8 @@ def run_checked(cmd: list[str], *, cwd: Path = ROOT, quiet: bool = False) -> Non
         raise SystemExit(f"command produced no result: {' '.join(cmd)}")
 
 
-def build_go_binary(output: Path, package: str, *, versioned: bool = False) -> None:
-    cmd = ["go", "build"]
-    if versioned:
-        version = run_cmd(
-            ["git", "-C", str(ROOT), "describe", "--tags", "--always", "--dirty"],
-            timeout=5,
-        )
-        if not version or version.startswith("fatal:"):
-            version = os.environ.get("SOCAT_BENCH_GIT_COMMIT", "dev") or "dev"
-        cmd += ["-ldflags", f"-s -w -X github.com/oittaa/socat.Version={version}"]
-    cmd += ["-o", str(output), package]
+def build_go_binary(output: Path, package: str) -> None:
+    cmd = ["go", "build", "-o", str(output), package]
     output.parent.mkdir(parents=True, exist_ok=True)
     run_checked(cmd)
 
@@ -234,7 +225,7 @@ def setup_benchmark(run_dir: Path) -> None:
     configured_socat = os.environ.get("SOCAT_BIN", "").strip()
     socat = Path(configured_socat) if configured_socat else ROOT / executable_name("socat")
     if not env_enabled("SOCAT_BENCH_SKIP_BUILD") and not configured_socat:
-        build_go_binary(socat, "./cmd/socat", versioned=True)
+        build_go_binary(socat, "./cmd/socat")
     if not socat.is_file() or not os.access(socat, os.X_OK):
         raise SystemExit(f"socat not found: {socat}")
 
