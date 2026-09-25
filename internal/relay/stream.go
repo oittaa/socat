@@ -110,9 +110,10 @@ func (s *closeSerialStream) StreamProps() Props {
 // Transfer waits for the copies to finish, and the next wrap drops leftover
 // deadlines at construction.
 type sessionWrap struct {
-	inner Stream
-	done  chan struct{}
-	once  sync.Once
+	inner  Stream
+	shared *Shared // nil unless inner is reused by later sessions
+	done   chan struct{}
+	once   sync.Once
 }
 
 func newSessionWrap(inner Stream) *sessionWrap {
@@ -120,7 +121,81 @@ func newSessionWrap(inner Stream) *sessionWrap {
 	// before this one starts I/O or a caller installs timeout=.
 	setStreamReadDeadline(inner, time.Time{})
 	_ = setStreamWriteDeadline(inner, time.Time{})
-	return &sessionWrap{inner: inner, done: make(chan struct{})}
+	shared, _ := inner.(*Shared)
+	return &sessionWrap{inner: inner, shared: shared, done: make(chan struct{})}
+}
+
+// Shared is a stream reused by serialized sessions. Input that one session
+// read after it closed belongs to the next session, as does a read that
+// Close could not interrupt.
+type Shared struct {
+	Stream
+	mu      sync.Mutex
+	pending []byte
+	err     error
+	reading chan struct{} // closed when the background read finishes
+}
+
+// NewShared wraps a stream that serialized sessions reuse.
+func NewShared(s Stream) *Shared { return &Shared{Stream: s} }
+
+func (s *Shared) UnwrapStream() Stream { return s.Stream }
+
+// take returns input left by an earlier session, if any.
+func (s *Shared) take(p []byte) (int, bool, error) {
+	if s == nil {
+		return 0, false, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.pending) > 0 {
+		n := copy(p, s.pending)
+		s.pending = s.pending[n:]
+		return n, true, nil
+	}
+	if err := s.err; err != nil {
+		s.err = nil
+		return 0, true, err
+	}
+	return 0, false, nil
+}
+
+func (s *Shared) hasPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pending) > 0 || s.err != nil
+}
+
+// keep saves input that a closed session read.
+func (s *Shared) keep(b []byte) {
+	if s == nil || len(b) == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.pending = append(s.pending, b...)
+	s.mu.Unlock()
+}
+
+// background reads without a session so the read can outlive one. It
+// returns a channel closed when that read finishes.
+func (s *Shared) background(size int) <-chan struct{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.reading == nil {
+		done := make(chan struct{})
+		s.reading = done
+		go func() {
+			buf := make([]byte, size)
+			n, err := s.Read(buf)
+			s.mu.Lock()
+			s.pending = append(s.pending, buf[:n]...)
+			s.err = err
+			s.reading = nil
+			s.mu.Unlock()
+			close(done)
+		}()
+	}
+	return s.reading
 }
 
 func (s *sessionWrap) UnwrapStream() Stream { return s.inner }
@@ -154,6 +229,9 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 		if s.closed() {
 			return 0, io.EOF
 		}
+		if n, ok, err := s.shared.take(p); ok {
+			return n, err
+		}
 		if usePoll {
 			err := waitPollRead(fd, 50)
 			if s.closed() {
@@ -165,12 +243,19 @@ func (s *sessionWrap) Read(p []byte) (int, error) {
 				}
 				return 0, err
 			}
-		} else {
-			setStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond))
+		} else if ok, _ := SetStreamReadDeadline(s.inner, time.Now().Add(50*time.Millisecond)); !ok && s.shared != nil {
+			// Close cannot interrupt this read, so it must outlive the session.
+			select {
+			case <-s.shared.background(len(p)):
+				continue
+			case <-s.done:
+				return 0, io.EOF
+			}
 		}
 		nr, err := s.inner.Read(p)
 		if s.closed() {
 			// Leave leftover poke/slice deadlines for the next serialized wrap.
+			s.shared.keep(p[:nr])
 			return 0, io.EOF
 		}
 		if !usePoll {
@@ -303,25 +388,36 @@ func pokeReadDeadline(s Stream) {
 }
 
 func hasSessionWrap(s Stream) bool {
+	return sessionOf(s) != nil
+}
+
+// sharedPending reports input an earlier session left for this one. Polling
+// the descriptor would not see it.
+func sharedPending(s Stream) bool {
+	w := sessionOf(s)
+	return w != nil && w.shared != nil && w.shared.hasPending()
+}
+
+func sessionOf(s Stream) *sessionWrap {
 	cur := s
 	for range 32 {
 		if cur == nil {
-			return false
+			return nil
 		}
-		if _, ok := cur.(*sessionWrap); ok {
-			return true
+		if w, ok := cur.(*sessionWrap); ok {
+			return w
 		}
 		u, ok := cur.(interface{ UnwrapStream() Stream })
 		if !ok {
-			return false
+			return nil
 		}
 		next := u.UnwrapStream()
 		if next == nil || next == cur {
-			return false
+			return nil
 		}
 		cur = next
 	}
-	return false
+	return nil
 }
 
 // StreamReadFD returns the underlying read descriptor, or -1.

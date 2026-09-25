@@ -28,6 +28,47 @@ func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
 	}
 }
 
+// Input that arrives after a session closed belongs to the next session,
+// whether or not Close can interrupt the blocked read.
+func TestSharedKeepsInputForNextSession(t *testing.T) {
+	for name, deadline := range map[string]bool{"deadline": true, "no deadline": false} {
+		t.Run(name, func(t *testing.T) {
+			started, input := make(chan struct{}, 1), make(chan string, 1)
+			read := func(p []byte) (int, error) {
+				select {
+				case started <- struct{}{}:
+				default:
+				}
+				s, ok := <-input
+				if !ok {
+					return 0, io.EOF
+				}
+				return copy(p, s), nil
+			}
+			var inner Stream = readFuncStream(read)
+			if deadline {
+				inner = &recordingDeadlineStream{read: read}
+			}
+			shared := NewShared(inner)
+			first := newSessionWrap(shared)
+			result := make(chan error, 1)
+			go func() { _, err := first.Read(make([]byte, 8)); result <- err }()
+			<-started
+			_ = first.Close()
+			input <- "kept"
+			close(input)
+			if err := <-result; err != io.EOF {
+				t.Fatalf("closed session Read error = %v, want EOF", err)
+			}
+			buf := make([]byte, 8)
+			n, err := newSessionWrap(shared).Read(buf)
+			if err != nil || string(buf[:n]) != "kept" {
+				t.Fatalf("next session Read = %q, %v; want kept", buf[:n], err)
+			}
+		})
+	}
+}
+
 func TestPokeReadDeadlineStopsAtWrappedSession(t *testing.T) {
 	inner := &recordingDeadlineStream{}
 	s := newCloseSerialStream(newSessionWrap(inner))
@@ -95,6 +136,15 @@ func (s *recordingDeadlineStream) SetWriteDeadline(t time.Time) error {
 }
 
 func (s *recordingDeadlineStream) StreamProps() Props { return Inspect(s) }
+
+// readFuncStream has no deadline or descriptor, so Close cannot interrupt it.
+type readFuncStream func([]byte) (int, error)
+
+func (f readFuncStream) Read(p []byte) (int, error) { return f(p) }
+func (readFuncStream) Write(p []byte) (int, error)  { return len(p), nil }
+func (readFuncStream) Close() error                 { return nil }
+func (readFuncStream) ShutdownWrite() error         { return nil }
+func (readFuncStream) StreamProps() Props           { return NoProps() }
 
 type oneShotReader struct {
 	data []byte

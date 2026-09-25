@@ -130,7 +130,7 @@ func runConnectFork(ctx context.Context, lo *Opened, right preparedChannel, rMod
 		defer func() { _ = ro.Close() }()
 		runForkSession(forkSession{
 			ctx: cctx, g: cg, conn: left, other: ro,
-			connIsLeft: true, mode: rMode, parent: lo,
+			mode: rMode, parent: lo,
 		})
 	})
 }
@@ -152,6 +152,7 @@ func runConnectForkWithLeft(ctx context.Context, lo, ro *Opened, g *Global) erro
 	// short deadline and returns immediately; the next wrap, started only after
 	// Transfer returns, clears that leftover.
 	var leftMu sync.Mutex
+	shared := relay.NewShared(lo.EffectiveStream())
 	return runConnectForkLoop(ctx, ro, g, func(cctx context.Context, cg *Global, c net.Conn) {
 		right, err := streamFromDial(ro, c)
 		if err != nil {
@@ -161,8 +162,7 @@ func runConnectForkWithLeft(ctx context.Context, lo, ro *Opened, g *Global) erro
 		leftMu.Lock()
 		defer leftMu.Unlock()
 		runForkSession(forkSession{
-			ctx: cctx, g: cg, conn: right, other: lo,
-			connIsLeft: false, noCloseLeft: true,
+			ctx: cctx, g: cg, conn: right, other: lo, sharedLeft: shared,
 		})
 	})
 }
@@ -329,21 +329,22 @@ func runConnectForkLoop(ctx context.Context, o *Opened, g *Global, child func(co
 // forkSession is one accepted or dialed connection paired with the other
 // address. other may be deferredNoFork.
 type forkSession struct {
-	ctx         context.Context
-	g           *Global
-	conn        relay.Stream
-	other       *Opened
-	connIsLeft  bool
-	mode        Mode
-	parent      *Opened
-	noCloseLeft bool
+	ctx    context.Context
+	g      *Global
+	conn   relay.Stream
+	other  *Opened
+	mode   Mode
+	parent *Opened
+	// sharedLeft is other's stream when serialized sessions reuse it as the
+	// left address. conn is then the right side.
+	sharedLeft *relay.Shared
 }
 
 func (s forkSession) streams() (left, right relay.Stream) {
-	if s.connIsLeft {
-		return s.conn, s.other.EffectiveStream()
+	if s.sharedLeft != nil {
+		return s.sharedLeft, s.conn
 	}
-	return s.other.EffectiveStream(), s.conn
+	return s.conn, s.other.EffectiveStream()
 }
 
 // runForkSession relays one fork child. Open, nofork start, and transfer
@@ -357,7 +358,7 @@ func runForkSession(s forkSession) {
 	if s.g != nil {
 		s.g.beginLogicalSession(left, right)
 	}
-	if s.connIsLeft && s.parent != nil && s.parent.ForkSocketpair() && !relay.ConfigureStreamPair(left, right) {
+	if s.sharedLeft == nil && s.parent != nil && s.parent.ForkSocketpair() && !relay.ConfigureStreamPair(left, right) {
 		rightOpened := s.other
 		runForkBridge(s.ctx, left, s.g, nil, func(sp1 *os.File) {
 			defer func() { _ = rightOpened.Close() }()
@@ -367,7 +368,7 @@ func runForkSession(s forkSession) {
 		return
 	}
 	var err error
-	if s.noCloseLeft {
+	if s.sharedLeft != nil {
 		err = transferStreamsOpts(s.ctx, left, right, s.g, true, false)
 	} else {
 		err = transferStreams(s.ctx, left, right, s.g)
@@ -456,7 +457,7 @@ func runForkListen(ctx context.Context, lo *Opened, right preparedChannel, rMode
 		// Adapters need the original peer's message boundaries.
 		runForkSession(forkSession{
 			ctx: ctx, g: cg, conn: leftStream, other: ro,
-			connIsLeft: true, mode: rMode, parent: lo,
+			mode: rMode, parent: lo,
 		})
 	})
 }
@@ -471,6 +472,7 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 	// immediately; the next wrap, started only after Transfer returns, clears
 	// that leftover. end-close still uses socketpair (not pipes).
 	var leftMu sync.Mutex
+	shared := relay.NewShared(lo.EffectiveStream())
 	stop := context.AfterFunc(ctx, func() {
 		logx.CloseQuiet(ln)
 	})
@@ -487,10 +489,9 @@ func runForkListenRight(ctx context.Context, lo, ro *Opened, g *Global) error {
 			cg.Log.Errorf("wrap accept: %s", err)
 			return
 		}
-		// noCloseLeft: do not close/shutdown shared left between children.
+		// Do not close or shut down the shared left between children.
 		runForkSession(forkSession{
-			ctx: ctx, g: cg, conn: rightStream, other: lo,
-			connIsLeft: false, noCloseLeft: true,
+			ctx: ctx, g: cg, conn: rightStream, other: lo, sharedLeft: shared,
 		})
 	})
 }
