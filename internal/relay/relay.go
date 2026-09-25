@@ -494,7 +494,7 @@ func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirO
 		if err := ctx.Err(); err != nil {
 			return classifyDirError(t.dir, err)
 		}
-		if usePoll {
+		if usePoll && !sharedPending(t.src) {
 			if err := waitReadableAndWritable(ctx, t.srcFD, t.dstFD); err != nil {
 				// macOS socketpair/pipe HUP often arrives without POLLOUT, so
 				// poll returns ErrClosedPipe before Read. That is the same

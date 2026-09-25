@@ -28,6 +28,78 @@ func TestSessionWrapNextSessionClearsLeftoverPoke(t *testing.T) {
 	}
 }
 
+// Input a session read after it closed belongs to the next session.
+func TestSharedKeepsInputReadAfterClose(t *testing.T) {
+	started, input := make(chan struct{}, 1), make(chan string, 1)
+	shared := NewShared(&recordingDeadlineStream{read: gatedRead(started, input)})
+	result := readInSession(shared)
+	<-started
+	_ = result.session.Close()
+	input <- "kept"
+	close(input)
+	if err := <-result.err; err != io.EOF {
+		t.Fatalf("closed session Read error = %v, want EOF", err)
+	}
+	wantNextRead(t, shared, "kept")
+}
+
+// Close releases a session whose read it cannot interrupt. The read's input
+// goes to the next session, which must not start another read meanwhile.
+func TestSharedCarriesUninterruptibleRead(t *testing.T) {
+	started, input := make(chan struct{}, 1), make(chan string, 1)
+	defer close(input)
+	shared := NewShared(readFuncStream(gatedRead(started, input)))
+	result := readInSession(shared)
+	<-started
+	_ = result.session.Close()
+	if err := <-result.err; err != io.EOF {
+		t.Fatalf("closed session Read error = %v, want EOF", err)
+	}
+	input <- "kept"
+	<-shared.background(8)
+	select {
+	case <-shared.background(8):
+	default:
+		t.Fatal("started another read while input was pending")
+	}
+	wantNextRead(t, shared, "kept")
+}
+
+// gatedRead signals started, then returns one string from input per call.
+func gatedRead(started chan<- struct{}, input <-chan string) func([]byte) (int, error) {
+	return func(p []byte) (int, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		s, ok := <-input
+		if !ok {
+			return 0, io.EOF
+		}
+		return copy(p, s), nil
+	}
+}
+
+type sessionRead struct {
+	session *sessionWrap
+	err     chan error
+}
+
+func readInSession(shared *Shared) sessionRead {
+	r := sessionRead{session: newSessionWrap(shared), err: make(chan error, 1)}
+	go func() { _, err := r.session.Read(make([]byte, 8)); r.err <- err }()
+	return r
+}
+
+func wantNextRead(t *testing.T, shared *Shared, want string) {
+	t.Helper()
+	buf := make([]byte, 8)
+	n, err := newSessionWrap(shared).Read(buf)
+	if err != nil || string(buf[:n]) != want {
+		t.Fatalf("next session Read = %q, %v; want %q", buf[:n], err, want)
+	}
+}
+
 func TestPokeReadDeadlineStopsAtWrappedSession(t *testing.T) {
 	inner := &recordingDeadlineStream{}
 	s := newCloseSerialStream(newSessionWrap(inner))
@@ -95,6 +167,15 @@ func (s *recordingDeadlineStream) SetWriteDeadline(t time.Time) error {
 }
 
 func (s *recordingDeadlineStream) StreamProps() Props { return Inspect(s) }
+
+// readFuncStream has no deadline or descriptor, so Close cannot interrupt it.
+type readFuncStream func([]byte) (int, error)
+
+func (f readFuncStream) Read(p []byte) (int, error) { return f(p) }
+func (readFuncStream) Write(p []byte) (int, error)  { return len(p), nil }
+func (readFuncStream) Close() error                 { return nil }
+func (readFuncStream) ShutdownWrite() error         { return nil }
+func (readFuncStream) StreamProps() Props           { return NoProps() }
 
 type oneShotReader struct {
 	data []byte

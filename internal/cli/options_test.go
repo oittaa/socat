@@ -40,7 +40,7 @@ func TestParseDurationRejectsMalformedValues(t *testing.T) {
 }
 
 func TestParseArgsRejectsMalformedTimeouts(t *testing.T) {
-	for _, args := range [][]string{{"-tbanana"}, {"-Tbanana"}} {
+	for _, args := range [][]string{{"-tbanana"}, {"-Tbanana"}, {"-t-1"}} {
 		if _, err := ParseArgs(args); err == nil {
 			t.Fatalf("ParseArgs(%q) succeeded", args)
 		}

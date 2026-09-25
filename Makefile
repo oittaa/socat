@@ -2,10 +2,9 @@
 
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 GOFLAGS ?=
-LDFLAGS ?= -s -w -X github.com/oittaa/socat.Version=$(VERSION)
+LDFLAGS ?= -s -w
 
 # Discover project Go files, excluding third-party and temporary trees.
 GO_SOURCES = find . -type d \( -name .git -o -name testdata \) -prune -o -type f -name '*.go' -print0
