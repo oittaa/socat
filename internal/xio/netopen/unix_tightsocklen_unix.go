@@ -24,11 +24,11 @@ func bindUnixPath(fd int, name string, tight bool) error {
 func unixBindPath(fd int, name string, tight bool) error {
 	sa, n, err := unixRawSockaddr(name, tight)
 	if err != nil {
-		return err
+		return unixOpError("bind", name, err)
 	}
 	_, _, errno := unix.Syscall(unix.SYS_BIND, uintptr(fd), uintptr(unsafe.Pointer(&sa)), uintptr(n)) // #nosec G103 -- bind(2) length is classicUnixSockaddrLen
 	if errno != 0 {
-		return errno
+		return unixOpError("bind", name, errno)
 	}
 	return nil
 }
@@ -290,7 +290,7 @@ func dialUnixSocklen(req dialRequest, path, bindPath string) (net.Conn, error) {
 		if err := unixConnectPath(cctx, fd, path, tight); err != nil {
 			logx.CloseErr(unix.Close(fd))
 			created.unlink()
-			return err
+			return unixOpError("connect", path, err)
 		}
 		nfd, err := dupFD(fd)
 		if err != nil {
