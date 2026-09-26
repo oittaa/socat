@@ -78,5 +78,10 @@ func bindUnixPath(fd int, name string, tight bool) error {
 	if !tight {
 		return fmt.Errorf("unix-tightsocklen=0: not supported on this platform")
 	}
-	return syscall.Bind(syscall.Handle(fd), &syscall.SockaddrUnix{Name: name})
+	// Name the bind path before Dial records the remote address.
+	// Leave Dial's connect OpError unchanged.
+	if err := syscall.Bind(syscall.Handle(fd), &syscall.SockaddrUnix{Name: name}); err != nil {
+		return unixOpError("bind", name, err)
+	}
+	return nil
 }
