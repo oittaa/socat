@@ -7,12 +7,12 @@ import (
 	"errors"
 	"net"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/oittaa/socat/internal/parse"
 	"github.com/oittaa/socat/internal/testutil"
 	"github.com/oittaa/socat/internal/xio"
+	"golang.org/x/sys/windows"
 )
 
 func TestWindowsUnixConnectMissingPathKeepsDialError(t *testing.T) {
@@ -43,7 +43,8 @@ func TestWindowsUnixConnectBindFailureNamesBindPath(t *testing.T) {
 	if !ok || op.Err == nil || !strings.Contains(op.Err.Error(), "bind") || !strings.Contains(op.Err.Error(), bindPath) {
 		t.Fatalf("error=%T %v", err, err)
 	}
-	if !errors.Is(err, syscall.EADDRINUSE) {
-		t.Fatalf("error=%v want EADDRINUSE", err)
+	// syscall.EADDRINUSE is an invented Windows errno. bind returns WSAEADDRINUSE.
+	if !errors.Is(err, windows.WSAEADDRINUSE) {
+		t.Fatalf("error=%v want WSAEADDRINUSE", err)
 	}
 }
