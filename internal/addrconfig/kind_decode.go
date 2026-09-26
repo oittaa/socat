@@ -665,14 +665,18 @@ func assignMode(a *Address, o parse.Option, name string, max uint32) error {
 }
 
 func assignPort(a *Address, o parse.Option, name string) error {
-	port, err := requiredPortTarget(o)
-	if err != nil {
-		return err
-	}
 	if name == "proxyport" {
+		port, err := requiredPortTarget(o)
+		if err != nil {
+			return err
+		}
 		a.Proxy.Port = port
 		a.Proxy.PortSet = true
 		return nil
+	}
+	port, err := requiredNumericPort(o)
+	if err != nil {
+		return err
 	}
 	a.Network.SourcePort = port
 	a.Network.SourcePortSet = true

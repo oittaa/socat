@@ -706,6 +706,18 @@ func requiredPortTarget(o parse.Option) (PortTarget, error) {
 	return port, nil
 }
 
+func requiredNumericPort(o parse.Option) (PortTarget, error) {
+	text, err := requiredString(o)
+	if err != nil {
+		return PortTarget{}, err
+	}
+	n, err := parseNumericPort(text)
+	if err != nil {
+		return PortTarget{}, optionValueError(o, "invalid value", err.Error())
+	}
+	return PortTarget{Number: n, Service: text, Numeric: true}, nil
+}
+
 func portTarget(text string) (PortTarget, error) {
 	if text == "" {
 		return PortTarget{}, nil

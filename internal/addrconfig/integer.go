@@ -33,3 +33,33 @@ func hasGoBasePrefix(value string) bool {
 	return strings.HasPrefix(rest, "0b") || strings.HasPrefix(rest, "0B") ||
 		strings.HasPrefix(rest, "0o") || strings.HasPrefix(rest, "0O")
 }
+
+// parseNumericPort parses a uint16 with base 0, including a leading sign.
+// A service name, overflow, or trailing suffix is an error. A leading minus
+// is in range only for zero.
+func parseNumericPort(text string) (uint16, error) {
+	value := trimStrtoulSpace(text)
+	negative := false
+	if value != "" && (value[0] == '+' || value[0] == '-') {
+		negative = value[0] == '-'
+		value = value[1:]
+	}
+	n, numeric, err := parseDigitStrtoul(value, 16)
+	if err != nil || !numeric || (negative && n != 0) {
+		return 0, fmt.Errorf("invalid port %q", text)
+	}
+	return uint16(n), nil // #nosec G115 -- parseDigitStrtoul bitSize 16 bounds the value
+}
+
+func trimStrtoulSpace(value string) string {
+	i := 0
+	for i < len(value) {
+		switch value[i] {
+		case ' ', '\t', '\n', '\v', '\f', '\r':
+			i++
+		default:
+			return value[i:]
+		}
+	}
+	return ""
+}
