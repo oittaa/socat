@@ -489,6 +489,7 @@ func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirO
 	}
 
 	usePoll := t.dstFD >= 0 && t.srcFD >= 0
+	var dumped uint64
 
 	for {
 		if err := ctx.Err(); err != nil {
@@ -510,9 +511,10 @@ func copyBuffered(ctx context.Context, t dirTask, cfg Config, touch func()) dirO
 			touch()
 			data := buf[:nr]
 			if cfg.Verbose || cfg.Hex {
-				if err := dump(cfg, t.dir.String(), data); err != nil {
+				if err := dump(cfg, t.dir.String(), dumped, data); err != nil {
 					return classifyDirError(t.dir, fmt.Errorf("verbose dump: %w", err))
 				}
+				dumped += uint64(nr)
 			}
 			if t.dir == dirLeftToRight && cfg.RawLeft != nil {
 				if err := writeDump(cfg.RawLeft, data); err != nil {
