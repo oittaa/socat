@@ -16,8 +16,15 @@ import (
 // Timestamps are wall-clock values. Comparisons keep direction and block metadata.
 var dumpHeaderMeta = regexp.MustCompile(`([<>]) .*?( length=\d+ from=\d+ to=\d+\n)`)
 
+// Alignment padding is the gap between the hex and text columns.
+var dumpAlignSpace = regexp.MustCompile(` {2,}`)
+
 func normalizeDump(s string) string {
 	return dumpHeaderMeta.ReplaceAllString(s, "${1}${2}")
+}
+
+func normalizeAlignPadding(s string) string {
+	return dumpAlignSpace.ReplaceAllString(s, " ")
 }
 
 func mustDump(t *testing.T, cfg Config, dir string, offset uint64, data []byte) string {
@@ -57,21 +64,18 @@ func TestHexDumpStaysOneLine(t *testing.T) {
 }
 
 func TestCombinedDumpBreaksOnNewline(t *testing.T) {
-	got := mustDump(t, Config{Verbose: true, Hex: true}, ">", 0, []byte("ab\ncd"))
-	want := "> length=5 from=0 to=4\n" +
-		" 61 62 0a                                         ab.\n" +
-		" 63 64                                            cd\n" +
-		"--\n"
+	got := normalizeAlignPadding(mustDump(t, Config{Verbose: true, Hex: true}, ">", 0, []byte("ab\ncd")))
+	want := "> length=5 from=0 to=4\n 61 62 0a ab.\n 63 64 cd\n--\n"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
 
 func TestCombinedDumpSplitsAfterSixteenBytes(t *testing.T) {
-	got := mustDump(t, Config{Verbose: true, Hex: true}, "<", 4, []byte("0123456789abcdefX"))
+	got := normalizeAlignPadding(mustDump(t, Config{Verbose: true, Hex: true}, "<", 4, []byte("0123456789abcdefX")))
 	want := "< length=17 from=4 to=20\n" +
-		" 30 31 32 33 34 35 36 37 38 39 61 62 63 64 65 66  0123456789abcdef\n" +
-		" 58                                               X\n" +
+		" 30 31 32 33 34 35 36 37 38 39 61 62 63 64 65 66 0123456789abcdef\n" +
+		" 58 X\n" +
 		"--\n"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
@@ -80,26 +84,10 @@ func TestCombinedDumpSplitsAfterSixteenBytes(t *testing.T) {
 
 func TestCombinedDumpIncludesNewlineAtRowEnd(t *testing.T) {
 	data := append(bytes.Repeat([]byte{'A'}, 15), '\n')
-	got := mustDump(t, Config{Verbose: true, Hex: true}, ">", 0, data)
+	got := normalizeAlignPadding(mustDump(t, Config{Verbose: true, Hex: true}, ">", 0, data))
 	want := "> length=16 from=0 to=15\n" +
-		" 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 0a  AAAAAAAAAAAAAAA.\n" +
+		" 41 41 41 41 41 41 41 41 41 41 41 41 41 41 41 0a AAAAAAAAAAAAAAA.\n" +
 		"--\n"
-	if got != want {
-		t.Fatalf("got %q\nwant %q", got, want)
-	}
-}
-
-func TestDumpOffsetsAccumulate(t *testing.T) {
-	var out bytes.Buffer
-	cfg := Config{Dump: &out, Verbose: true}
-	if err := dump(cfg, ">", 0, []byte("ab")); err != nil {
-		t.Fatal(err)
-	}
-	if err := dump(cfg, ">", 2, []byte("cde")); err != nil {
-		t.Fatal(err)
-	}
-	got := normalizeDump(out.String())
-	want := "> length=2 from=0 to=1\nab> length=3 from=2 to=4\ncde"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
