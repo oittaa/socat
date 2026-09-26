@@ -292,6 +292,18 @@ func openUnixDgramClient(req dialRequest, path, bindPath string, emptyIsEOF bool
 	return o, nil
 }
 
+// unixOpError names the failed operation and socket path while preserving err.
+// Abstract names are stored with a leading NUL; show the @ form.
+func unixOpError(op, path string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if path != "" && path[0] == 0 {
+		path = "@" + path[1:]
+	}
+	return fmt.Errorf("%s %s: %w", op, path, err)
+}
+
 // abstract unix (Linux): ABSTRACT-* and @path / \0path forms.
 // Go net uses a leading NUL byte for abstract namespace names.
 func unixAddr(path string) string {
