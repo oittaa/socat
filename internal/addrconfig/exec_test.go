@@ -17,8 +17,20 @@ func TestDecodeEXECArgv(t *testing.T) {
 	}
 
 	mixed := decodeProcess(t, "EXEC:echo  hello\tworld", AddressKindEXEC)
-	if !reflect.DeepEqual(mixed.Process.Argv, []string{"echo", "hello", "world"}) {
-		t.Fatalf("mixed whitespace argv=%q", mixed.Process.Argv)
+	if !reflect.DeepEqual(mixed.Process.Argv, []string{"echo", "hello\tworld"}) {
+		t.Fatalf("tab in argument argv=%q", mixed.Process.Argv)
+	}
+
+	joined := decodeProcess(t, "EXEC:echo\thello", AddressKindEXEC)
+	if !reflect.DeepEqual(joined.Process.Argv, []string{"echo\thello"}) {
+		t.Fatalf("tab separator argv=%q", joined.Process.Argv)
+	}
+}
+
+func TestDecodeEXECSkipsLeadingWhitespace(t *testing.T) {
+	got := decodeProcess(t, "EXEC:\" \techo  hello\"", AddressKindEXEC)
+	if !reflect.DeepEqual(got.Process.Argv, []string{"echo", "hello"}) {
+		t.Fatalf("leading whitespace argv=%q", got.Process.Argv)
 	}
 }
 

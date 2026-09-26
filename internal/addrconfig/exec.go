@@ -12,11 +12,14 @@ func decodeProcessCommand(a *Address) {
 	}
 }
 
-// splitExecArgs splits an EXEC command line: unquoted runs of spaces
-// separate args (no empty args from bare spaces); double-quoted segments
-// keep spaces and may be empty ("" → empty arg); \" inside quotes is a
-// literal quote (so -c 'echo "$1"' works).
+// splitExecArgs splits an EXEC command line. Unquoted spaces separate
+// arguments; tabs and other non-space bytes stay inside an argument.
+// ASCII whitespace before the program name is skipped. Double-quoted
+// segments keep spaces and may be empty ("" → empty arg); \" inside
+// quotes is a literal quote.
 func splitExecArgs(s string) []string {
+	s = s[skipExecProgramSpace(s):]
+
 	var args []string
 	var cur strings.Builder
 	inDouble := false
@@ -48,13 +51,31 @@ func splitExecArgs(s string) []string {
 			sawQuote = true
 			continue // drop delimiter
 		}
-		if !inDouble && (c == ' ' || c == '\t') {
+		if !inDouble && c == ' ' {
 			flush()
-			// collapse consecutive unquoted whitespace
 			continue
 		}
 		cur.WriteByte(c)
 	}
 	flush()
 	return args
+}
+
+// skipExecProgramSpace returns the index after ASCII whitespace that
+// precedes the program name. Later tabs are argument text.
+func skipExecProgramSpace(s string) int {
+	i := 0
+	for i < len(s) && isExecProgramSpace(s[i]) {
+		i++
+	}
+	return i
+}
+
+func isExecProgramSpace(c byte) bool {
+	switch c {
+	case ' ', '\t', '\n', '\v', '\f', '\r':
+		return true
+	default:
+		return false
+	}
 }
