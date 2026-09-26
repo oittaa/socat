@@ -58,6 +58,47 @@ func TestPeerFilterNoOptionsDoesNotAllocate(t *testing.T) {
 	}
 }
 
+func TestPeerFilterSourcePortMatchesNumber(t *testing.T) {
+	spec, err := parse.ParseSpec("TCP-LISTEN:9,sourceport=0x1770")
+	if err != nil {
+		t.Fatal(err)
+	}
+	config, err := addrconfig.Decode(spec, addrconfig.Facts{Type: "TCP-LISTEN", Role: addrconfig.AddressRoleListen})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filter, err := NewPeerFilter(context.Background(), config.Network, nil, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	peer := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 6000}
+	if err := filter.AllowAddr(peer, nil); err != nil {
+		t.Fatal(err)
+	}
+	peer.Port = 80
+	if err := filter.AllowAddr(peer, nil); err == nil {
+		t.Fatal("port 80 must be refused")
+	}
+}
+
+func TestPeerFilterSourcePortIgnoresServiceSpelling(t *testing.T) {
+	filter, err := NewPeerFilter(context.Background(), addrconfig.Network{
+		SourcePortSet: true,
+		SourcePort:    addrconfig.PortTarget{Service: "x11"},
+	}, nil, Options{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := filter.AllowAddr(portStringAddr("127.0.0.1:x11"), nil); err == nil {
+		t.Fatal("service spelling must not match a peer port")
+	}
+}
+
+type portStringAddr string
+
+func (a portStringAddr) Network() string { return "tcp" }
+func (a portStringAddr) String() string  { return string(a) }
+
 func TestPeerFilterRangeAcceptsIPAddr(t *testing.T) {
 	spec, err := parse.ParseSpec("IP4-DATAGRAM:127.0.0.1:254,range=127.0.0.0/8")
 	if err != nil {

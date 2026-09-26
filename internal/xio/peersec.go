@@ -98,7 +98,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 		ctx = context.Background()
 	}
 
-	ip, port, portStr, isIP := peerIPPort(remote)
+	ip, port, isIP := peerIPPort(remote)
 	if !isIP {
 		// Non-IP (e.g. unix) — range/sourceport/lowport do not apply.
 		// Still run tcpwrap if enabled (unlikely for unix).
@@ -118,7 +118,7 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	}
 
 	// On listen, sourceport/sp is a peer filter (not bind).
-	if f.hasSourcePort && !sourcePortMatches(f.sourcePort, port, portStr) {
+	if f.hasSourcePort && !sourcePortMatches(f.sourcePort, port) {
 		return fmt.Errorf("refusing connection from %s, sourceport mismatch", remote)
 	}
 
@@ -137,37 +137,28 @@ func (f *PeerFilter) AllowAddr(remote, local net.Addr) error {
 	return nil
 }
 
-func sourcePortMatches(want addrconfig.PortTarget, port int, portStr string) bool {
-	if want.Numeric {
-		return port == int(want.Number)
-	}
-	if want.Service == "" {
-		return true
-	}
-	if portStr == "" {
-		portStr = strconv.Itoa(port)
-	}
-	return portStr == want.Service
+func sourcePortMatches(want addrconfig.PortTarget, port int) bool {
+	return want.Numeric && port == int(want.Number)
 }
 
-func peerIPPort(addr net.Addr) (net.IP, int, string, bool) {
+func peerIPPort(addr net.Addr) (net.IP, int, bool) {
 	switch a := addr.(type) {
 	case *net.UDPAddr:
-		return a.IP, a.Port, "", true
+		return a.IP, a.Port, true
 	case *net.TCPAddr:
-		return a.IP, a.Port, "", true
+		return a.IP, a.Port, true
 	case *net.IPAddr:
 		if a == nil {
-			return nil, 0, "", false
+			return nil, 0, false
 		}
-		return a.IP, 0, "", true
+		return a.IP, 0, true
 	}
 	host, portStr, err := net.SplitHostPort(addr.String())
 	if err != nil {
-		return nil, 0, "", false
+		return nil, 0, false
 	}
 	port, _ := strconv.Atoi(portStr)
-	return net.ParseIP(StripBrackets(host)), port, portStr, true
+	return net.ParseIP(StripBrackets(host)), port, true
 }
 
 type ipRangeMatcher func(net.IP) bool
